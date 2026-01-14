@@ -2,7 +2,9 @@
 
 Система управління відпустками для університетської кафедри.
 
-## Проект
+## Версія 12.12.2025 - Базовий функціонал
+
+### Проект
 
 **VacationManager** — гібридна екосистема (Desktop + Web) для автоматизації кадрового діловодства кафедри університету.
 
@@ -23,13 +25,37 @@
 - **Document Generation**: docxtpl (Word templates)
 - **Grammar**: pymorphy3 (Ukrainian morphology)
 
+## Реалізовані модулі (v12.12.2025)
+
+### Backend Models
+- `Staff` — модель співробітника з ставкою, типом працевлаштування, балансом відпустки
+- `Document` — модель документа (заяви на відпустку) зі статусами
+- `AnnualSchedule` — запис у річному графіку відпусток
+- `Approvers` — погоджувачі документів
+- `SystemSettings` — key-value налаштування системи
+
+### Backend Services
+- `GrammarService` — морфологічні перетворення української мови (відмінювання ПІБ, посад)
+
+### API Routes
+- `/staff` — CRUD операції над співробітниками
+
+### Desktop Widgets
+- `StatusBadge` — кольоровий індикатор статусу документа
+- `LivePreview` — live preview заяв
+
+### Shared
+- Enums: EmploymentType, WorkBasis, DocumentType, DocumentStatus
+- Validators
+- Exceptions
+
 ## Встановлення
 
 ### Клонування репозиторію
 
 ```bash
 git clone <repository-url>
-cd Вак
+cd VacationManager
 ```
 
 ### Створення віртуального середовища
@@ -101,18 +127,39 @@ pytest --cov=backend --cov=desktop
 ## Структура проекту
 
 ```
-Вак/
+VacationManager/
 ├── backend/            # FastAPI backend
 │   ├── core/          # Config, Database, Logging
 │   ├── models/        # SQLAlchemy ORM models
+│   │   ├── base.py
+│   │   ├── staff.py
+│   │   ├── document.py
+│   │   ├── schedule.py
+│   │   └── settings.py
 │   ├── schemas/       # Pydantic schemas
+│   │   ├── schedule.py
+│   │   └── responses.py
 │   ├── services/      # Business logic
+│   │   └── grammar_service.py
 │   └── api/           # API routes
+│       ├── dependencies.py
+│       └── routes/
+│           ├── staff.py
+│           └── documents.py
 ├── desktop/           # PyQt6 Desktop application
+│   ├── main.py
 │   ├── ui/            # UI components
 │   ├── widgets/       # Custom widgets
+│   │   ├── status_badge.py
+│   │   └── live_preview.py
 │   └── utils/         # Utilities
-├── shared/            # Shared code (enums, validators)
+│       ├── theme.py
+│       └── sync_manager.py
+├── shared/            # Shared code
+│   ├── enums.py
+│   ├── constants.py
+│   ├── exceptions.py
+│   └── validators.py
 ├── templates/         # Word document templates
 ├── tests/             # Unit and integration tests
 └── alembic/           # Database migrations

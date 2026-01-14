@@ -19,8 +19,8 @@ docxtpl>=0.16.0
 python-docx>=1.1.0
 
 # Ukrainian Grammar
-pymorphy3
-pymorphy3-dicts-uk
+pymorphy3>=2.0.0
+pymorphy3-dicts-uk>=3.1.0
 
 # Web Portal
 jinja2>=3.1.0
@@ -32,4 +32,3 @@ pydantic-settings>=2.1.0
 
 # Utilities
 python-dateutil>=2.8.0
-structlog

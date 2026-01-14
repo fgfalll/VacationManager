@@ -13,7 +13,6 @@ from shared.enums import EmploymentType, WorkBasis
 if TYPE_CHECKING:
     from backend.models.document import Document
     from backend.models.schedule import AnnualSchedule
-    from backend.models.staff_history import StaffHistory
 
 
 class Staff(Base, TimestampMixin):
@@ -37,7 +36,7 @@ class Staff(Base, TimestampMixin):
     __tablename__ = "staff"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    pib_nom: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    pib_nom: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
     degree: Mapped[str | None] = mapped_column(String(50))
     rate: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
     position: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -58,12 +57,6 @@ class Staff(Base, TimestampMixin):
         back_populates="staff",
         cascade="all, delete-orphan",
         order_by="AnnualSchedule.planned_start",
-    )
-    history: Mapped[list["StaffHistory"]] = relationship(
-        back_populates="staff",
-        cascade="all, delete-orphan",
-        order_by="desc(StaffHistory.created_at)",
-        foreign_keys="[StaffHistory.staff_id]",
     )
 
     @property

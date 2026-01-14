@@ -63,146 +63,26 @@ class GrammarService:
             >>> grammar.to_genitive("доцент")
             "доцента"
         """
-        # Special handling for common position phrases (both nominative and genitive forms)
-        # If the phrase is already in genitive, return it unchanged
-        phrase_rules = {
-            # Nominative -> Genitive
-            'В.о завідувач кафедри': 'В.о завідувача кафедри',
-            'В.о. завідувач кафедри': 'В.о. завідувача кафедри',
-            'в.о завідувач кафедри': 'в.о завідувача кафедри',
-            'завідувач кафедри': 'завідувача кафедри',
-            'Завідувач кафедри': 'Завідувача кафедри',
-            'професор кафедри': 'професора кафедри',
-            'Професор кафедри': 'Професора кафедри',
-            'доцент кафедри': 'доцента кафедри',
-            'Доцент кафедри': 'Доцента кафедри',
-            # Already genitive - return unchanged
-            'В.о завідувача кафедри': 'В.о завідувача кафедри',
-            'В.о. завідувача кафедри': 'В.о. завідувача кафедри',
-            'завідувача кафедри': 'завідувача кафедри',
-            'Завідувача кафедри': 'Завідувача кафедри',
-            'професора кафедри': 'професора кафедри',
-            'Професора кафедри': 'Професора кафедри',
-            'доцента кафедри': 'доцента кафедри',
-            'Доцента кафедри': 'Доцента кафедри',
-        }
-
-        if text in phrase_rules:
-            return phrase_rules[text]
-
         words = text.split()
         result = []
 
         for word in words:
-            # Special handling for Ukrainian names first
-            genitive = self._inflect_name_genitive(word)
-            result.append(genitive)
+            parsed = self.morph.parse(word)
+            if not parsed:
+                result.append(word)
+                continue
+
+            # Отримуємо найбільш ймовірний варіант
+            best_parse = parsed[0]
+            inflected = best_parse.inflect({"gent"})
+
+            if inflected:
+                result.append(inflected.word.capitalize())
+            else:
+                # Якщо не вдалося відмінювати, залишаємо оригінал
+                result.append(word)
 
         return " ".join(result)
-
-    def _inflect_name_genitive(self, word: str) -> str:
-        """
-        Спеціальна обробка для відмінювання українських імен у родовий відмінок.
-
-        Args:
-            word: Слово у називному відмінку
-
-        Returns:
-            Слово у родовому відмінку
-        """
-        # Слова, які вже в родовому відмінку - не змінюємо
-        genitive_words = {
-            # Department/institution types
-            'кафедри', 'інженерії', 'технологій', 'науки', 'мистецтв',
-            'факультету', 'інституту', 'коледжу', 'академії', 'університету',
-            'управління', 'відділу', 'сектору', 'групи', 'лабораторії',
-            'центру', 'бюро', 'офісу', 'департаменту', 'міністерства',
-            'комітету', 'ради', 'комісії', 'асоціації', 'спілки',
-            # Adjectives (already in genitive)
-            'нафтогазової', 'комп\'ютерних', 'інформаційних', 'програмних',
-            'економічних', 'гуманітарних', 'природничих', 'технічних',
-            'теоретичної', 'прикладної', 'загальної', 'спеціальної',
-            # Position titles in genitive form - don't re-inflect
-            'завідувача', 'професора', 'доцента', 'асистента', 'викладача',
-            'старшого', 'лаборанта', 'ректора', 'декана', 'директора',
-            # Conjunctions and particles - never inflect
-            'та', 'і', 'або', 'й', 'але', 'бо', 'тобто', 'що', 'як',
-        }
-
-        # Якщо слово вже в родовому відмінку або не потребує змін
-        word_lower = word.lower()
-        if word_lower in genitive_words:
-            return word
-
-        # Спеціальні правила для посад (називний → родовий)
-        position_rules = [
-            (r'^завідувач$', 'завідувача'),
-            (r'^Завідувач$', 'Завідувача'),
-            (r'^професор$', 'професора'),
-            (r'^Професор$', 'Професора'),
-            (r'^доцент$', 'доцента'),
-            (r'^Доцент$', 'Доцента'),
-            (r'^асистент$', 'асистента'),
-            (r'^Асистент$', 'Асистента'),
-            (r'^викладач$', 'викладача'),
-            (r'^Викладач$', 'Викладача'),
-            (r'^старший$', 'старшого'),
-            (r'^Старший$', 'Старшого'),
-            (r'^лаборант$', 'лаборанта'),
-            (r'^Лаборант$', 'Лаборанта'),
-            (r'^кафедра$', 'кафедри'),
-            (r'^Кафедра$', 'Кафедри'),
-        ]
-
-        import re
-        for pattern, replacement in position_rules:
-            if re.match(pattern, word):
-                return replacement
-
-        # Спеціальні правила для українських імен (родовий відмінок)
-        name_rules = [
-            # закінчення -ик → -ика (прізвища)
-            (r'^(.*[а-яА-Я])ік$', r'\1ика'),
-            (r'^(.*[а-яА-Я])чук$', r'\1чука'),
-            (r'^(.*[а-яА-Я])енко$', r'\1енка'),
-
-            # чоловічі імена (називний → родовий)
-            (r'^(.*[а-яА-Я])й$', r'\1я'),    # Василь → Василя
-            (r'^(.*[а-яА-Я])ій$', r'\1я'),   # Андрій → Андрія
-
-            # жіночі імена (називний → родовий)
-            (r'^(.*[а-яА-Я])а$', r'\1и'),   # Ганна → Ганни
-
-            # по батькові (patronymics)
-            (r'^(.*[а-яА-Я])ович$', r'\1овича'),  # Іванович → Івановича
-            (r'^(.*[а-яА-Я])евич$', r'\1евича'),  # Петрович → Петровича
-            (r'^(.*[а-яА-Я])івна$', r'\1івни'),   # Іванівна → Іванівни
-            (r'^(.*[а-яА-Я])ївна$', r'\1ївни'),   # Петрівна → Петрівни
-
-            # прізвища на -ський, -цький
-            (r'^(.*[а-яА-Я])ський$', r'\1ського'),
-            (r'^(.*[а-яА-Я])цький$', r'\1цького'),
-
-            # прізвища на -ко
-            (r'^(.*[а-яА-Я])ко$', r'\1ка'),
-        ]
-
-        for pattern, replacement in name_rules:
-            if re.match(pattern, word):
-                return re.sub(pattern, replacement, word)
-
-        # Якщо жодне правило не підійшло, використовуємо pymorphy3
-        parsed = self.morph.parse(word)
-        if not parsed:
-            return word
-
-        best_parse = parsed[0]
-        inflected = best_parse.inflect({"gent"})
-
-        if inflected:
-            return inflected.word.capitalize()
-        else:
-            return word
 
     @lru_cache(maxsize=2048)
     def to_dative(self, text: str) -> str:
@@ -225,67 +105,20 @@ class GrammarService:
         result = []
 
         for word in words:
-            # Special handling for Ukrainian names
-            dative = self._inflect_name_dative(word)
-            result.append(dative)
+            parsed = self.morph.parse(word)
+            if not parsed:
+                result.append(word)
+                continue
+
+            best_parse = parsed[0]
+            inflected = best_parse.inflect({"datv"})
+
+            if inflected:
+                result.append(inflected.word.capitalize())
+            else:
+                result.append(word)
 
         return " ".join(result)
-
-    def _inflect_name_dative(self, word: str) -> str:
-        """
-        Спеціальна обробка для відмінювання українських імен у давальний відмінок.
-
-        Args:
-            word: Слово у називному відмінку
-
-        Returns:
-            Слово у давальному відмінку
-        """
-        # Спеціальні правила для українських імен
-        rules = [
-            # закінчення -ик → -ику (прізвища на -ик, -чук, -енко тощо)
-            (r'^(.*[а-яА-Я])ік$', r'\1ику'),
-            (r'^(.*[а-яА-Я])чук$', r'\1чуку'),
-            (r'^(.*[а-яА-Я])енко$', r'\1енку'),
-
-            # чоловічі імена на -й, -ій (Василь, Андрій, Дмитро)
-            (r'^(.*[а-яА-Я])й$', r'\1ю'),
-            (r'^(.*[а-яА-Я])ій$', r'\1ю'),
-
-            # жіночі імена на -а (Ганна, Олена, Марія)
-            (r'^(.*[а-яА-Я])а$', r'\1і'),
-
-            # по батькові на -ович, -евич, -івна, -ївна
-            (r'^(.*[а-яА-Я])ович$', r'\1овичу'),
-            (r'^(.*[а-яА-Я])евич$', r'\1евичу'),
-            (r'^(.*[а-яА-Я])івна$', r'\1івні'),
-            (r'^(.*[а-яА-Я])ївна$', r'\1ївні'),
-
-            # прізвища на -ський, -цький
-            (r'^(.*[а-яА-Я])ський$', r'\1ському'),
-            (r'^(.*[а-яА-Я])цький$', r'\1цькому'),
-
-            # прізвища на -ко (Петренко, Shevchenko)
-            (r'^(.*[а-яА-Я])ко$', r'\1ку'),
-        ]
-
-        import re
-        for pattern, replacement in rules:
-            if re.match(pattern, word):
-                return re.sub(pattern, replacement, word)
-
-        # Якщо жодне правило не підійшло, використовуємо pymorphy3
-        parsed = self.morph.parse(word)
-        if not parsed:
-            return word
-
-        best_parse = parsed[0]
-        inflected = best_parse.inflect({"datv"})
-
-        if inflected:
-            return inflected.word.capitalize()
-        else:
-            return word
 
     @lru_cache(maxsize=1024)
     def format_for_document(self, full_name: str, doc_type: DocumentType) -> str:

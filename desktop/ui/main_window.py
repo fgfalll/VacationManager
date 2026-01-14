@@ -48,18 +48,24 @@ class MainWindow(QMainWindow):
         self.schedule_tab = ScheduleTab()
         self.builder_tab = BuilderTab()
 
-        self.tabs.addTab(self.staff_tab, "Персонал")
-        self.tabs.addTab(self.schedule_tab, "Графік відпусток")
-        self.tabs.addTab(self.builder_tab, "Конструктор заяв")
+        self.tabs.addTab(self.staff_tab, "👥 Персонал")
+        self.tabs.addTab(self.schedule_tab, "📅 Графік відпусток")
+        self.tabs.addTab(self.builder_tab, "📝 Конструктор заяв")
 
         # Меню
         menubar = self.menuBar()
 
         # Файл
         file_menu = menubar.addMenu("Файл")
-        file_menu.addAction("Налаштування", self._open_settings)
-        file_menu.addSeparator()
         file_menu.addAction("Вихід", self.close)
+
+        # Налаштування
+        settings_menu = menubar.addMenu("⚙️ Налаштування")
+        settings_menu.addAction("Налаштування системи", self._open_settings)
+        settings_menu.addAction("Ректор та університет", lambda: self._open_settings("institution"))
+        settings_menu.addAction("Кафедра та відділ", lambda: self._open_settings("department"))
+        settings_menu.addAction("Погоджувачі", lambda: self._open_settings("approvers"))
+        settings_menu.addAction("Форматування", lambda: self._open_settings("formatting"))
 
         # Синхронізація
         sync_menu = menubar.addMenu("Синхронізація")

@@ -16,8 +16,7 @@ class Approvers(Base):
     Attributes:
         id: Унікальний ідентифікатор
         position_name: Назва посади
-        full_name_dav: ПІБ у давальному відмінку (для шапки)
-        full_name_nom: ПІБ у називному відмінку (для підпису)
+        full_name_dav: ПІБ у давальному відмінку
         order_index: Порядок в документі
     """
 
@@ -26,8 +25,7 @@ class Approvers(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     position_name: Mapped[str] = mapped_column(String(200), nullable=False)
     full_name_dav: Mapped[str] = mapped_column(String(200), nullable=False)
-    full_name_nom: Mapped[str] = mapped_column(String(200), nullable=True)  # Optional for backwards compatibility
-    order_index: Mapped[int] = mapped_column(default=1, nullable=False)
+    order_index: Mapped[int] = mapped_column(default=0, nullable=False)
 
     def __repr__(self) -> str:
         return f"<Approvers {self.id}: {self.position_name} - {self.full_name_dav}>"

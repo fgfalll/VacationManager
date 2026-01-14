@@ -240,16 +240,6 @@
             </button>
         </div>
 
-        <!-- Signatories management -->
-        <div class="toolbar-group">
-            <button class="toolbar-btn" id="addSignatoryBtn" title="Додати погоджувача">
-                + Погоджувач
-            </button>
-            <button class="toolbar-btn" id="removeSignatoryBtn" title="Видалити останнього погоджувача">
-                - Погоджувач
-            </button>
-        </div>
-
         <!-- Export -->
         <div class="toolbar-group" style="border-right: none;">
             <button class="toolbar-btn" id="exportBtn" style="background: #10B981; color: white;">
@@ -258,13 +248,124 @@
         </div>
     </div>
 
-
     <!-- Document container -->
     <div class="document" id="document">
-        {{ document_content|safe }}
+        {% if doc_type == 'VACATION_PAID' or doc_type == 'VACATION_UNPAID' %}
+            {% call vacancy_template(
+                staff_name, staff_position, date_start, date_end,
+                days_count, payment_period, doc_type, custom_text,
+                rector_name, dept_name, show_dept_head, dept_head_name, dept_head_position
+            ) %}
+            {% endcall %}
+        {% elif doc_type == 'TERM_EXTENSION' %}
+            {% call extension_template(
+                staff_name, staff_position, date_start, date_end,
+                custom_text, rector_name, dept_name
+            ) %}
+            {% endcall %}
+        {% endif %}
     </div>
+
+    {% macro vacancy_template(name, position, start, end, days, payment, doc_type, custom_text, rector, dept, show_dept, dept_head_name, dept_head_position) %}
+        <!-- Header block - editable -->
+        <div class="header" contenteditable="true" data-block="header">
+            <p>Ректору<br>
+            {{ rector or '[ІМ\'Я РЕКТОРА]' }}<br><br>
+            {{ dept or '[НАЗВА КАФЕДРИ/ІНСТИТУТУ]' }}</p>
+        </div>
+
+        <!-- Title block - editable -->
+        <div class="title" contenteditable="true" data-block="title">
+            Заява
+        </div>
+
+        <!-- Main content block - editable -->
+        <div class="content" contenteditable="true" data-block="content">
+            Прошу Вас звільнити мене від виконання посадових обов'язків
+            у період з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
+            по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>
+            включно (<span class="auto-field" contenteditable="false" data-field="days_count">{{ days or '0' }}</span> днів)
+            та надати мені відпустку
+            {% if doc_type == 'VACATION_PAID' %}
+            з наступною оплатою <span class="auto-field" contenteditable="false" data-field="payment_period">{{ payment or '[першій/другій половині місяця]' }}</span>.
+            {% else %}
+            без збереження заробітної плати.
+            {% endif %}
+        </div>
+
+        <!-- Custom text block - editable -->
+        {% if custom_text %}
+        <div class="content" contenteditable="true" data-block="custom_text">
+            {{ custom_text }}
+        </div>
+        {% endif %}
+
+        <!-- Signature block - editable -->
+        <div class="signature-block" contenteditable="true" data-block="signature">
+            <div class="content" style="text-indent: 0; margin-top: 40px;">
+                «____» ____________ 202__ р.
+            </div>
+
+            <div class="signature-row">
+                <div class="signature-left">
+                    <div class="signature-label" data-field="position">{{ position or '[Посада]' }}</div>
+                    <div class="signature-label">_____________________ / <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span> /</div>
+                </div>
+                {% if show_dept %}
+                <div class="signature-right">
+                    <div class="signature-label" data-field="dept_head_position">{{ dept_head_position or '[Посада завідувача]' }}</div>
+                    <div class="signature-label">_____________________ / <span data-field="dept_head_name">{{ dept_head_name or '[ПІБ завідувача]' }}</span> /</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endmacro %}
+
+    {% macro extension_template(name, position, start, end, custom_text, rector, dept) %}
+        <!-- Header block -->
+        <div class="header" contenteditable="true" data-block="header">
+            <p>Ректору<br>
+            {{ rector or '[ІМ\'Я РЕКТОРА]' }}<br><br>
+            {{ dept or '[НАЗВА КАФЕДРИ/ІНСТИТУТУ]' }}</p>
+        </div>
+
+        <!-- Title block -->
+        <div class="title" contenteditable="true" data-block="title">
+            Заява
+        </div>
+
+        <!-- Main content block -->
+        <div class="content" contenteditable="true" data-block="content">
+            Прошу Вас продовжити мені термін дії контракту
+            з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
+            по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>
+            у зв'язку з необхідністю завершення науково-дослідної роботи.
+        </div>
+
+        <!-- Custom text block -->
+        {% if custom_text %}
+        <div class="content" contenteditable="true" data-block="custom_text">
+            {{ custom_text }}
+        </div>
+        {% endif %}
+
+        <!-- Signature block -->
+        <div class="signature-block" contenteditable="true" data-block="signature">
+            <div class="content" style="text-indent: 0; margin-top: 40px;">
+                «____» ____________ 202__ р.
+            </div>
+
+            <div class="signature-row">
+                <div class="signature-left">
+                    <div class="signature-label" data-field="position">{{ position or '[Посада]' }}</div>
+                    <div class="signature-label">_____________________ / <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span> /</div>
+                </div>
+            </div>
+        </div>
+    {% endmacro %}
+
     <script>
-// ========== WYSIWYG Editor JavaScript ==========
+        // ========== WYSIWYG Editor JavaScript ==========
 
         // Editor state
         const editorState = {
@@ -485,10 +586,6 @@
         // Set document status (for display)
         function setDocumentStatus(status, statusText) {
             const statusEl = document.getElementById('status');
-            if (!statusEl) {
-                console.warn('Status element not found');
-                return;
-            }
             statusEl.className = 'status ' + status;
 
             // Update status text mapping
@@ -508,149 +605,11 @@
             });
 
             // Hide toolbar if not editable
-            const toolbar = document.querySelector('.toolbar');
-            if (toolbar) {
-                toolbar.style.display = isEditable ? 'flex' : 'none';
-            }
-        }
-
-        // ========== Signatories Management ==========
-
-        let signatoryCounter = 0;
-
-        // Add signatory button handler
-        document.addEventListener('DOMContentLoaded', () => {
-            const addBtn = document.getElementById('addSignatoryBtn');
-            const removeBtn = document.getElementById('removeSignatoryBtn');
-
-            if (addBtn) {
-                addBtn.addEventListener('click', addSignatory);
-            }
-            if (removeBtn) {
-                removeBtn.addEventListener('click', removeSignatory);
-            }
-        });
-
-        // Add new signatory
-        function addSignatory() {
-            const signatoriesList = document.getElementById('signatories-list');
-            if (!signatoriesList) return;
-
-            signatoryCounter++;
-            const newId = signatoryCounter;
-
-            const newRow = document.createElement('div');
-            newRow.className = 'signatory-row';
-            newRow.dataset.signatoryId = newId;
-            newRow.style.marginTop = '30px';
-
-            // Create spacing with 100 non-breaking spaces
-            let spacing = '';
-            for (let i = 0; i < 100; i++) {
-                spacing += '&nbsp;';
-            }
-
-            newRow.innerHTML = `
-                <span contenteditable="true" data-field="signatory_${newId}_position">[Посада]</span>
-                <span style="display: inline-block; min-width: 250px; text-align: left;">${spacing}</span>
-                <span contenteditable="true" data-field="signatory_${newId}_name">[ПІБ]</span>
-            `;
-
-            signatoriesList.appendChild(newRow);
-            markAsModified();
-
-            // Notify Python about the change
-            notifySignatoriesChanged();
-        }
-
-        // Remove last signatory
-        function removeSignatory() {
-            const signatoriesList = document.getElementById('signatories-list');
-            if (!signatoriesList) return;
-
-            const rows = signatoriesList.querySelectorAll('.signatory-row');
-            if (rows.length === 0) return;
-
-            const lastRow = rows[rows.length - 1];
-            lastRow.remove();
-            markAsModified();
-
-            // Notify Python about the change
-            notifySignatoriesChanged();
-        }
-
-        // Get current signatories data
-        function getSignatoriesData() {
-            const signatoriesList = document.getElementById('signatories-list');
-            if (!signatoriesList) return [];
-
-            const rows = signatoriesList.querySelectorAll('.signatory-row');
-            const signatories = [];
-
-            rows.forEach(row => {
-                const id = row.dataset.signatoryId;
-                const positionEl = row.querySelector(`[data-field="signatory_${id}_position"]`);
-                const nameEl = row.querySelector(`[data-field="signatory_${id}_name"]`);
-
-                if (positionEl && nameEl) {
-                    signatories.push({
-                        id: id,
-                        position: positionEl.textContent.trim(),
-                        name: nameEl.textContent.trim()
-                    });
-                }
-            });
-
-            return signatories;
-        }
-
-        // Notify Python backend about signatories change
-        function notifySignatoriesChanged() {
-            const signatories = getSignatoriesData();
-
-            if (window.pybridge) {
-                window.pybridge.on_signatories_changed(JSON.stringify(signatories));
-            }
-        }
-
-        // Update signatories from Python
-        function updateSignatories(signatoriesData) {
-            const signatoriesList = document.getElementById('signatories-list');
-            if (!signatoriesList) return;
-
-            // Clear existing
-            signatoriesList.innerHTML = '';
-
-            // Create spacing string once
-            let spacing = '';
-            for (let i = 0; i < 100; i++) {
-                spacing += '&nbsp;';
-            }
-
-            // Add new signatories
-            signatoriesData.forEach((signatory, index) => {
-                const id = index + 1;
-                const newRow = document.createElement('div');
-                newRow.className = 'signatory-row';
-                newRow.dataset.signatoryId = id;
-                newRow.style.marginTop = '30px';
-
-                let html = `<span contenteditable="true" data-field="signatory_${id}_position">${signatory.position || '[Посада]'}</span>`;
-                if (signatory.position_multiline) {
-                    html += `<br>${signatory.position_multiline}`;
-                }
-                html += `<span style="display: inline-block; min-width: 250px; text-align: left;">${spacing}</span>`;
-                html += `<span contenteditable="true" data-field="signatory_${id}_name">${signatory.name || '[ПІБ]'}</span>`;
-
-                newRow.innerHTML = html;
-                signatoriesList.appendChild(newRow);
-
-                // Update counter
-                signatoryCounter = Math.max(signatoryCounter, id);
-            });
+            document.querySelector('.toolbar').style.display = isEditable ? 'flex' : 'none';
         }
 
         // Log for debugging
         console.log('WYSIWYG Editor initialized');
-    
     </script>
+</body>
+</html>

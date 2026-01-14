@@ -49,7 +49,7 @@ class SettingsDialog(QDialog):
 
     def _setup_ui(self):
         """Налаштовує інтерфейс."""
-        self.setWindowTitle("Налаштування системи - VacationManager")
+        self.setWindowTitle("⚙️ Налаштування системи - VacationManager")
         self.setMinimumSize(900, 650)
 
         layout = QVBoxLayout(self)
@@ -60,19 +60,19 @@ class SettingsDialog(QDialog):
 
         # Вкладка "Установа"
         institution_tab = self._create_institution_tab()
-        self.tabs.addTab(institution_tab, "Установа")
+        self.tabs.addTab(institution_tab, "🏛 Установа")
 
         # Вкладка "Підрозділ"
         department_tab = self._create_department_tab()
-        self.tabs.addTab(department_tab, "Підрозділ")
+        self.tabs.addTab(department_tab, "🏢 Підрозділ")
 
         # Вкладка "Погоджувачі"
         approvers_tab = self._create_approvers_tab()
-        self.tabs.addTab(approvers_tab, "Погоджувачі")
+        self.tabs.addTab(approvers_tab, "✍️ Погоджувачі")
 
         # Вкладка "Форматування"
         formatting_tab = self._create_formatting_tab()
-        self.tabs.addTab(formatting_tab, "Форматування")
+        self.tabs.addTab(formatting_tab, "📐 Форматування")
 
         # Кнопки збереження
         buttons = QDialogButtonBox(
@@ -176,41 +176,39 @@ class SettingsDialog(QDialog):
         )
         dept_layout.addRow("Назва:", self.dept_name_input)
 
-        self.dept_abbr_input = QLineEdit()
-        self.dept_abbr_input.setPlaceholderText(
-            "Скорочена назва для документів\n"
-            "Наприклад: НГІТ, КММЛ"
-        )
-        dept_layout.addRow("Скорочення:", self.dept_abbr_input)
-
         dept_group.setLayout(dept_layout)
         layout.addWidget(dept_group)
 
         # Група "Завідувач кафедри"
-        head_group = QGroupBox("Завідувач кафедри")
+        head_group = QGroupBox("👤 Завідувач кафедри")
         head_layout = QFormLayout()
 
         self.dept_head_input = QComboBox()
         self.dept_head_input.setEditable(True)
         head_layout.addRow("Завідувач:", self.dept_head_input)
 
+        self.dept_head_is_acting_cb = QCheckBox(
+            "Виконуючий обов'язки завідувача (в.о.)"
+        )
+        head_layout.addRow("", self.dept_head_is_acting_cb)
+
         head_group.setLayout(head_layout)
         layout.addWidget(head_group)
 
-        # Група "Фахівець"
-        specialist_group = QGroupBox("Фахівець кафедри")
-        specialist_layout = QFormLayout()
+        # Група "Секретар"
+        secretary_group = QGroupBox("📋 Секретар кафедри")
+        secretary_layout = QFormLayout()
 
-        self.dept_specialist_input = QComboBox()
-        self.dept_specialist_input.setEditable(True)
-        specialist_layout.addRow("Фахівець:", self.dept_specialist_input)
+        self.dept_secretary_input = QComboBox()
+        self.dept_secretary_input.setEditable(True)
+        secretary_layout.addRow("Секретар:", self.dept_secretary_input)
 
-        specialist_group.setLayout(specialist_layout)
-        layout.addWidget(specialist_group)
+        secretary_group.setLayout(secretary_layout)
+        layout.addWidget(secretary_group)
 
         # Підказка
         help_label = QLabel(
-            "Завідувач кафедри та фахівець обираються зі списку співробітників. "
+            "💡 Завідувач кафедри та секретар обираються зі списку співробітників. "
             "Можна ввести ПІБ вручну, якщо співробітника немає в базі."
         )
         help_label.setWordWrap(True)
@@ -376,9 +374,6 @@ class SettingsDialog(QDialog):
             self.dept_name_input.setText(
                 SystemSettings.get_value(db, "dept_name", "")
             )
-            self.dept_abbr_input.setText(
-                SystemSettings.get_value(db, "dept_abbr", "")
-            )
 
             # Завантажуємо список співробітників для випадаючих списків
             self._load_staff_for_combos(db)
@@ -390,12 +385,16 @@ class SettingsDialog(QDialog):
                 if index >= 0:
                     self.dept_head_input.setCurrentIndex(index)
 
-            # Встановлюємо фахівця
-            specialist_id = SystemSettings.get_value(db, "dept_specialist_id", None)
-            if specialist_id:
-                index = self.dept_specialist_input.findData(specialist_id)
+            # Встановлюємо секретаря
+            secretary_id = SystemSettings.get_value(db, "dept_secretary_id", None)
+            if secretary_id:
+                index = self.dept_secretary_input.findData(secretary_id)
                 if index >= 0:
-                    self.dept_specialist_input.setCurrentIndex(index)
+                    self.dept_secretary_input.setCurrentIndex(index)
+
+            # В.о. завідувача
+            is_acting = SystemSettings.get_value(db, "dept_head_is_acting", False)
+            self.dept_head_is_acting_cb.setChecked(is_acting)
 
             # Погогоджувачі
             self._load_approvers(db)
@@ -415,38 +414,25 @@ class SettingsDialog(QDialog):
 
     def _load_staff_for_combos(self, db):
         """Завантажує співробітників у випадаючі списки."""
-        # Тільки завідувачі для завідувача кафедри
-        head_list = (
+        staff_list = (
             db.query(Staff)
             .filter(Staff.is_active == True)
-            .filter(Staff.position.in_(["Завідувач кафедри", "В.о завідувача кафедри"]))
-            .order_by(Staff.pib_nom)
-            .all()
-        )
-
-        # Тільки фахівці для фахівця кафедри
-        specialist_list = (
-            db.query(Staff)
-            .filter(Staff.is_active == True, Staff.position == "фахівець")
             .order_by(Staff.pib_nom)
             .all()
         )
 
         # Зберігаємо поточні значення
         current_head = self.dept_head_input.currentText()
-        current_specialist = self.dept_specialist_input.currentText()
+        current_secretary = self.dept_secretary_input.currentText()
 
         # Очищаємо та заповнюємо
         self.dept_head_input.clear()
-        self.dept_specialist_input.clear()
+        self.dept_secretary_input.clear()
 
-        for staff in head_list:
+        for staff in staff_list:
             # Додаємо з ID як data
             self.dept_head_input.addItem(staff.pib_nom, staff.id)
-
-        for staff in specialist_list:
-            # Додаємо з ID як data
-            self.dept_specialist_input.addItem(staff.pib_nom, staff.id)
+            self.dept_secretary_input.addItem(staff.pib_nom, staff.id)
 
         # Відновлюємо значення, якщо є
         if current_head:
@@ -454,10 +440,10 @@ class SettingsDialog(QDialog):
             if index >= 0:
                 self.dept_head_input.setCurrentIndex(index)
 
-        if current_specialist:
-            index = self.dept_specialist_input.findText(current_specialist)
+        if current_secretary:
+            index = self.dept_secretary_input.findText(current_secretary)
             if index >= 0:
-                self.dept_specialist_input.setCurrentIndex(index)
+                self.dept_secretary_input.setCurrentIndex(index)
 
     def _load_approvers(self, db):
         """Завантажує список погоджувачів."""
@@ -470,9 +456,8 @@ class SettingsDialog(QDialog):
         )
 
         for approver in approvers:
-            display_name = approver.full_name_nom or approver.full_name_dav
             item = QListWidgetItem(
-                f"{approver.order_index}. {approver.position_name} - {display_name}"
+                f"{approver.order_index + 1}. {approver.position_name} - {approver.full_name_dav}"
             )
             item.setData(Qt.ItemDataRole.UserRole, approver.id)
             self.approvers_list.addItem(item)
@@ -485,7 +470,6 @@ class SettingsDialog(QDialog):
                 approver = Approvers(
                     position_name=dialog.position_input.text(),
                     full_name_dav=dialog.name_input.text(),
-                    full_name_nom=dialog.name_nom_input.text() or None,
                     order_index=dialog.order_input.value(),
                 )
                 db.add(approver)
@@ -510,7 +494,6 @@ class SettingsDialog(QDialog):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 approver.position_name = dialog.position_input.text()
                 approver.full_name_dav = dialog.name_input.text()
-                approver.full_name_nom = dialog.name_nom_input.text() or None
                 approver.order_index = dialog.order_input.value()
                 db.commit()
 
@@ -566,16 +549,17 @@ class SettingsDialog(QDialog):
                 db, "dept_name",
                 self.dept_name_input.text().strip()
             )
-            SystemSettings.set_value(
-                db, "dept_abbr",
-                self.dept_abbr_input.text().strip()
-            )
 
             dept_head_id = self.dept_head_input.currentData()
             SystemSettings.set_value(db, "dept_head_id", dept_head_id)
 
-            specialist_id = self.dept_specialist_input.currentData()
-            SystemSettings.set_value(db, "dept_specialist_id", specialist_id)
+            secretary_id = self.dept_secretary_input.currentData()
+            SystemSettings.set_value(db, "dept_secretary_id", secretary_id)
+
+            SystemSettings.set_value(
+                db, "dept_head_is_acting",
+                self.dept_head_is_acting_cb.isChecked()
+            )
 
             # Форматування
             name_order = "first_last" if self.name_order_input.currentIndex() == 0 else "last_first"
@@ -622,7 +606,7 @@ class ApproverDialog(QDialog):
         self.setWindowTitle(
             "Редагування погоджувача" if self.approver else "Новий погоджувач"
         )
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(400)
 
         layout = QVBoxLayout(self)
 
@@ -633,43 +617,26 @@ class ApproverDialog(QDialog):
         self.position_input.setPlaceholderText("Наприклад: директора ННІ")
         form_layout.addRow("Посада (називний):", self.position_input)
 
-        # Назви ПІБ з кнопкою автогенерації
-        name_layout = QHBoxLayout()
-        self.name_nom_input = QLineEdit()
-        self.name_nom_input.setPlaceholderText(
-            "ПІБ у називному відмінку\nНаприклад: Савик Василь Миколайович"
-        )
-        name_layout.addWidget(self.name_nom_input)
-
-        auto_btn = QPushButton("🔄")
-        auto_btn.setMaximumWidth(40)
-        auto_btn.setToolTip("Автоматично перетворити у давальний відмінок")
-        auto_btn.clicked.connect(self._auto_generate_dative)
-        name_layout.addWidget(auto_btn)
-
-        form_layout.addRow("ПІБ (називний - хто?):", name_layout)
-
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText(
-            "ПІБ у давальному відмінку\nНаприклад: Савику Василю Миколайовичу"
+            "ПІБ у давальному відмінку\nНаприклад: Іванову І.І."
         )
-        form_layout.addRow("ПІБ (давальний - кому?):", self.name_input)
+        form_layout.addRow("ПІБ (давальний):", self.name_input)
 
         self.order_input = QSpinBox()
-        self.order_input.setRange(1, 100)
-        self.order_input.setValue(1)
+        self.order_input.setRange(0, 100)
+        self.order_input.setValue(0)
         form_layout.addRow("Порядок:", self.order_input)
 
         layout.addLayout(form_layout)
 
         # Підказка
         help_label = QLabel(
-            "<b>Давальний відмінок</b> - для шапки документів (кому?): «директору <b>Іванову</b>»<br><br>"
-            "<b>Називний відмінок</b> - для розділу «Погоджено» (хто?): «<b>Іванов</b> І.І.»<br><br>"
-            "💡 Натисніть 🔄 щоб автоматично перетворити називний у давальний"
+            "💵 <b>Давальний відмінок</b> відповідає на питання \"кому?\"\n"
+            "Наприклад: директору <b>Іванову Івану Івановичу</b>"
         )
         help_label.setWordWrap(True)
-        help_label.setStyleSheet("color: #666; font-style: italic; padding: 10px; background: #f0f0f0; border-radius: 5px;")
+        help_label.setStyleSheet("color: #666; font-style: italic; padding: 10px;")
         layout.addWidget(help_label)
 
         # Кнопки
@@ -685,24 +652,4 @@ class ApproverDialog(QDialog):
         if self.approver:
             self.position_input.setText(self.approver.position_name)
             self.name_input.setText(self.approver.full_name_dav)
-            self.name_nom_input.setText(self.approver.full_name_nom or "")
             self.order_input.setValue(self.approver.order_index)
-
-    def _auto_generate_dative(self):
-        """Автоматично перетворює називний відмінок у давальний."""
-        nominative = self.name_nom_input.text().strip()
-        if not nominative:
-            return
-
-        try:
-            from backend.services.grammar_service import GrammarService
-            grammar = GrammarService()
-            dative = grammar.to_dative(nominative)
-            self.name_input.setText(dative)
-        except Exception as e:
-            QMessageBox.warning(
-                self,
-                "Помилка",
-                f"Не вдалося перетворити ім'я: {e}\n\n"
-                "Будь ласка, введіть давальний відмінок вручну."
-            )

@@ -8,7 +8,6 @@ from backend.models.staff import Staff
 from backend.models.document import Document
 from backend.models.schedule import AnnualSchedule
 from backend.models.settings import SystemSettings, Approvers
-from backend.models.staff_history import StaffHistory
 
 __all__ = [
     "Base",
@@ -18,5 +17,4 @@ __all__ = [
     "AnnualSchedule",
     "SystemSettings",
     "Approvers",
-    "StaffHistory",
 ]

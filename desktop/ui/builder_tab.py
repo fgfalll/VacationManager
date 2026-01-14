@@ -7,7 +7,6 @@ from typing import Any
 
 from PyQt6.QtWidgets import (
     QWidget,
-    QDialog,
     QVBoxLayout,
     QHBoxLayout,
     QFormLayout,
@@ -27,11 +26,9 @@ from PyQt6.QtWidgets import (
     QStyle,
     QLineEdit,
     QCalendarWidget,
-    QTableView,
     QScrollArea,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QUrl, QDate
-from PyQt6.QtGui import QColor, QTextCharFormat, QBrush
+from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
@@ -63,7 +60,6 @@ class BuilderTab(QWidget):
     def _setup_ui(self):
         """Налаштовує інтерфейс."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
 
         # Toolbar для швидких дій
         toolbar = self._create_toolbar()
@@ -71,7 +67,6 @@ class BuilderTab(QWidget):
 
         # Splitter для форми та прев'ю
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
 
         # Ліва панель - форма
         form_panel = self._create_form_panel()
@@ -188,43 +183,87 @@ class BuilderTab(QWidget):
         doc_group.setLayout(doc_layout)
         layout.addWidget(doc_group)
 
-        # Дати - кнопка для відкриття діалогу вибору дати
+        # Дати - календар
         date_group = QGroupBox("📅 Вибір дат відпустки")
         date_layout = QVBoxLayout()
 
+        # Інструкція
+        date_help = QLabel("Клікніть на дати в календарі для вибору.\nCtrl+клік - для вибору кількох дат.")
+        date_help.setWordWrap(True)
+        date_help.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
+        date_layout.addWidget(date_help)
+
+        # Календар з можливістю вибору кількох дат
+        self.calendar = MultiSelectCalendar()
+        self.calendar.selectionChanged.connect(self._on_calendar_selection_changed)
+        date_layout.addWidget(self.calendar)
+
+        # Кнопки швидкого вибору
+        quick_buttons_layout = QHBoxLayout()
+
+        select_range_btn = QPushButton("Вибрати діапазон")
+        select_range_btn.clicked.connect(self._select_date_range)
+        quick_buttons_layout.addWidget(select_range_btn)
+
+        clear_dates_btn = QPushButton("Очистити")
+        clear_dates_btn.clicked.connect(self._clear_dates)
+        quick_buttons_layout.addWidget(clear_dates_btn)
+
+        date_layout.addLayout(quick_buttons_layout)
+
         # Інформація про вибрані дати
-        self.dates_info_label = QLabel("Не вибрано")
-        self.dates_info_label.setStyleSheet("color: #666; font-size: 12px; padding: 10px;")
+        self.dates_info_label = QLabel("Вибрано: 0 днів")
+        self.dates_info_label.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
         date_layout.addWidget(self.dates_info_label)
 
-        # Список діапазонів
-        self._date_ranges: list[tuple[date, date]] = []
-        self._ranges_scroll = QScrollArea()
-        self._ranges_scroll.setWidgetResizable(True)
-        self._ranges_scroll.setMaximumHeight(150)
-        self._ranges_widget = QWidget()
-        self._ranges_layout = QVBoxLayout(self._ranges_widget)
-        self._ranges_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self._ranges_scroll.setWidget(self._ranges_widget)
-        date_layout.addWidget(self._ranges_scroll)
-
-        # Кнопки
-        buttons_layout = QHBoxLayout()
-        add_range_btn = QPushButton("Додати діапазон")
-        add_range_btn.clicked.connect(self._add_date_range)
-        buttons_layout.addWidget(add_range_btn)
-
-        clear_ranges_btn = QPushButton("Очистити все")
-        clear_ranges_btn.clicked.connect(self._clear_all_ranges)
-        buttons_layout.addWidget(clear_ranges_btn)
-
-        date_layout.addLayout(buttons_layout)
+        # Попередження про вихідні
+        self.weekend_warning_label = QLabel("")
+        self.weekend_warning_label.setWordWrap(True)
+        self.weekend_warning_label.setStyleSheet("color: #F59E0B; font-size: 11px; padding: 5px;")
+        date_layout.addWidget(self.weekend_warning_label)
 
         date_group.setLayout(date_layout)
         layout.addWidget(date_group)
 
-        # Оплата - завжди автоматична (приховано)
-        self._payment_is_automatic = True
+        # Оплата
+        payment_group = QGroupBox("💰 Оплата")
+        payment_layout = QFormLayout()
+
+        self.payment_input = QComboBox()
+        self.payment_input.addItems([
+            "У першій половині місяця",
+            "У другій половині місяця",
+        ])
+        payment_layout.addRow("Період:", self.payment_input)
+
+        # Автоматичний розрахунок
+        self.auto_payment_cb = QComboBox()
+        self.auto_payment_cb.addItems([
+            "Автоматично (за датою)",
+            "Вручну",
+        ])
+        self.auto_payment_cb.setCurrentIndex(0)
+        self.auto_payment_cb.currentIndexChanged.connect(self._on_auto_payment_changed)
+        payment_layout.addRow("Розрахунок:", self.auto_payment_cb)
+
+        payment_group.setLayout(payment_layout)
+        layout.addWidget(payment_group)
+
+        # Кастомний текст
+        text_group = QGroupBox("✏️ Додатковий текст")
+        text_layout = QVBoxLayout()
+
+        self.custom_text_input = QTextEdit()
+        self.custom_text_input.setPlaceholderText(
+            "Введіть додатковий текст для документа (опціонально)\n"
+            "Наприклад: причину відпустки або додаткові умови"
+        )
+        self.custom_text_input.setMaximumHeight(100)
+        self.custom_text_input.textChanged.connect(self._on_text_changed)
+        text_layout.addWidget(self.custom_text_input)
+
+        text_group.setLayout(text_layout)
+        layout.addWidget(text_group)
 
         layout.addStretch()
 
@@ -242,11 +281,6 @@ class BuilderTab(QWidget):
 
         # WebEngineView з JavaScript мостом
         self.web_view = QWebEngineView()
-        self.web_view.setMinimumSize(500, 400)
-        self.web_view.setSizePolicy(
-            self.web_view.sizePolicy().Policy.Expanding,
-            self.web_view.sizePolicy().Policy.Expanding
-        )
 
         # Налаштування WebChannel для взаємодії з JavaScript
         self.web_channel = QWebChannel()
@@ -254,7 +288,6 @@ class BuilderTab(QWidget):
 
         # Підключаємо сигнали
         self.wysiwyg_bridge.content_changed.connect(self._on_editor_content_changed)
-        self.wysiwyg_bridge.signatories_changed.connect(self._on_signatories_changed)
 
         # Реєструємо міст в каналі
         self.web_channel.registerObject("pybridge", self.wysiwyg_bridge)
@@ -346,59 +379,42 @@ class BuilderTab(QWidget):
         """Обробляє зміну будь-якого поля."""
         if hasattr(self, 'staff_info_label'):
             self._update_staff_info()
+        if hasattr(self, 'auto_payment_cb'):
+            self._update_payment_period()
         # Оновлюємо прев'ю при зміні
         if hasattr(self, 'web_view'):
             self._update_preview()
 
+    def _on_text_changed(self):
+        """Обробляє зміну тексту."""
+        # Оновлюємо тільки кастомний текст блок без повного перезавантаження
+        self._update_custom_text_block()
+
+    def _on_auto_payment_changed(self):
+        """Обробляє зміну способу розрахунку оплати."""
+        is_auto = self.auto_payment_cb.currentIndex() == 0
+        self.payment_input.setEnabled(not is_auto)
+        if is_auto:
+            self._update_payment_period()
+            self._update_preview()
+
     def _update_payment_period(self):
-        """Період оплати завжди автоматичний (застарілий метод)."""
-        # Оплата завжди автоматична - більше не потрібно
-        pass
-
-    def _get_doc_type(self) -> DocumentType:
-        """
-        Повертає обраний тип документа.
-
-        Returns:
-            Тип документа з enum DocumentType
-        """
-        checked = self.doc_type_group.checkedButton()
-        if checked == self.doc_type_unpaid:
-            return DocumentType.VACATION_UNPAID
-        elif checked == self.doc_type_extension:
-            return DocumentType.TERM_EXTENSION
-        return DocumentType.VACATION_PAID
-
-    def _get_document_template_path(self, doc_type: DocumentType) -> Path:
-        """
-        Повертає шлях до шаблону документа для WYSIWYG редактора.
-
-        Args:
-            doc_type: Тип документа
-
-        Returns:
-            Path до файлу шаблону
-        """
-        base_path = Path(__file__).parent.parent.parent
-        templates_dir = base_path / "desktop" / "templates"
-        document_template = templates_dir / "documents" / f"{doc_type.value}.html"
-
-        if not document_template.exists():
-            # Log available templates for debugging
-            documents_dir = templates_dir / "documents"
-            if documents_dir.exists():
-                available = list(documents_dir.glob("*.html"))
-                available_names = [f.stem for f in available]
+        """Оновлює період оплати автоматично."""
+        if self.auto_payment_cb.currentIndex() == 0 and self._parsed_dates:  # Автоматично
+            start = self._parsed_dates[0]  # Перша дата
+            if start.day <= 15:
+                self.payment_input.setCurrentIndex(0)  # Перша половина
             else:
-                available_names = []
+                self.payment_input.setCurrentIndex(1)  # Друга половина
 
-            raise FileNotFoundError(
-                f"Template not found for document type '{doc_type.value}'. "
-                f"Expected: {document_template}\n"
-                f"Available templates: {available_names}"
-            )
-
-        return document_template
+    def _update_custom_text_block(self):
+        """Оновлює тільки блок кастомного тексту в редакторі."""
+        custom_text = self.custom_text_input.toPlainText()
+        if custom_text:
+            # Екрануємо для JavaScript
+            escaped_text = json.dumps(custom_text)
+            script = f"updateBlock('custom_text', {escaped_text});"
+            self.web_view.page().runJavaScript(script)
 
     def _update_preview(self):
         """Оновлює прев'ю документа."""
@@ -406,337 +422,85 @@ class BuilderTab(QWidget):
             # Отримуємо дані форми
             context = self._get_context()
 
-            # Використовуємо абсолютний шлях до шаблонів
-            base_path = Path(__file__).parent.parent.parent
-            templates_dir = base_path / "desktop" / "templates"
+            # Рендеримо HTML з Jinja2
+            env = Environment(loader=FileSystemLoader("desktop/templates"))
+            template = env.get_template("wysiwyg_editor.html")
+            html = template.render(**context)
 
-            # Set up Jinja2 environment with both template directories
-            env = Environment(
-                loader=FileSystemLoader([
-                    str(templates_dir),                    # For wysiwyg_editor.html
-                    str(templates_dir / "documents")       # For document templates
-                ])
-            )
+            # Встановлюємо HTML
+            self.web_view.setHtml(html)
 
-            # Load document-specific template
-            doc_type = self._get_doc_type()
-            document_template = env.get_template(f"documents/{doc_type.value}.html")
-            document_content = document_template.render(**context)
-
-            # Add document content to context
-            context["document_content"] = document_content
-
-            # Load main editor shell
-            editor_template = env.get_template("wysiwyg_editor.html")
-            html = editor_template.render(**context)
-
-            # Встановлюємо HTML з базовим URL для завантаження CSS/JS
-            base_url = QUrl.fromLocalFile(str(templates_dir) + "/")
-            self.web_view.setHtml(html, base_url)
-
-            # Встановлюємо статус з затримкою, щоб JavaScript встиг завантажитися
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(100, lambda: self.wysiwyg_bridge.set_document_status(
+            # Встановлюємо статус
+            self.wysiwyg_bridge.set_document_status(
                 self.web_view,
                 self._current_status.value,
                 self._get_status_label()
-            ))
+            )
 
         except Exception as e:
             print(f"Error updating preview: {e}")
             QMessageBox.warning(self, "Помилка", f"Не вдалося оновити прев'ю: {e}")
 
-    def _format_signatory_name(self, name: str) -> str:
-        """
-        Форматує ім'я підписанта для розділу "Погоджено".
-
-        Формат: "Ім'я ПРІЗВИЩЕ" (тільки ім'я та прізвище, без по батькові)
-        Приклад: "Василь САВИК", "Сергій ГАВРИК"
-
-        Args:
-            name: ПІБ у називному відмінку (наприклад, "Савик Василь Миколайович")
-
-        Returns:
-            Відформатоване ПІБ для підпису
-        """
-        parts = name.split()
-        if len(parts) >= 3:
-            # "Савик Василь Миколайович" - Surname First Middle
-            # Return only "Василь САВИК" (first name + last name, skip middle)
-            first_name = parts[1]
-            last_name = parts[0].upper()
-            return f"{first_name} {last_name}"
-        elif len(parts) == 2:
-            # "Василь Савик" - First Surname (no middle name)
-            first_name = parts[0]
-            last_name = parts[1].upper()
-            return f"{first_name} {last_name}"
-        else:
-            # Just one part - return as is
-            return name
-
     def _get_context(self) -> dict[str, Any]:
         """Збирає контекст для шаблону."""
         staff_id = self.staff_input.currentData()
         from backend.models.staff import Staff
-        from backend.models.settings import SystemSettings, Approvers
+        from backend.models.settings import SystemSettings
         from backend.core.database import get_db_context
-        from backend.services.grammar_service import GrammarService
 
-        grammar = GrammarService()
         staff_name = ""
         staff_position = ""
+        show_dept_head = False
+        dept_head_name = ""
+        dept_head_position = ""
         rector_name = ""
-        university_name = ""
         dept_name = ""
-        signatories = []
 
         if staff_id:
             with get_db_context() as db:
                 staff = db.query(Staff).filter(Staff.id == staff_id).first()
                 if staff:
-                    staff_name = staff.pib_nom  # Will be formatted to genitive below
-                    staff_position = staff.position  # Will be formatted to genitive below
-                    print(f"DEBUG: Staff data - ID: {staff.id}, Name: {staff_name}, Position: {staff_position}")
+                    staff_name = staff.pib_nom
+                    staff_position = staff.position
 
                 # Отримуємо налаштування
-                rector_name_dative = SystemSettings.get_value(db, "rector_name_dative", "")
-                rector_name_nominative = SystemSettings.get_value(db, "rector_name_nominative", "")
-                dept_name_raw = SystemSettings.get_value(db, "dept_name", "")
-                dept_abbr_raw = SystemSettings.get_value(db, "dept_abbr", "")
-                university_name_raw = SystemSettings.get_value(db, "university_name", "")
-
-                print(f"DEBUG: Raw settings - rector_dative: '{rector_name_dative}', rector_nom: '{rector_name_nominative}', university: '{university_name_raw}', dept: '{dept_name_raw}'")
-
-                # Форматуємо ім'я ректора: "Олені ФІЛОНИЧ" (ім'я в давальному + ПРІЗВИЩЕ в називному caps)
-                if rector_name_nominative:
-                    parts = rector_name_nominative.split()
-                    # Обробляємо різні формати імен
-                    if len(parts) == 2:
-                        # "Ім'я Прізвище"
-                        first_name = grammar.to_dative(parts[0])
-                        last_name = parts[1].upper()
-                        rector_name = f"{first_name} {last_name}"
-                    elif len(parts) >= 3:
-                        # "Ім'я По-батькові Прізвище" або "Прізвище Ім'я По-батькові"
-                        # Припускаємо, що якщо перше слово закінчується на -а, -я, -я - це жіноче ім'я
-                        if parts[0].endswith(('а', 'я', 'я')):
-                            # "Вікторія Іванівна Філонич" - First Middle Last
-                            first_name = grammar.to_dative(parts[0])
-                            last_name = parts[-1].upper()  # Last word is surname
-                            rector_name = f"{first_name} {last_name}"
-                        else:
-                            # "Філонич Вікторія Іванівна" - Last First Middle
-                            # Find the first name (usually second word, ends with а/я)
-                            for i, part in enumerate(parts[1:], 1):
-                                if part.endswith(('а', 'я', 'я')) and not part.endswith(('вна', 'вич', 'ська', 'цька')):
-                                    first_name = grammar.to_dative(part)
-                                    last_name = parts[0].upper()
-                                    rector_name = f"{first_name} {last_name}"
-                                    break
-                            else:
-                                # Fallback - use dative from settings
-                                rector_name = rector_name_dative
-                    else:
-                        rector_name = rector_name_dative
-                else:
-                    rector_name = rector_name_dative
-
-                # University name - already in genitive from settings
-                university_name = university_name_raw
-
-                # Dept name - keep as is
-                dept_name = dept_name_raw
-
-                print(f"DEBUG: Formatted - University: '{university_name}', Rector: '{rector_name}', Dept: '{dept_name}'")
-
-                # Отримуємо погоджувачів з таблиці Approvers
-                approvers = (
-                    db.query(Approvers)
-                    .order_by(Approvers.order_index)
-                    .all()
-                )
-
-                for approver in approvers:
-                    # Format the signatory name: "Ім'я ПРІЗВИЩЕ" or "Ім'я По-батькові ПРІЗВИЩЕ"
-                    # Приклад: "Василь САВИК" or "Сергій ГАВРИК"
-                    display_name = self._format_signatory_name(approver.full_name_nom or approver.full_name_dav)
-
-                    # Format position with abbreviation if available
-                    position = approver.position_name
-                    position_multiline = ""
-                    if dept_abbr_raw:
-                        position_multiline = dept_abbr_raw
-
-                    signatories.append({
-                        "position": position,
-                        "position_multiline": position_multiline,
-                        "name": display_name
-                    })
-
-                print(f"DEBUG: Loaded signatories from Approvers table: {signatories}")
-
-                # Завідувач кафедри - додаємо автоматично, якщо є і ще не в списку
+                rector_name = SystemSettings.get_value(db, "rector_name_dative", "")
+                dept_name = SystemSettings.get_value(db, "dept_name", "")
                 dept_head_id = SystemSettings.get_value(db, "dept_head_id", None)
+
+                # Завідувач кафедри
                 if dept_head_id and staff and staff.id != dept_head_id:
+                    show_dept_head = True
                     head = db.query(Staff).filter(Staff.id == dept_head_id).first()
                     if head:
-                        # Перевіряємо, чи вже не є в списку (порівнюємо відформатовані імена)
-                        head_name_formatted = self._format_signatory_name(head.pib_nom)
-                        already_exists = any(s.get("name") == head_name_formatted for s in signatories)
-                        if not already_exists:
-                            # Format position with abbreviation if available
-                            position = head.position
-                            position_multiline = ""
-                            if dept_abbr_raw:
-                                position_multiline = dept_abbr_raw
-
-                            signatories.insert(0, {
-                                "position": position,
-                                "position_multiline": position_multiline,
-                                "name": head_name_formatted
-                            })
-                            print(f"DEBUG: Added dept head to signatories: {head_name_formatted}")
-
-                print(f"DEBUG: Final signatories list: {signatories}")
-
-        # Форматуємо дані заявника (давальний/родовий відмінок)
-        # Для прикладу "Професора кафедри нафтогазової інженерії та технологій" + "Цвєтковіча Браніміра"
-        print(f"DEBUG: Formatting applicant - staff_position: '{staff_position}', dept_name: '{dept_name}'")
-
-        # Очищаємо назву кафедри від "кафедри"/"кафедра" якщо вона там є
-        dept_clean = dept_name
-        if dept_name:
-            # Видаляємо всі варіанти "кафедра"/"кафедри" на початку (case-insensitive)
-            dept_lower = dept_name.lower().strip()
-            print(f"DEBUG: Stripping dept_name - original: '{dept_name}', lower: '{dept_lower}'")
-            if dept_lower.startswith("кафедри "):
-                dept_clean = dept_name[8:]  # Remove "кафедри " (8 chars including space)
-                print(f"DEBUG: Matched 'кафедри ', stripped to: '{dept_clean}'")
-            elif dept_lower.startswith("кафедра "):
-                dept_clean = dept_name[8:]  # Remove "кафедра " (8 chars including space)
-                print(f"DEBUG: Matched 'кафедра ', stripped to: '{dept_clean}'")
-            elif dept_lower.startswith("кафедри"):
-                dept_clean = dept_name[7:]  # Remove "кафедри"
-                print(f"DEBUG: Matched 'кафедри', stripped to: '{dept_clean}'")
-            elif dept_lower.startswith("кафедра"):
-                dept_clean = dept_name[7:]  # Remove "кафедра"
-                print(f"DEBUG: Matched 'кафедра', stripped to: '{dept_clean}'")
-
-        # Additional safety - strip any remaining leading/trailing whitespace
-        if dept_clean:
-            dept_clean = dept_clean.strip()
-
-        print(f"DEBUG: dept_clean FINAL: '{dept_clean}'")
-
-        # Спочатку об'єднуємо посаду з назвою кафедри ( якщо потрібно )
-        if staff_position and dept_clean:
-            position_lower = staff_position.lower()
-            print(f"DEBUG: position_lower: '{position_lower}'")
-
-            # Якщо посаду вже містить "кафедри", "кафедру" (завідувача кафедри), просто додаємо назву кафедри без повторення
-            if "кафедри" in position_lower or "кафедру" in position_lower or "кафедр" in position_lower:
-                # Видаляємо зайві пробіли та додаємо назву кафедри
-                staff_position_full = f"{staff_position} {dept_clean}"
-            # Якщо це професор/доцент без згадки кафедри, додаємо "кафедри"
-            elif any(x in position_lower for x in ["професор", "доцент", "асистент", "викладач", "старший викладач"]):
-                staff_position_full = f"{staff_position} кафедри {dept_clean}"
-            else:
-                staff_position_full = staff_position
-        elif staff_position:
-            staff_position_full = staff_position
-        else:
-            staff_position_full = ""
-
-        print(f"DEBUG: staff_position_full BEFORE genitive: '{staff_position_full}'")
-
-        # Тепер перетворюємо в родовий відмінок (GrammarService тепер обробляє це коректно)
-        if staff_position_full:
-            try:
-                # Очищаємо кеш перед використанням, щоб отримати свіжі результати
-                grammar.clear_cache()
-                staff_position_gen = grammar.to_genitive(staff_position_full)
-                staff_position_display = staff_position_gen
-                print(f"DEBUG: Applied genitive: '{staff_position_full}' → '{staff_position_display}'")
-            except Exception as e:
-                print(f"DEBUG: Error in genitive conversion: {e}")
-                staff_position_display = staff_position_full
-        else:
-            staff_position_display = ""
-
-        # Ім'я заявника в родовому відмінку - формат: "Прізвище Ім'я По-батькові"
-        # Приклад: "Дмитренко Вікторії Іванівни" (прізвище без змін, ім'я + по-батькові в родовому)
-        if staff_name:
-            try:
-                parts = staff_name.split()
-                if len(parts) >= 3:
-                    # "Дмитренко Вікторія Іванівна" - Surname First Middle
-                    # Прізвище залишається без змін, тільки ім'я та по-батькові в родовому
-                    surname = parts[0]  # Без змін
-                    first_name = grammar.to_genitive(parts[1])  # Вікторія → Вікторії
-                    middle_name = grammar.to_genitive(parts[2])  # Іванівна → Іванівни
-                    staff_name_display = f"{surname} {first_name} {middle_name}"
-                elif len(parts) == 2:
-                    # "Прізвище Ім'я"
-                    surname = parts[0]  # Без змін
-                    first_name = grammar.to_genitive(parts[1])
-                    staff_name_display = f"{surname} {first_name}"
-                else:
-                    # Just one part
-                    staff_name_display = staff_name
-            except Exception as e:
-                print(f"DEBUG: Error converting name to genitive: {e}")
-                staff_name_display = staff_name
-        else:
-            staff_name_display = staff_name
+                        dept_head_name = head.pib_nom
+                        dept_head_position = head.position
 
         # Форматуємо дати для контексту
         date_start = ""
         date_end = ""
-        days_count = 0
         days_count_text = "0 днів"
 
         if self._parsed_dates:
             date_start = self._parsed_dates[0].strftime("%d.%m.%Y")
             date_end = self._parsed_dates[-1].strftime("%d.%m.%Y")
-            days_count = len(self._parsed_dates)
-            # Правильна українська граматика
-            if days_count == 1:
-                days_count_text = f"{days_count} календарний день"
-            elif days_count % 10 == 1 and days_count % 100 != 11:
-                days_count_text = f"{days_count} календарний день"
-            elif 2 <= days_count % 10 <= 4 and not (12 <= days_count % 100 <= 14):
-                days_count_text = f"{days_count} календарні дні"
-            else:
-                days_count_text = f"{days_count} календарних днів"
-
-        # Оплата - завжди автоматично
-        payment_period = "у першій половині серпня 2025 року"
-        if self._parsed_dates:
-            start = self._parsed_dates[0]
-            month_names = {
-                1: "січня", 2: "лютого", 3: "березня", 4: "квітня",
-                5: "травня", 6: "червня", 7: "липня", 8: "серпня",
-                9: "вересня", 10: "жовтня", 11: "листопада", 12: "грудня"
-            }
-            month_name = month_names.get(start.month, "місяця")
-            half = "першій" if start.day <= 15 else "другій"
-            payment_period = f"у {half} половині {month_name} {start.year} року"
+            days_count_text = f"{len(self._parsed_dates)} днів"
 
         return {
             "doc_type": self._get_doc_type().value,
-            "staff_name": staff_name_display,
-            "staff_position": staff_position_display,
+            "staff_name": staff_name,
+            "staff_position": staff_position,
             "date_start": date_start,
             "date_end": date_end,
             "days_count": days_count_text,
-            "payment_period": payment_period,
-            "custom_text": "",  # Custom text can be added later
+            "payment_period": self.payment_input.currentText(),
+            "custom_text": self.custom_text_input.toPlainText() or None,
             # Для шаблону
             "rector_name": rector_name,
-            "university_name": university_name,
             "dept_name": dept_name,
-            "signatories": signatories,
+            "show_dept_head": show_dept_head,
+            "dept_head_name": dept_head_name,
+            "dept_head_position": dept_head_position,
         }
 
     def _get_status_label(self) -> str:
@@ -761,16 +525,6 @@ class BuilderTab(QWidget):
 
         except json.JSONDecodeError:
             pass
-
-    def _on_signatories_changed(self, signatories_json: str):
-        """Обробляє зміну списку погоджувачів."""
-        try:
-            signatories = json.loads(signatories_json)
-            self._editor_state.custom_fields["signatories"] = signatories
-            # Зберігаємо в базу при потребі
-            print(f"Signatories changed: {signatories}")
-        except json.JSONDecodeError as e:
-            print(f"Error parsing signatories: {e}")
 
     def _save_draft(self):
         """Зберігає чернетку документа."""
@@ -868,25 +622,18 @@ class BuilderTab(QWidget):
                     document.date_start = start
                     document.date_end = end
                     document.days_count = days_count
-                    # Оплата - завжди автоматично
-                    payment_period = "У першій половині місяця"
-                    if start.day > 15:
-                        payment_period = "У другій половині місяця"
-                    document.payment_period = payment_period
+                    document.payment_period = self.payment_input.currentText()
+                    document.custom_text = self.custom_text_input.toPlainText() or None
                 else:
                     # Створюємо новий документ
-                    # Оплата - завжди автоматично
-                    payment_period = "У першій половині місяця"
-                    if start.day > 15:
-                        payment_period = "У другій половині місяця"
-
                     document = Document(
                         staff_id=staff_id,
                         doc_type=doc_type,
                         date_start=start,
                         date_end=end,
                         days_count=days_count,
-                        payment_period=payment_period,
+                        payment_period=self.payment_input.currentText(),
+                        custom_text=self.custom_text_input.toPlainText() or None,
                     )
                     db.add(document)
 
@@ -1040,10 +787,28 @@ class BuilderTab(QWidget):
             elif document.doc_type == DocumentType.TERM_EXTENSION:
                 self.doc_type_extension.setChecked(True)
 
-            # Дати - завантажуємо як один діапазон
-            self._date_ranges = [(document.date_start, document.date_end)]
-            self._update_ranges_list()
+            # Дати - завантажуємо в календар
+            self.calendar.clear_selection()
+
+            # Створюємо список дат на основі date_start та date_end
+            current = document.date_start
+            while current <= document.date_end:
+                self.calendar.select_date(current)
+                current += timedelta(days=1)
+
+            # Оновлюємо список дат
+            self._parsed_dates = sorted(self.calendar.selected_dates())
             self._update_dates_info()
+
+            # Оплата
+            payment_items = [self.payment_input.itemText(i) for i in range(self.payment_input.count())]
+            if document.payment_period in payment_items:
+                index = payment_items.index(document.payment_period)
+                self.payment_input.setCurrentIndex(index)
+
+            # Кастомний текст
+            if document.custom_text:
+                self.custom_text_input.setPlainText(document.custom_text)
 
             # Статус
             self._current_document_id = document.id
@@ -1064,10 +829,13 @@ class BuilderTab(QWidget):
             self.staff_input.setCurrentIndex(0)
         self.doc_type_paid.setChecked(True)
 
-        # Очищаємо дати
-        self._date_ranges = []
-        self._update_ranges_list()
-        self.dates_info_label.setText("Не вибрано")
+        # Очищаємо календар
+        self.calendar.clear_selection()
+        self.weekend_warning_label.setText("")
+        self.dates_info_label.setText("Вибрано: 0 днів")
+
+        self.payment_input.setCurrentIndex(0)
+        self.custom_text_input.clear()
 
         self._update_ui_status()
         self._update_preview()
@@ -1082,192 +850,165 @@ class BuilderTab(QWidget):
             if index >= 0:
                 self.staff_input.setCurrentIndex(index)
 
-    def _add_date_range(self):
-        """Відкриває popup для додавання діапазону дат."""
-        popup = DateRangePickerPopup(self)
-        popup.selection_complete.connect(self._on_popup_selection_complete)
-        popup.show_popup()
-
-        # Зберігаємо посилання на popup щоб він не був видалений
-        self._current_popup = popup
-
-    def _on_popup_selection_complete(self, dates: list[date]):
-        """Обробляє завершення вибору в popup."""
-        if dates:
-            start = dates[0]
-            end = dates[-1]
-            self._date_ranges.append((start, end))
-            self._update_ranges_list()
-            self._update_dates_info()
-            self._update_preview()
-        # Очищаємо посилання на popup
-        self._current_popup = None
-
-    def _clear_all_ranges(self):
-        """Очищає всі діапазони."""
-        self._date_ranges = []
-        self._update_ranges_list()
+    def _on_calendar_selection_changed(self):
+        """Обробляє зміну вибору дат в календарі."""
+        self._parsed_dates = sorted(self.calendar.selected_dates())
         self._update_dates_info()
+        self._update_payment_period()
         self._update_preview()
-
-    def _remove_range(self, index: int):
-        """Видаляє діапазон за індексом."""
-        if 0 <= index < len(self._date_ranges):
-            del self._date_ranges[index]
-            self._update_ranges_list()
-            self._update_dates_info()
-            self._update_preview()
-
-    def _update_ranges_list(self):
-        """Оновлює список діапазонів в UI."""
-        # Очищаємо layout
-        while self._ranges_layout.count():
-            child = self._ranges_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-
-        # Додаємо діапазони
-        for i, (start, end) in enumerate(self._date_ranges):
-            range_widget = QWidget()
-            range_layout = QHBoxLayout(range_widget)
-            range_layout.setContentsMargins(0, 2, 0, 2)
-
-            # Текст діапазону
-            if start == end:
-                range_text = start.strftime("%d.%m.%Y")
-            else:
-                range_text = f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}"
-            label = QLabel(range_text)
-            range_layout.addWidget(label)
-
-            range_layout.addStretch()
-
-            # Кнопка видалення
-            remove_btn = QPushButton("✕")
-            remove_btn.setFixedSize(24, 24)
-            remove_btn.setStyleSheet("QPushButton { color: #dc3545; font-weight: bold; }")
-            remove_btn.clicked.connect(lambda checked, idx=i: self._remove_range(idx))
-            range_layout.addWidget(remove_btn)
-
-            self._ranges_layout.addWidget(range_widget)
 
     def _update_dates_info(self):
         """Оновлює інформацію про вибрані дати."""
-        if not self._date_ranges:
-            self.dates_info_label.setText("Не вибрано")
+        if not self._parsed_dates:
+            self.dates_info_label.setText("Вибрано: 0 днів")
+            self.weekend_warning_label.setText("")
             return
 
-        # Генеруємо всі дати з діапазонів
-        all_dates = []
-        for start, end in self._date_ranges:
-            current = start
-            while current <= end:
-                all_dates.append(current)
-                current += timedelta(days=1)
+        days_count = len(self._parsed_dates)
+        start_date = self._parsed_dates[0].strftime("%d.%m.%Y")
+        end_date = self._parsed_dates[-1].strftime("%d.%m.%Y")
 
-        # Сортуємо і видаляємо дублікати
-        all_dates = sorted(set(all_dates))
-        self._parsed_dates = all_dates
+        # Перевіряємо на вихідні
+        weekend_dates = [d for d in self._parsed_dates if d.weekday() >= 5]
 
-        days_count = len(all_dates)
-        range_count = len(self._date_ranges)
-        self.dates_info_label.setText(f"✓ Вибрано: {days_count} днів ({range_count} діапазонів)")
+        if weekend_dates:
+            weekend_str = ", ".join(d.strftime("%d.%m") for d in weekend_dates[:3])
+            if len(weekend_dates) > 3:
+                weekend_str += f" та ще {len(weekend_dates) - 3}"
+            self.weekend_warning_label.setText(f"⚠ Вихідні дні: {weekend_str}")
+        else:
+            self.weekend_warning_label.setText("")
 
-    def _open_date_range_dialog(self):
-        """Відкриває діалог для вибору діапазону дат (застарілий метод)."""
-        self._add_date_range()
+        self.dates_info_label.setText(f"✓ Вибрано: {days_count} днів ({start_date} - {end_date})")
 
     def _select_date_range(self):
-        """Відкриває діалог для вибору діапазону дат (застарілий метод)."""
-        self._open_date_range_dialog()
+        """Відкриває діалог для вибору діапазону дат."""
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QDateEdit as QDE
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Вибір діапазону дат")
+        layout = QVBoxLayout(dialog)
+
+        # Початкова дата
+        layout.addWidget(QLabel("Початкова дата:"))
+        start_edit = QDE()
+        start_edit.setCalendarPopup(True)
+        start_edit.setDate(date.today())
+        layout.addWidget(start_edit)
+
+        # Кінцева дата
+        layout.addWidget(QLabel("Кінцева дата:"))
+        end_edit = QDE()
+        end_edit.setCalendarPopup(True)
+        end_edit.setDate(date.today() + timedelta(days=14))
+        layout.addWidget(end_edit)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            start = start_edit.date().toPyDate()
+            end = end_edit.date().toPyDate()
+
+            # Очищаємо попередній вибір
+            self.calendar.clear_selection()
+
+            # Додаємо всі дати діапазону
+            current = start
+            while current <= end:
+                self.calendar.select_date(current)
+                current += timedelta(days=1)
 
     def _clear_dates(self):
-        """Очищає вибір дат (застарілий метод)."""
+        """Очищає вибір дат."""
+        self.calendar.clear_selection()
         self._parsed_dates = []
         self._update_dates_info()
+        self._update_payment_period()
         self._update_preview()
 
 
-class DateRangePickerPopup(QWidget):
+class MultiSelectCalendar(QCalendarWidget):
     """
-    Простий клас для відображення віджета вибору дат як popup.
+    Календар з можливістю вибору кількох дат.
 
-    Використовує date_range_popover з підтримкою PyQt6.
+    Дозволяє вибирати кілька дат кліком або Ctrl+кліком.
+    Вибрані дати підсвічуються синім кольором.
     """
-
-    selection_complete = pyqtSignal(list)
 
     def __init__(self, parent=None):
+        """Ініціалізує календар."""
         super().__init__(parent)
-        self._selected_dates: list[date] = []
-        self._picker = None
-        self._setup_picker()
+        self._selected_dates: set[date] = set()
 
-    def _setup_picker(self):
-        """Створює і налаштовує віджет."""
-        from date_range_popover import DatePickerConfig, DateRangePicker, PickerMode
-        from PyQt6.QtCore import QDate
+        # Стилі для підсвічування вибраних дат
+        self.setStyleSheet("""
+            QCalendarWidget QTableView::item:selected {
+                background-color: #3B82F6;
+                color: white;
+            }
+        """)
 
-        # min_date: 3 weeks ago, max_date: far future (year 2100)
-        min_date = QDate.currentDate().addDays(-21)
-        max_date = QDate(2100, 12, 31)
+    def mousePressEvent(self, event):
+        """
+        Обробляє натискання миші для вибору кількох дат.
 
-        config = DatePickerConfig(
-            mode=PickerMode.CUSTOM_RANGE,
-            initial_date=None,
-            min_date=min_date,
-            max_date=max_date,
-        )
+        - Клік: toggles дату
+        - Ctrl+клік: додає дату до вибору
+        - Shift+клік: вибирає діапазон
+        """
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtGui import QMouseEvent
 
-        self._picker = DateRangePicker(config=config)
+        clicked_date = self.selectedDate()
+        py_date = clicked_date.toPyDate()
 
-        # Підключення сигналів
-        self._picker.range_selected.connect(self._on_range_selected)
-        self._picker.date_selected.connect(self._on_date_selected)
-        self._picker.cancelled.connect(self._on_cancelled)
+        modifiers = QApplication.keyboardModifiers()
 
-        # Підключення кнопок підтвердження/скасування
-        if hasattr(self._picker, '_confirm_button'):
-            self._picker._confirm_button.clicked.connect(self._on_confirmed)
-        if hasattr(self._picker, '_cancel_button'):
-            self._picker._cancel_button.clicked.connect(self._on_cancelled)
+        if modifiers == Qt.KeyboardModifier.ControlModifier:
+            # Ctrl+клік - додає/прибирає дату
+            if py_date in self._selected_dates:
+                self._selected_dates.remove(py_date)
+            else:
+                self._selected_dates.add(py_date)
+        elif modifiers == Qt.KeyboardModifier.ShiftModifier and self._selected_dates:
+            # Shift+клік - вибирає діапазон
+            last_date = max(self._selected_dates) if self._selected_dates else py_date
+            if py_date > last_date:
+                start, end = last_date, py_date
+            else:
+                start, end = py_date, last_date
 
-    def show_popup(self):
-        """Показує віджет як popup вікно."""
-        if self._picker:
-            self._picker.show()
-
-    def close_popup(self):
-        """Закриває popup."""
-        if self._picker:
-            self._picker.close()
-
-    def _on_range_selected(self, date_range):
-        """Обробляє вибір діапазону в календарі."""
-        if date_range and date_range.start_date and date_range.end_date:
-            start = date_range.start_date.toPyDate()
-            end = date_range.end_date.toPyDate()
-
-            # Генеруємо всі дати в діапазоні
-            self._selected_dates = []
             current = start
             while current <= end:
-                self._selected_dates.append(current)
+                self._selected_dates.add(current)
                 current += timedelta(days=1)
+        else:
+            # Звичайний клік - toggles поточну дату
+            if py_date in self._selected_dates and len(self._selected_dates) > 1:
+                self._selected_dates.remove(py_date)
+            else:
+                self._selected_dates.clear()
+                self._selected_dates.add(py_date)
 
-    def _on_date_selected(self, qdate: QDate):
-        """Обробляє вибір однієї дати."""
-        if qdate.isValid():
-            py_date = qdate.toPyDate()
-            self._selected_dates = [py_date]
+        self.updateCells()
+        super().mousePressEvent(event)
 
-    def _on_confirmed(self):
-        """Обробляє підтвердження вибору."""
-        self.close_popup()
-        self.selection_complete.emit(self._selected_dates.copy())
+    def selected_dates(self) -> list[date]:
+        """Повертає список вибраних дат."""
+        return sorted(self._selected_dates)
 
-    def _on_cancelled(self):
-        """Обробляє скасування."""
-        self._selected_dates = []
-        self.close_popup()
-        self.selection_complete.emit([])
+    def select_date(self, date_obj: date):
+        """Додає дату до вибору."""
+        self._selected_dates.add(date_obj)
+        self.updateCells()
+
+    def clear_selection(self):
+        """Очищає весь вибір."""
+        self._selected_dates.clear()
+        self.updateCells()

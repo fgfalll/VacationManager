@@ -16,7 +16,6 @@ class WysiwygBridge(QObject):
     # Сигнали, що генеруються JavaScript
     content_changed = pyqtSignal(str, bool)  # (content_json, has_changes)
     field_updated = pyqtSignal(str, str)  # (field_name, value)
-    signatories_changed = pyqtSignal(str)  # (signatories_json)
 
     def __init__(self, parent=None):
         """
@@ -27,7 +26,6 @@ class WysiwygBridge(QObject):
         """
         super().__init__(parent)
         self._current_content: dict[str, str] = {}
-        self._current_signatories: list[dict] = []
 
     @pyqtSlot(str, bool)
     def on_content_changed(self, content_json: str, has_changes: bool) -> None:
@@ -54,20 +52,6 @@ class WysiwygBridge(QObject):
             value: Нове значення
         """
         self.field_updated.emit(field_name, value)
-
-    @pyqtSlot(str)
-    def on_signatories_changed(self, signatories_json: str) -> None:
-        """
-        Обробляє зміну списку погоджувачів.
-
-        Args:
-            signatories_json: JSON рядок зі списком погоджувачів
-        """
-        try:
-            self._current_signatories = json.loads(signatories_json)
-            self.signatories_changed.emit(signatories_json)
-        except json.JSONDecodeError as e:
-            print(f"Error parsing signatories JSON from JS: {e}")
 
     def get_current_content(self) -> dict[str, str]:
         """
@@ -147,27 +131,6 @@ class WysiwygBridge(QObject):
         """
         script = "exportContent();"
         web_view.page().runJavaScript(script)
-
-    def update_signatories(self, web_view, signatories: list[dict]) -> None:
-        """
-        Оновлює список погоджувачів у документі.
-
-        Args:
-            web_view: QWebEngineView інстанс
-            signatories: Список словників з даними погоджувачів
-        """
-        signatories_json = json.dumps(signatories, ensure_ascii=False)
-        script = f"updateSignatories({signatories_json});"
-        web_view.page().runJavaScript(script)
-
-    def get_current_signatories(self) -> list[dict]:
-        """
-        Повертає поточний список погоджувачів.
-
-        Returns:
-            Список словників з даними погоджувачів
-        """
-        return self._current_signatories.copy()
 
     def execute_format_command(self, web_view, command: str, value: Any = None) -> None:
         """
