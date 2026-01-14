@@ -783,15 +783,32 @@ class SettingsDialog(QDialog):
             if any(k in s.position.lower() for k in ['кадр', 'персонал', 'інспектор', 'hr'])
         ]
 
-        current_hr = self.hr_employee_input.currentText()
+        # Отримуємо збережене значення підписанта
+        saved_hr = SystemSettings.get_value(db, "hr_signature_id", None)
+
         self.hr_employee_input.clear()
         for staff in hr_filtered:
             self.hr_employee_input.addItem(staff.pib_nom, staff.id)
 
-        if current_hr:
-            index = self.hr_employee_input.findText(current_hr)
-            if index >= 0:
-                self.hr_employee_input.setCurrentIndex(index)
+        # Відновлюємо збережене значення
+        if saved_hr and saved_hr not in ("None", "none", ""):
+            if str(saved_hr).startswith("custom:"):
+                # Користувач ввів ім'я вручну
+                custom_name = str(saved_hr)[7:]  # Видаляємо "custom:"
+                self.hr_employee_input.setEditText(custom_name)
+            else:
+                # Збережено ID співробітника
+                try:
+                    index = self.hr_employee_input.findData(int(saved_hr))
+                except ValueError:
+                    index = -1
+                if index >= 0:
+                    self.hr_employee_input.setCurrentIndex(index)
+                else:
+                    # Якщо не знайдено за ID, шукаємо за текстом
+                    index = self.hr_employee_input.findText(saved_hr)
+                    if index >= 0:
+                        self.hr_employee_input.setCurrentIndex(index)
 
         # Зберігаємо всі доступні посади для діалогу вибору
         self._all_positions = [
@@ -992,7 +1009,15 @@ class SettingsDialog(QDialog):
 
             # Працівник кадрової служби
             hr_employee_id = self.hr_employee_input.currentData()
-            SystemSettings.set_value(db, "hr_signature_id", hr_employee_id)
+            # Якщо обрано зі списку - зберігаємо ID, якщо введено вручну - зберігаємо текст
+            if hr_employee_id is None:
+                hr_employee_text = self.hr_employee_input.currentText().strip()
+                if hr_employee_text:
+                    SystemSettings.set_value(db, "hr_signature_id", f"custom:{hr_employee_text}")
+                else:
+                    SystemSettings.set_value(db, "hr_signature_id", "")
+            else:
+                SystemSettings.set_value(db, "hr_signature_id", hr_employee_id)
 
         # Показуємо повідомлення і закриваємо діалог
         QMessageBox.information(

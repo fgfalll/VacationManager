@@ -706,10 +706,15 @@ def generate_tabel_html(
         with get_db_context() as db:
             # Get settings
             hr_employee_id = SystemSettings.get_value(db, "hr_signature_id", None)
-            if hr_employee_id:
-                hr_staff = db.query(Staff).get(hr_employee_id)
-                if hr_staff:
-                    hr_person = format_initials(hr_staff.pib_nom)
+            if hr_employee_id and hr_employee_id not in ("None", "none", ""):
+                if str(hr_employee_id).startswith("custom:"):
+                    # Користувацьке ім'я - форматуємо напряму
+                    custom_name = str(hr_employee_id)[7:]
+                    hr_person = format_initials(custom_name)
+                else:
+                    hr_staff = db.query(Staff).get(int(hr_employee_id))
+                    if hr_staff:
+                        hr_person = format_initials(hr_staff.pib_nom)
 
             # Get active staff
             # Include deactivated employees if their contract ends within the current month
