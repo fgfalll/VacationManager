@@ -5,7 +5,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from sqlalchemy.orm import joinedload
+
+from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QPushButton,
@@ -13,7 +15,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QLineEdit, QDoubleSpinBox, QProgressBar, QMessageBox,
     QDialog, QDialogButtonBox, QFormLayout, QListWidget, QListWidgetItem,
     QAbstractItemView, QRadioButton, QButtonGroup, QFrame, QScrollArea,
-    QApplication, QCalendarWidget
+    QApplication, QCalendarWidget, QDateEdit, QTextEdit
 )
 
 from backend.core.database import get_db_context
@@ -112,12 +114,16 @@ class BulkApproversDialog(QDialog):
         layout = QFormLayout(dialog)
 
         pos_edit = QLineEdit()
-        pos_multiline = QLineEdit()
+        pos_edit.setPlaceholderText("напр., завідувача кафедри журналістики")
         name_edit = QLineEdit()
+        name_edit.setPlaceholderText("ПІБ")
 
         layout.addRow("Посада:", pos_edit)
-        layout.addRow("Посада (багаторядковий):", pos_multiline)
         layout.addRow("ПІБ:", name_edit)
+
+        info_label = QLabel("Рядок буде автоматично розбито, якщо текст занадто довгий")
+        info_label.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addRow(info_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
@@ -126,10 +132,20 @@ class BulkApproversDialog(QDialog):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             if pos_edit.text() and name_edit.text():
+                # Format name as "Василь САВИК" (first name + surname uppercase)
+                full_name = name_edit.text()
+                name_parts = full_name.split()
+                if len(name_parts) >= 3:
+                    formatted_name = f"{name_parts[1]} {name_parts[0].upper()}"
+                elif len(name_parts) == 2:
+                    formatted_name = f"{name_parts[0]} {name_parts[1].upper()}"
+                else:
+                    formatted_name = full_name
+
                 self._signatories.append({
                     'position': pos_edit.text(),
-                    'position_multiline': pos_multiline.text() or pos_edit.text(),
-                    'name': name_edit.text()
+                    'position_multiline': '',  # Will be calculated automatically when rendering
+                    'name': formatted_name
                 })
                 self._update_list()
 
@@ -400,9 +416,12 @@ class BulkGeneratorDialog(QDialog):
         self._selected_staff = []  # List of selected staff dicts
         self._date_ranges = []  # List of (start, end) tuples
         self._signatories = []  # List of approver dicts
+        self._approvers = []  # Alias for signatories (used in generation)
         self._apply_signatories_all = True
         self._setup_ui()
         self._load_staff()
+        # Initialize approvers from default signatories
+        self._approvers = self._get_default_signatories()
 
     def _setup_ui(self):
         """Set up the UI."""
@@ -412,65 +431,59 @@ class BulkGeneratorDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # Top section - Filters + Staff Selection
-        top_layout = QHBoxLayout()
-
-        # Filter Section (compact)
-        filter_group = QGroupBox("Фільтри")
-        filter_layout = QVBoxLayout()
-        filter_layout.setContentsMargins(5, 5, 5, 5)
-        filter_layout.setSpacing(5)
+        # Filters in a single horizontal line
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(15)
 
         # Employment type checkboxes - all checked by default
-        emp_layout = QHBoxLayout()
-        emp_layout.setSpacing(8)
-        emp_layout.addWidget(QLabel("Тип:"))
+        filter_layout.addWidget(QLabel("<b>Тип працевлаштування:</b>"))
         self.main_check = QCheckBox("Основне")
         self.main_check.setChecked(True)
-        self.external_check = QCheckBox("Зовніш.")
+        self.external_check = QCheckBox("Зовнішнє")
         self.external_check.setChecked(True)
-        self.internal_check = QCheckBox("Внутр.")
+        self.internal_check = QCheckBox("Внутрішнє")
         self.internal_check.setChecked(True)
-        emp_layout.addWidget(self.main_check)
-        emp_layout.addWidget(self.external_check)
-        emp_layout.addWidget(self.internal_check)
-        emp_layout.addStretch()
-        filter_layout.addLayout(emp_layout)
+        filter_layout.addWidget(self.main_check)
+        filter_layout.addWidget(self.external_check)
+        filter_layout.addWidget(self.internal_check)
+
+        # Separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        filter_layout.addWidget(separator)
 
         # Rate filter
-        rate_layout = QHBoxLayout()
-        rate_layout.setSpacing(8)
-        rate_layout.addWidget(QLabel("Ставка:"))
+        filter_layout.addWidget(QLabel("<b>Ставка:</b>"))
         rate_btn_group = QButtonGroup()
         self.rate_all_radio = QRadioButton("Всі")
-        self.rate_full_radio = QRadioButton("Повна")
-        self.rate_partial_radio = QRadioButton("Частк.")
         self.rate_all_radio.setChecked(True)
+        self.rate_full_radio = QRadioButton("Повна")
+        self.rate_partial_radio = QRadioButton("Часткова")
         rate_btn_group.addButton(self.rate_all_radio)
         rate_btn_group.addButton(self.rate_full_radio)
         rate_btn_group.addButton(self.rate_partial_radio)
-        rate_layout.addWidget(self.rate_all_radio)
-        rate_layout.addWidget(self.rate_full_radio)
-        rate_layout.addWidget(self.rate_partial_radio)
-        rate_layout.addStretch()
-        filter_layout.addLayout(rate_layout)
+        filter_layout.addWidget(self.rate_all_radio)
+        filter_layout.addWidget(self.rate_full_radio)
+        filter_layout.addWidget(self.rate_partial_radio)
 
-        filter_group.setLayout(filter_layout)
-        top_layout.addWidget(filter_group)
-        top_layout.setStretchFactor(filter_group, 1)
+        filter_layout.addStretch()
+        layout.addLayout(filter_layout)
 
         # Staff Selection Table
         staff_group = QGroupBox("Вибір співробітників")
         staff_layout = QVBoxLayout()
 
         self.staff_table = QTableWidget()
-        self.staff_table.setColumnCount(9)
+        self.staff_table.setColumnCount(10)
         self.staff_table.setHorizontalHeaderLabels([
-            "", "ПІБ", "Посада", "Ставка", "Баланс", "Тип", "Закінчення контракту", "", "Обрані дати"
+            "", "ПІБ", "Посада", "Ставка", "Баланс", "Тип", "Закінчення контракту", "", "Обрані дати", "Погоджувачі"
         ])
         self.staff_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.staff_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.staff_table.setAlternatingRowColors(True)
+        self.staff_table.itemChanged.connect(self._on_table_item_changed)
+        self.staff_table.cellDoubleClicked.connect(self._on_table_item_double_clicked)
         staff_layout.addWidget(self.staff_table)
 
         # Selection info and select all
@@ -489,10 +502,7 @@ class BulkGeneratorDialog(QDialog):
         staff_layout.addLayout(select_layout)
 
         staff_group.setLayout(staff_layout)
-        top_layout.addWidget(staff_group)
-        top_layout.setStretchFactor(staff_group, 4)  # Give more space to staff table
-
-        layout.addLayout(top_layout)
+        layout.addWidget(staff_group)
 
         # Approvers Section
         approvers_group = QGroupBox("Погоджувачі")
@@ -506,6 +516,16 @@ class BulkGeneratorDialog(QDialog):
         self.approvers_info = QLabel("Буде використано системні налаштування")
         self.approvers_info.setStyleSheet("color: #666;")
         approvers_layout.addWidget(self.approvers_info)
+
+        # Per-staff approvers button
+        self.staff_approvers_btn = QPushButton("Налаштувати для окремого співробітника...")
+        self.staff_approvers_btn.setStyleSheet("padding: 8px;")
+        self.staff_approvers_btn.clicked.connect(self._configure_staff_approvers)
+        approvers_layout.addWidget(self.staff_approvers_btn)
+
+        staff_approvers_hint = QLabel("(Оберіть співробітника у таблиці спочатку)")
+        staff_approvers_hint.setStyleSheet("color: #888; font-size: 10px;")
+        approvers_layout.addWidget(staff_approvers_hint)
 
         # File suffix option
         suffix_layout = QHBoxLayout()
@@ -552,22 +572,6 @@ class BulkGeneratorDialog(QDialog):
 
         # Generate button
         self.generate_btn = QPushButton("🚀 Згенерувати документи")
-        self.generate_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #059669;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 8px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #047857;
-            }
-            QPushButton:disabled {
-                background-color: #9CA3AF;
-            }
-        """)
         self.generate_btn.setEnabled(False)
         self.generate_btn.clicked.connect(self._generate_documents)
         bottom_layout.addWidget(self.generate_btn)
@@ -587,6 +591,7 @@ class BulkGeneratorDialog(QDialog):
         with get_db_context() as db:
             staff_list = (
                 db.query(Staff)
+                .options(joinedload(Staff.documents))
                 .filter(Staff.is_active == True)
                 .order_by(Staff.pib_nom)
                 .all()
@@ -596,12 +601,18 @@ class BulkGeneratorDialog(QDialog):
             for staff in staff_list:
                 # Calculate locked dates
                 locked_dates = set()
+                locked_docs_count = 0
                 for doc in staff.documents:
                     if doc.status in ('on_signature', 'signed', 'processed'):
+                        locked_docs_count += 1
                         current = doc.date_start
                         while current <= doc.date_end:
                             locked_dates.add(current)
                             current += timedelta(days=1)
+
+                # Debug output
+                if locked_dates:
+                    print(f"[DEBUG] {staff.pib_nom}: {len(locked_dates)} locked dates from {locked_docs_count} docs, e.g. {sorted(list(locked_dates))[:3]}")
 
                 self._staff_data.append({
                     'id': staff.id,
@@ -617,7 +628,7 @@ class BulkGeneratorDialog(QDialog):
 
         self._apply_filters()
 
-    def _apply_filters(self):
+    def _apply_filters(self, preserve_selection: bool = True):
         """Apply filters and update table."""
         # Get filter values
         main = self.main_check.isChecked()
@@ -626,6 +637,15 @@ class BulkGeneratorDialog(QDialog):
 
         rate_all = self.rate_all_radio.isChecked()
         rate_full = self.rate_full_radio.isChecked()
+
+        # Save currently selected staff data to preserve custom approvers
+        selected_ids = set()
+        selected_approvers = {}  # staff_id -> custom approvers
+        if preserve_selection:
+            for staff in self._selected_staff:
+                selected_ids.add(staff['id'])
+                if '_approvers' in staff:
+                    selected_approvers[staff['id']] = staff['_approvers']
 
         # Filter staff
         filtered = []
@@ -654,6 +674,12 @@ class BulkGeneratorDialog(QDialog):
 
             filtered.append(staff)
 
+        # Restore custom approvers for selected staff
+        if preserve_selection:
+            for staff in filtered:
+                if staff['id'] in selected_approvers:
+                    staff['_approvers'] = selected_approvers[staff['id']]
+
         # Update table
         self.staff_table.setRowCount(len(filtered))
         for row, staff in enumerate(filtered):
@@ -662,7 +688,11 @@ class BulkGeneratorDialog(QDialog):
 
             # Checkbox (column 0) - already has its own flags
             checkbox = QTableWidgetItem()
-            checkbox.setCheckState(Qt.CheckState.Unchecked)
+            # Restore checked state if this staff was selected
+            if preserve_selection and staff['id'] in selected_ids:
+                checkbox.setCheckState(Qt.CheckState.Checked)
+            else:
+                checkbox.setCheckState(Qt.CheckState.Unchecked)
             checkbox.setData(Qt.ItemDataRole.UserRole, staff)
             # Checkbox needs to be enabled for interaction
             checkbox.setFlags(flags | Qt.ItemFlag.ItemIsUserCheckable)
@@ -691,7 +721,19 @@ class BulkGeneratorDialog(QDialog):
 
             # Date display column (column 8) - read-only
             date_text = staff.get('_selected_dates', '')
+            print(f"[DEBUG TABLE] Row {row}, {staff['pib_nom']}: _selected_dates = '{date_text}', id={staff['id']}")
             self._set_cell_readonly(row, 8, date_text)
+
+            # Approvers indicator (column 9)
+            approvers_item = QTableWidgetItem()
+            if staff.get('_approvers'):
+                approvers_item.setText("✓ Індивідуальні")
+                approvers_item.setToolTip(f"Індивідуальні погоджувачі: {len(staff['_approvers'])}")
+            elif self._approvers:
+                approvers_item.setText("✓")
+                approvers_item.setToolTip(f"Погоджувачі налаштовані: {len(self._approvers)}")
+            approvers_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.staff_table.setItem(row, 9, approvers_item)
 
             # Locked dates indicator
             if staff['locked_dates']:
@@ -706,6 +748,8 @@ class BulkGeneratorDialog(QDialog):
         self.staff_table.setColumnWidth(0, 30)
         self.staff_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
         self.staff_table.setColumnWidth(7, 45)
+        self.staff_table.horizontalHeader().setSectionResizeMode(9, QHeaderView.ResizeMode.Fixed)
+        self.staff_table.setColumnWidth(9, 120)
 
         self._on_selection_changed()
 
@@ -729,12 +773,53 @@ class BulkGeneratorDialog(QDialog):
             item.setCheckState(Qt.CheckState.Unchecked)
         self._on_selection_changed()
 
+    def _on_table_item_changed(self, item):
+        """Handle table item change - update selection."""
+        if item.column() == 0:  # Only checkbox column
+            self._on_selection_changed()
+
+    def _on_table_item_double_clicked(self, row, column):
+        """Handle double-click - open approvers dialog for per-staff override."""
+        if column == 9:  # Approvers column
+            # Get row and staff info
+            checkbox = self.staff_table.item(row, 0)
+            if not checkbox:
+                return
+
+            staff_info = checkbox.data(Qt.ItemDataRole.UserRole)
+            if not staff_info:
+                return
+
+            # Check if per-staff override is allowed
+            if self._apply_signatories_all:
+                # Using same approvers for all - no override allowed
+                return
+
+            # Open approvers dialog for this staff
+            current_approvers = staff_info.get('_approvers', self._approvers.copy())
+
+            dialog = BulkApproversDialog(self, current_approvers)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                new_approvers = dialog.get_signatories()
+
+                # Update staff info
+                staff_info['_approvers'] = new_approvers
+
+                # Update in _selected_staff
+                for staff in self._selected_staff:
+                    if staff['id'] == staff_info['id']:
+                        staff['_approvers'] = new_approvers
+                        break
+
+                # Refresh table
+                self._apply_filters(preserve_selection=True)
+
     def _on_selection_changed(self):
         """Handle selection change."""
         selected = []
         for row in range(self.staff_table.rowCount()):
             item = self.staff_table.item(row, 0)
-            if item.checkState() == Qt.CheckState.Checked:
+            if item and item.checkState() == Qt.CheckState.Checked:
                 selected.append(item.data(Qt.ItemDataRole.UserRole))
 
         self._selected_staff = selected
@@ -809,43 +894,614 @@ class BulkGeneratorDialog(QDialog):
             QMessageBox.warning(self, "Попередження", "Спочатку оберіть співробітників!")
             return
 
-        # Get first selected staff for demo - in bulk mode we need a different approach
-        # For bulk mode, we'll use a simplified dialog that sets the same dates for all
-        staff = self._selected_staff[0]
+        # Ask for minimum vacation days (actual days will be adjusted per employee)
+        days_dialog = QDialog(self)
+        days_dialog.setWindowTitle("Автоматичний підбір дат")
+        days_dialog.setMinimumSize(350, 200)
+        days_layout = QVBoxLayout(days_dialog)
 
-        # Import AutoDateRangeDialog
-        from desktop.ui.builder_tab import AutoDateRangeDialog
+        days_layout.addWidget(QLabel("<b>Мінімальна кількість днів відпустки:</b>"))
+        days_layout.addWidget(QLabel("<small>Буде підібрано для кожного співробітника індивідуально (враховуючи баланс та контракт)</small>"))
 
-        dialog = AutoDateRangeDialog(staff['id'], self)
-        dialog.selection_complete.connect(self._on_auto_date_complete)
-        dialog.exec()
+        days_spinbox = QSpinBox()
+        days_spinbox.setMinimum(1)
+        days_spinbox.setMaximum(30)
+        days_spinbox.setValue(14)
+        days_layout.addWidget(days_spinbox)
 
-    def _on_auto_date_complete(self, ranges: list[tuple]):
-        """Apply auto-selected dates to all selected staff."""
-        if not ranges:
+        # Admin override checkbox
+        self.admin_override_check = QCheckBox("Admin override (ігнорувати баланс)")
+        self.admin_override_check.setToolTip("Дозволити генерацію навіть якщо недостатньо днів відпустки")
+        days_layout.addWidget(self.admin_override_check)
+
+        # Earliest start date
+        days_layout.addWidget(QLabel("Початок пошуку не раніше:"))
+        start_date_edit = QDateEdit()
+        start_date_edit.setCalendarPopup(True)
+        start_date_edit.setDate(QDate.currentDate().addDays(14))
+        days_layout.addWidget(start_date_edit)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(days_dialog.accept)
+        buttons.rejected.connect(days_dialog.reject)
+        days_layout.addWidget(buttons)
+
+        if days_dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        # Apply the same dates to all selected staff
-        for row in range(self.staff_table.rowCount()):
-            checkbox = self.staff_table.item(row, 0)
-            if checkbox and checkbox.checkState() == Qt.CheckState.Checked:
-                staff = checkbox.data(Qt.ItemDataRole.UserRole)
-                if staff:
-                    # Format dates for display
-                    date_str_parts = []
-                    for start, end in ranges:
-                        if start == end:
-                            date_str_parts.append(start.strftime('%d.%m'))
-                        else:
-                            date_str_parts.append(f"{start.strftime('%d.%m')}-{end.strftime('%d.%m')}")
-                    date_text = ", ".join(date_str_parts)
+        min_days = days_spinbox.value()
+        admin_override = self.admin_override_check.isChecked()
+        min_start_date = start_date_edit.date().toPyDate()
 
-                    # Store in staff data
-                    staff['_selected_dates'] = date_text
-                    staff['_date_ranges'] = ranges
+        # Process each employee individually
+        self._auto_find_dates_for_all(min_days, admin_override, min_start_date)
 
-                    # Update display column
-                    self._set_cell_readonly(row, 8, date_text)
+    def _auto_find_dates_for_all(self, min_days: int, admin_override: bool, min_start_date: date):
+        """Automatically find dates for all selected employees."""
+        # Debug: check for duplicates in _selected_staff
+        print(f"[DEBUG] _selected_staff count: {len(self._selected_staff)}")
+        seen_ids = set()
+        for s in self._selected_staff:
+            if s['id'] in seen_ids:
+                print(f"[DEBUG DUPLICATE] Found duplicate in _selected_staff: {s['pib_nom']} id={s['id']} position={s['position']}")
+            seen_ids.add(s['id'])
+
+        results = []
+        errors = []  # List of tuples (staff_info, error_msg)
+
+        for staff_info in self._selected_staff:
+            # Adjust days based on balance if not admin override
+            if admin_override:
+                days_to_find = min_days
+            else:
+                days_to_find = min(min_days, staff_info['balance'])
+
+            staff_details = f"{staff_info['pib_nom']} ({staff_info['position']}, {staff_info['rate']:.2f} ст.)"
+
+            if days_to_find <= 0:
+                errors.append((staff_info, f"{staff_details}: недостатній баланс ({staff_info['balance']} дн.)"))
+                continue
+
+            # Find available dates
+            date_range = self._find_available_dates(staff_info, min_start_date, days_to_find)
+
+            if date_range:
+                start, end = date_range
+                staff_info['_date_ranges'] = [date_range]
+                staff_info['_selected_dates'] = f"{start.strftime('%d.%m')}-{end.strftime('%d.%m')}"
+                print(f"[DEBUG AUTO] Found dates for {staff_info['pib_nom']}: {staff_info['_selected_dates']}")
+
+                # Sync to _staff_data so filters can see the updates
+                for staff in self._staff_data:
+                    if staff['id'] == staff_info['id']:
+                        staff['_date_ranges'] = staff_info['_date_ranges']
+                        staff['_selected_dates'] = staff_info['_selected_dates']
+                        break
+
+                results.append({
+                    'pib': staff_info['pib_nom'],
+                    'dates': f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}",
+                    'days': (end - start).days + 1
+                })
+            else:
+                errors.append((staff_info, f"{staff_details}: немає доступних дат для {days_to_find} днів (баланс: {staff_info['balance']}, контракт: {staff_info['term_end'].strftime('%d.%m.%Y')})"))
+
+        # Show summary - dates are already populated for successful ones
+        self._show_auto_dates_summary(results, errors)
+
+    def _show_auto_dates_summary(self, results: list, errors: list):
+        """Show summary of automatic date selection."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Результат автоматичного підбору")
+        dialog.setMinimumSize(600, 500)
+
+        layout = QVBoxLayout(dialog)
+
+        # Success count
+        success_count = len(results)
+        if success_count > 0:
+            layout.addWidget(QLabel(f"<h3>Успішно підібрано: {success_count}</h3>"))
+
+        # Results list with regenerate buttons
+        if results:
+            results_group = QGroupBox("Підібрані дати:")
+            results_layout = QVBoxLayout(results_group)
+            results_layout.setSpacing(5)
+
+            for r in results:
+                row_layout = QHBoxLayout()
+
+                text = f"{r['pib']}: {r['dates']} ({r['days']} дн.)"
+                result_label = QLabel(text)
+                result_label.setStyleSheet("color: #059669; font-size: 12px;")
+                row_layout.addWidget(result_label, stretch=1)
+
+                # Find staff_info by pib (use name that matches)
+                staff_info = next((s for s in self._selected_staff if s['pib_nom'] == r['pib']), None)
+
+                # Always add regenerate button for results
+                regen_btn = QPushButton("🔄")
+                regen_btn.setFixedWidth(40)
+                regen_btn.setToolTip("Змінити параметри та перегенерувати")
+                if staff_info:
+                    regen_btn.clicked.connect(lambda checked, s=staff_info: self._regenerate_for_staff(s, dialog))
+                else:
+                    # If staff not found, try to find by position/rate combo
+                    regen_btn.clicked.connect(lambda checked, p=r['pib']: self._regenerate_by_name(p, dialog))
+                row_layout.addWidget(regen_btn)
+
+                results_layout.addLayout(row_layout)
+
+            layout.addWidget(results_group)
+
+        # Errors with regenerate buttons
+        if errors:
+            errors_group = QGroupBox("Помилки:")
+            errors_layout = QVBoxLayout(errors_group)
+            errors_layout.setSpacing(5)
+
+            for staff_info, error_msg in errors:
+                error_row = QHBoxLayout()
+
+                err_label = QLabel(error_msg)
+                err_label.setStyleSheet("color: #DC2626; font-size: 12px;")
+                error_row.addWidget(err_label, stretch=1)
+
+                regen_btn = QPushButton("🔄")
+                regen_btn.setFixedWidth(40)
+                regen_btn.setToolTip("Змінити параметри та спробувати ще раз")
+                regen_btn.clicked.connect(lambda checked, s=staff_info: self._regenerate_for_staff(s, dialog))
+                error_row.addWidget(regen_btn)
+
+                errors_layout.addLayout(error_row)
+
+            layout.addWidget(errors_group)
+
+        # If no results
+        if not results and not errors:
+            layout.addWidget(QLabel("Нічого не підібрано."))
+
+        # Buttons
+        buttons_layout = QHBoxLayout()
+
+        # Regenerate All button (including successful)
+        regenerate_all_btn = QPushButton("🔄 Перегенерувати всіх")
+        regenerate_all_btn.setStyleSheet("padding: 8px 16px;")
+        regenerate_all_btn.setToolTip("Перегенерувати для всіх обраних, включаючи успішні")
+        regenerate_all_btn.clicked.connect(lambda: self._regenerate_all(dialog, include_successful=True))
+        buttons_layout.addWidget(regenerate_all_btn)
+
+        buttons_layout.addStretch()
+
+        # Apply button
+        apply_btn = QPushButton("✅ Застосувати")
+        apply_btn.setStyleSheet("padding: 8px 16px; font-weight: bold;")
+        apply_btn.setEnabled(success_count > 0)  # Enable only if there are results
+        apply_btn.clicked.connect(lambda: self._apply_auto_dates(dialog))
+        buttons_layout.addWidget(apply_btn)
+
+        close_btn = QPushButton("Скасувати")
+        close_btn.setStyleSheet("padding: 8px 16px;")
+        close_btn.clicked.connect(dialog.reject)
+        buttons_layout.addWidget(close_btn)
+
+        layout.addLayout(buttons_layout)
+
+        dialog.exec()
+
+    def _regenerate_all(self, parent_dialog: QDialog = None, include_successful: bool = False):
+        """Open regeneration dialog for all employees.
+
+        Args:
+            parent_dialog: Parent dialog to close after regeneration
+            include_successful: If True, also regenerate for staff who already have dates
+        """
+        # Get all selected staff
+        all_staff = list(self._selected_staff)
+        if not all_staff:
+            QMessageBox.warning(self, "Попередження", "Немає обраних співробітників!")
+            return
+
+        # Clear existing dates if including successful
+        if include_successful:
+            for staff_info in all_staff:
+                staff_info['_date_ranges'] = []
+                staff_info['_selected_dates'] = ''
+
+        days_dialog = QDialog(self)
+        days_dialog.setWindowTitle("Перегенерувати для всіх")
+        days_dialog.setMinimumSize(400, 280)
+        days_layout = QVBoxLayout(days_dialog)
+
+        # Days count
+        days_layout.addWidget(QLabel("<b>Кількість днів відпустки:</b>"))
+
+        days_spinbox = QSpinBox()
+        days_spinbox.setMinimum(1)
+        days_spinbox.setMaximum(30)
+        days_spinbox.setValue(14)
+        days_layout.addWidget(days_spinbox)
+
+        # Admin override checkbox
+        admin_override_check = QCheckBox("Admin override (ігнорувати баланс)")
+        days_layout.addWidget(admin_override_check)
+
+        # Mode selection
+        mode_layout = QVBoxLayout()
+        mode_layout.addWidget(QLabel("<b>Режим вибору дат:</b>"))
+        mode_btn_group = QButtonGroup()
+
+        single_range_radio = QRadioButton("Один безперервний діапазон")
+        single_range_radio.setChecked(True)
+        mode_layout.addWidget(single_range_radio)
+        mode_btn_group.addButton(single_range_radio, 1)
+
+        multiple_ranges_radio = QRadioButton("Кілька окремих діапазонів")
+        mode_layout.addWidget(multiple_ranges_radio)
+        mode_btn_group.addButton(multiple_ranges_radio, 2)
+
+        single_dates_radio = QRadioButton("Окремі дні")
+        mode_layout.addWidget(single_dates_radio)
+        mode_btn_group.addButton(single_dates_radio, 3)
+
+        mixed_radio = QRadioButton("Змішано (діапазони + окремі дні)")
+        mode_layout.addWidget(mixed_radio)
+        mode_btn_group.addButton(mixed_radio, 4)
+
+        days_layout.addLayout(mode_layout)
+
+        # Earliest start date
+        days_layout.addWidget(QLabel("Початок пошуку не раніше:"))
+        start_date_edit = QDateEdit()
+        start_date_edit.setCalendarPopup(True)
+        start_date_edit.setDate(QDate.currentDate().addDays(14))
+        days_layout.addWidget(start_date_edit)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(days_dialog.accept)
+        buttons.rejected.connect(days_dialog.reject)
+        days_layout.addWidget(buttons)
+
+        if days_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        min_days = days_spinbox.value()
+        admin_override = admin_override_check.isChecked()
+        min_start_date = start_date_edit.date().toPyDate()
+        mode = mode_btn_group.checkedId()
+
+        # Process all staff
+        results = []
+        errors = []
+
+        for staff_info in all_staff:
+            # Adjust days based on balance if not admin override
+            if admin_override:
+                days_to_find = min_days
+            else:
+                days_to_find = min(min_days, staff_info['balance'])
+
+            staff_details = f"{staff_info['pib_nom']} ({staff_info['position']}, {staff_info['rate']:.2f} ст.)"
+
+            if days_to_find <= 0:
+                errors.append((staff_info, f"{staff_details}: недостатній баланс ({staff_info['balance']} дн.)"))
+                continue
+
+            # Find available dates based on mode
+            if mode == 1:  # Single range
+                date_range = self._find_available_dates(staff_info, min_start_date, days_to_find)
+                date_ranges = [date_range] if date_range else []
+            elif mode == 2:  # Multiple ranges
+                date_ranges = self._find_multiple_ranges(staff_info, min_start_date, days_to_find)
+            elif mode == 3:  # Single dates
+                date_ranges = self._find_single_dates(staff_info, min_start_date, days_to_find)
+            elif mode == 4:  # Mixed
+                date_ranges = self._find_mixed_dates(staff_info, min_start_date, days_to_find)
+            else:
+                date_range = self._find_available_dates(staff_info, min_start_date, days_to_find)
+                date_ranges = [date_range] if date_range else []
+
+            if date_ranges:
+                staff_info['_date_ranges'] = date_ranges
+                # Format for display
+                date_str_parts = []
+                for start, end in date_ranges:
+                    if start == end:
+                        date_str_parts.append(start.strftime('%d.%m'))
+                    else:
+                        date_str_parts.append(f"{start.strftime('%d.%m')}-{end.strftime('%d.%m')}")
+                staff_info['_selected_dates'] = ", ".join(date_str_parts)
+
+                # Sync to _staff_data so filters can see the updates
+                for staff in self._staff_data:
+                    if staff['id'] == staff_info['id']:
+                        staff['_date_ranges'] = staff_info['_date_ranges']
+                        staff['_selected_dates'] = staff_info['_selected_dates']
+                        break
+
+                total_days = sum((end - start).days + 1 for start, end in date_ranges)
+                results.append({
+                    'pib': staff_info['pib_nom'],
+                    'dates': staff_info['_selected_dates'],
+                    'days': total_days
+                })
+            else:
+                errors.append((staff_info, f"{staff_details}: немає доступних дат для {days_to_find} днів"))
+
+        # Close parent dialog and show new summary
+        if parent_dialog:
+            parent_dialog.accept()
+
+        self._show_auto_dates_summary(results, errors)
+
+    def _find_multiple_ranges(self, staff_info: dict, start_from: date, days_needed: int) -> list:
+        """Find multiple separate ranges (e.g., 2 weeks of 5 days each)."""
+        ranges = []
+        remaining_days = days_needed
+        current_start = start_from
+        max_search = 180  # 6 months max search
+        locked = staff_info['locked_dates']
+
+        while remaining_days > 0 and (current_start - start_from).days < max_search:
+            # Skip locked dates and weekends
+            while current_start.weekday() >= 5 or current_start in locked:
+                current_start += timedelta(days=1)
+                if (current_start - start_from).days >= max_search:
+                    return ranges
+
+            # Try to find a range of 5 days
+            range_days = min(5, remaining_days)
+            date_range = self._find_available_dates(staff_info, current_start, range_days)
+
+            if date_range:
+                ranges.append(date_range)
+                remaining_days -= range_days
+                current_start = date_range[1] + timedelta(days=2)  # Gap of 1 day between ranges
+            else:
+                current_start += timedelta(days=1)
+
+        return ranges
+
+    def _find_single_dates(self, staff_info: dict, start_from: date, days_needed: int) -> list:
+        """Find separate individual days."""
+        dates = []
+        locked = staff_info['locked_dates']
+        contract_end = staff_info['term_end']
+        current = start_from
+        max_search = 180
+
+        while len(dates) < days_needed and (current - start_from).days < max_search:
+            # Skip locked dates, weekends, and contract end
+            if current <= contract_end and current.weekday() < 5 and current not in locked:
+                dates.append((current, current))
+                remaining_days = days_needed - len(dates)
+                if remaining_days > 0:
+                    # Skip next day to have at least 1 day gap
+                    current += timedelta(days=2)
+                    continue
+            current += timedelta(days=1)
+
+        return dates
+
+    def _find_mixed_dates(self, staff_info: dict, start_from: date, days_needed: int) -> list:
+        """Find mixed: ranges and single days."""
+        # Use 70% for main range, 30% for single days
+        range_days = max(1, int(days_needed * 0.7))
+        single_days = max(1, days_needed - range_days)
+
+        ranges = []
+        locked = staff_info['locked_dates']
+
+        # Skip to first available date
+        current = start_from
+        while current.weekday() >= 5 or current in locked:
+            current += timedelta(days=1)
+
+        # Find main range
+        date_range = self._find_available_dates(staff_info, current, range_days)
+        if date_range:
+            ranges.append(date_range)
+
+        # Find single days after the range
+        if date_range:
+            search_from = date_range[1] + timedelta(days=2)
+        else:
+            search_from = current
+
+        # Skip to next available for single days
+        while search_from.weekday() >= 5 or search_from in locked:
+            search_from += timedelta(days=1)
+
+        single_dates = self._find_single_dates(staff_info, search_from, single_days)
+        ranges.extend(single_dates)
+
+        return ranges[:days_needed]
+
+    def _regenerate_for_staff(self, staff_info: dict, parent_dialog: QDialog = None):
+        """Open regeneration dialog for a specific staff member."""
+        # Clear existing dates first
+        staff_info['_date_ranges'] = []
+        staff_info['_selected_dates'] = ''
+
+        # Sync to _staff_data so filters can see the updates
+        for staff in self._staff_data:
+            if staff['id'] == staff_info['id']:
+                staff['_date_ranges'] = staff_info['_date_ranges']
+                staff['_selected_dates'] = staff_info['_selected_dates']
+                break
+
+        # Get current parameters
+        days_dialog = QDialog(self)
+        days_dialog.setWindowTitle(f"Перегенерувати для {staff_info['pib_nom']}")
+        days_dialog.setMinimumSize(400, 280)
+        days_layout = QVBoxLayout(days_dialog)
+
+        days_layout.addWidget(QLabel(f"<b>Кількість днів відпустки:</b> (баланс: {staff_info['balance']} дн.)"))
+
+        days_spinbox = QSpinBox()
+        days_spinbox.setMinimum(1)
+        days_spinbox.setMaximum(30)
+        days_spinbox.setValue(14)
+        days_layout.addWidget(days_spinbox)
+
+        # Admin override checkbox
+        admin_override_check = QCheckBox("Admin override (ігнорувати баланс)")
+        days_layout.addWidget(admin_override_check)
+
+        # Mode selection
+        mode_layout = QVBoxLayout()
+        mode_layout.addWidget(QLabel("<b>Режим вибору дат:</b>"))
+        mode_btn_group = QButtonGroup()
+
+        single_range_radio = QRadioButton("Один безперервний діапазон")
+        single_range_radio.setChecked(True)
+        mode_layout.addWidget(single_range_radio)
+        mode_btn_group.addButton(single_range_radio, 1)
+
+        multiple_ranges_radio = QRadioButton("Кілька окремих діапазонів")
+        mode_layout.addWidget(multiple_ranges_radio)
+        mode_btn_group.addButton(multiple_ranges_radio, 2)
+
+        single_dates_radio = QRadioButton("Окремі дні")
+        mode_layout.addWidget(single_dates_radio)
+        mode_btn_group.addButton(single_dates_radio, 3)
+
+        mixed_radio = QRadioButton("Змішано (діапазони + окремі дні)")
+        mode_layout.addWidget(mixed_radio)
+        mode_btn_group.addButton(mixed_radio, 4)
+
+        days_layout.addLayout(mode_layout)
+
+        # Earliest start date
+        days_layout.addWidget(QLabel("Початок пошуку не раніше:"))
+        start_date_edit = QDateEdit()
+        start_date_edit.setCalendarPopup(True)
+        start_date_edit.setDate(QDate.currentDate())
+        days_layout.addWidget(start_date_edit)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(days_dialog.accept)
+        buttons.rejected.connect(days_dialog.reject)
+        days_layout.addWidget(buttons)
+
+        if days_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        days_count = days_spinbox.value()
+        admin_override = admin_override_check.isChecked()
+        min_start_date = start_date_edit.date().toPyDate()
+        mode = mode_btn_group.checkedId()
+
+        # Adjust days based on balance if not admin override
+        if not admin_override:
+            days_count = min(days_count, staff_info['balance'])
+
+        # Find dates based on mode
+        if mode == 1:  # Single range
+            date_range = self._find_available_dates(staff_info, min_start_date, days_count)
+            date_ranges = [date_range] if date_range else []
+        elif mode == 2:  # Multiple ranges
+            date_ranges = self._find_multiple_ranges(staff_info, min_start_date, days_count)
+        elif mode == 3:  # Single dates
+            date_ranges = self._find_single_dates(staff_info, min_start_date, days_count)
+        elif mode == 4:  # Mixed
+            date_ranges = self._find_mixed_dates(staff_info, min_start_date, days_count)
+        else:
+            date_range = self._find_available_dates(staff_info, min_start_date, days_count)
+            date_ranges = [date_range] if date_range else []
+
+        if date_ranges:
+            staff_info['_date_ranges'] = date_ranges
+            # Format for display
+            date_str_parts = []
+            for start, end in date_ranges:
+                if start == end:
+                    date_str_parts.append(start.strftime('%d.%m'))
+                else:
+                    date_str_parts.append(f"{start.strftime('%d.%m')}-{end.strftime('%d.%m')}")
+            staff_info['_selected_dates'] = ", ".join(date_str_parts)
+            print(f"[DEBUG] Applied dates for {staff_info['pib_nom']}: {staff_info['_selected_dates']}")
+
+            # Sync to _staff_data so filters can see the updates
+            for staff in self._staff_data:
+                if staff['id'] == staff_info['id']:
+                    staff['_date_ranges'] = staff_info['_date_ranges']
+                    staff['_selected_dates'] = staff_info['_selected_dates']
+                    print(f"[DEBUG] Synced dates to _staff_data for {staff['pib_nom']}")
+                    break
+
+            # Close parent dialog if provided and refresh summary
+            if parent_dialog:
+                parent_dialog.accept()
+                # Refresh the summary with new data
+                self._refresh_auto_dates_summary()
+        else:
+            QMessageBox.warning(self, "Не вдалося", "Немає доступних дат для вказаних параметрів.")
+
+    def _refresh_auto_dates_summary(self):
+        """Refresh and show the summary with current staff data."""
+        results = []
+        errors = []
+
+        for staff_info in self._selected_staff:
+            date_ranges = staff_info.get('_date_ranges', [])
+            if date_ranges:
+                # Format for display
+                date_str_parts = []
+                for start, end in date_ranges:
+                    if start == end:
+                        date_str_parts.append(start.strftime('%d.%m'))
+                    else:
+                        date_str_parts.append(f"{start.strftime('%d.%m')}-{end.strftime('%d.%m')}")
+                staff_info['_selected_dates'] = ", ".join(date_str_parts)
+
+                total_days = sum((end - start).days + 1 for start, end in date_ranges)
+                results.append({
+                    'pib': staff_info['pib_nom'],
+                    'dates': staff_info['_selected_dates'],
+                    'days': total_days
+                })
+            else:
+                staff_details = f"{staff_info['pib_nom']} ({staff_info['position']}, {staff_info['rate']:.2f} ст.)"
+                errors.append((staff_info, f"{staff_details}: не підібрано дати"))
+
+        self._show_auto_dates_summary(results, errors)
+
+    def _regenerate_by_name(self, pib_name: str, parent_dialog: QDialog = None):
+        """Find staff by name and regenerate dates."""
+        staff_info = next((s for s in self._selected_staff if s['pib_nom'] == pib_name), None)
+        if staff_info:
+            self._regenerate_for_staff(staff_info, parent_dialog)
+        else:
+            QMessageBox.warning(self, "Помилка", f"Не знайдено співробітника: {pib_name}")
+
+    def _apply_auto_dates(self, parent_dialog: QDialog = None):
+        """Apply selected dates and close the dialog."""
+        print(f"[DEBUG APPLY] Applying auto dates for {len(self._selected_staff)} staff")
+        print(f"[DEBUG APPLY] Checking dates in staff_data:")
+        for staff in self._staff_data:
+            dates = staff.get('_selected_dates', '')
+            if dates:
+                print(f"  - {staff['pib_nom']}: {dates}")
+
+        # Refresh table to ensure all dates are displayed
+        self._apply_filters()
+
+        # Close parent dialog
+        if parent_dialog:
+            parent_dialog.accept()
+        else:
+            # Find and close the summary dialog
+            for child in self.findChildren(QDialog):
+                if child.windowTitle() == "Результат автоматичного підбору":
+                    child.accept()
+                    break
 
     def _configure_approvers(self):
         """Configure approvers for bulk generation."""
@@ -854,6 +1510,9 @@ class BulkGeneratorDialog(QDialog):
         dialog = BulkApproversDialog(self, default_signatories)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._signatories = dialog.get_signatories()
+            self._approvers = self._signatories  # Sync for generation
+            # apply_all_check = True means use same approvers for ALL staff
+            # apply_all_check = False means allow per-staff overrides
             self._apply_signatories_all = dialog.get_apply_all()
 
             if self._signatories:
@@ -862,6 +1521,54 @@ class BulkGeneratorDialog(QDialog):
             else:
                 self.approvers_info.setText("Буде використано системні налаштування")
 
+            # Refresh table to show approvers indicator
+            self._apply_filters(preserve_selection=True)
+
+    def _configure_staff_approvers(self):
+        """Configure custom approvers for selected staff member."""
+        # Get selected rows
+        selected_rows = set()
+        for index in range(self.staff_table.rowCount()):
+            checkbox = self.staff_table.item(index, 0)
+            if checkbox.checkState() == Qt.CheckState.Checked:
+                selected_rows.add(index)
+
+        if not selected_rows:
+            QMessageBox.warning(self, "Увага", "Спочатку оберіть співробітника у таблиці")
+            return
+
+        if len(selected_rows) > 1:
+            QMessageBox.warning(self, "Увага", "Оберіть лише одного співробітника для налаштування погоджувачів")
+            return
+
+        # Get the staff info
+        row = list(selected_rows)[0]
+        staff_info = self.staff_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        if not staff_info:
+            return
+
+        # Get current approvers for this staff or use default
+        current_approvers = staff_info.get('_approvers', self._approvers.copy())
+
+        dialog = BulkApproversDialog(self, current_approvers)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_approvers = dialog.get_signatories()
+
+            # Apply to selected staff
+            for index in selected_rows:
+                checkbox = self.staff_table.item(index, 0)
+                staff_data = checkbox.data(Qt.ItemDataRole.UserRole)
+                if staff_data:
+                    staff_data['_approvers'] = new_approvers
+
+            # Update selected_staff list
+            for staff in self._selected_staff:
+                if staff['id'] == staff_info['id']:
+                    staff['_approvers'] = new_approvers
+                    break
+
+            QMessageBox.information(self, "Успішно", f"Погоджувачі оновлені для {staff_info['pib_nom']}")
+
     def _get_default_signatories(self) -> list[dict]:
         """Get default signatories from settings."""
         signatories = []
@@ -869,10 +1576,22 @@ class BulkGeneratorDialog(QDialog):
             approvers = db.query(Approvers).order_by(Approvers.order_index).all()
 
             for a in approvers:
+                # Format name as "Василь САВИК" (first name + surname uppercase)
+                full_name = a.full_name_nom or ''
+                name_parts = full_name.split()
+                if len(name_parts) >= 3:
+                    # "Савик Василь Миколайович" -> "Василь САВИК"
+                    formatted_name = f"{name_parts[1]} {name_parts[0].upper()}"
+                elif len(name_parts) == 2:
+                    # "Василь Савик" -> "Василь САВИК"
+                    formatted_name = f"{name_parts[0]} {name_parts[1].upper()}"
+                else:
+                    formatted_name = full_name
+
                 signatories.append({
                     'position': a.position_name,
-                    'position_multiline': a.position_name.replace('завідувача ', 'завідувача\n'),
-                    'name': a.full_name_nom
+                    'position_multiline': '',  # Will be calculated automatically when rendering
+                    'name': formatted_name
                 })
 
         return signatories
@@ -914,7 +1633,6 @@ class BulkGeneratorDialog(QDialog):
         errors = []
 
         try:
-            from backend.services.document_service import DocumentService
             from backend.services.grammar_service import GrammarService
             from backend.models.document import Document
 
@@ -938,6 +1656,20 @@ class BulkGeneratorDialog(QDialog):
                     date_start, date_end = date_ranges[0]
                     days_count = (date_end - date_start).days + 1
 
+                    # Check for locked date overlap
+                    locked_dates = staff_info.get('locked_dates', set())
+                    overlap_found = False
+                    overlap_msg = ""
+                    for d in locked_dates:
+                        if date_start <= d <= date_end:
+                            overlap_found = True
+                            overlap_msg = d.strftime('%d.%m.%Y')
+                            break
+
+                    if overlap_found:
+                        errors.append(f"{staff_info['pib_nom']}: обрані дати перетинаються з вже заброньованою датою {overlap_msg}")
+                        continue
+
                     # Create document
                     with get_db_context() as db:
                         doc = Document(
@@ -949,16 +1681,25 @@ class BulkGeneratorDialog(QDialog):
                             payment_period=self._get_payment_period(date_start, date_end),
                             editor_content='',
                             status=DocumentStatus.DRAFT,
-                            created_by='bulk'
                         )
 
                         db.add(doc)
                         db.commit()
                         db.refresh(doc)
 
-                        # Generate PDF
+                        # Determine which approvers to use
+                        if self._apply_signatories_all:
+                            # Use global approvers
+                            signatories_for_doc = self._approvers
+                        else:
+                            # Use per-staff approvers if set, otherwise global
+                            signatories_for_doc = staff_info.get('_approvers') or self._approvers
+
+                        # Generate PDF using same method as builder tab
                         doc_service = DocumentService(db, grammar)
-                        output_path = doc_service.generate_document(doc)
+                        output_path = doc_service.generate_document_from_template(
+                            doc, staff_info, signatories=signatories_for_doc, bulk_mode=True
+                        )
 
                         generated.append({
                             'staff': staff_info['pib_nom'],
@@ -978,7 +1719,7 @@ class BulkGeneratorDialog(QDialog):
         # Show results
         self._show_generation_results(generated, errors)
 
-    def _select_document_type(self) -> tuple[str, bool]:
+    def _select_document_type(self) -> tuple[DocumentType, bool]:
         """Select document type."""
         dialog = QDialog(self)
         dialog.setWindowTitle("Тип документа")
@@ -988,8 +1729,8 @@ class BulkGeneratorDialog(QDialog):
         layout.addWidget(label)
 
         combo = QComboBox()
-        combo.addItem("Оплачувана відпустка", "vacation_paid")
-        combo.addItem("Відпустка без збереження", "vacation_unpaid")
+        combo.addItem("Оплачувана відпустка", DocumentType.VACATION_PAID)
+        combo.addItem("Відпустка без збереження", DocumentType.VACATION_UNPAID)
         layout.addWidget(combo)
 
         buttons = QDialogButtonBox(
@@ -1001,15 +1742,20 @@ class BulkGeneratorDialog(QDialog):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             return combo.currentData(), True
-        return "", False
+        return DocumentType.VACATION_PAID, False
 
-    def _find_available_dates(self, staff_info: dict, doc_type: str, start_from: date = None, days_needed: int = 14) -> tuple | None:
+    def _find_available_dates(self, staff_info: dict, start_from: date = None, days_needed: int = 14) -> tuple | None:
         """Find available dates for a staff member."""
         if start_from is None:
             start_from = date.today()
 
         contract_end = staff_info['term_end']
         locked = staff_info['locked_dates']
+
+        # Debug output
+        print(f"[DEBUG] _find_available_dates for {staff_info['pib_nom']}: start_from={start_from}, days_needed={days_needed}, locked_count={len(locked)}")
+        if locked:
+            print(f"[DEBUG] Locked dates: {sorted(list(locked))[:5]}...")
 
         # Look ahead up to 3 months or contract end
         max_date = min(start_from + timedelta(days=90), contract_end - timedelta(days=days_needed))
@@ -1026,14 +1772,18 @@ class BulkGeneratorDialog(QDialog):
                 if check_date.weekday() >= 5:  # Weekend
                     continue
                 if check_date in locked:
+                    print(f"[DEBUG] Blocked at {check_date} (locked)")
                     all_available = False
                     break
 
             if all_available:
-                return (current, current + timedelta(days=days_needed - 1))
+                result = (current, current + timedelta(days=days_needed - 1))
+                print(f"[DEBUG] Found range: {result[0]} - {result[1]}")
+                return result
 
             current += timedelta(days=1)
 
+        print(f"[DEBUG] No available dates found")
         return None
 
     def _get_payment_period(self, date_start: date, date_end: date) -> str:
@@ -1047,24 +1797,59 @@ class BulkGeneratorDialog(QDialog):
         """Show generation results."""
         msg = QDialog(self)
         msg.setWindowTitle("Результат генерації")
+        msg.setMinimumSize(500, 300)
         layout = QVBoxLayout(msg)
 
+        # Build full text for copying
+        full_text = []
+
         if generated:
-            layout.addWidget(QLabel(f"Успішно згенеровано: {len(generated)} документів"))
+            success_label = QLabel(f"Успішно згенеровано: {len(generated)} документів")
+            success_label.setStyleSheet("color: #059669; font-weight: bold;")
+            layout.addWidget(success_label)
+            full_text.append(f"Успішно згенеровано: {len(generated)} документів")
 
         if errors:
-            error_text = "\n".join(errors[:10])
-            if len(errors) > 10:
-                error_text += f"\n... та ще {len(errors) - 10} помилок"
-            error_label = QLabel(f"Помилки:\n{error_text}")
-            error_label.setStyleSheet("color: #DC2626;")
+            error_label = QLabel(f"Помилки ({len(errors)}):")
+            error_label.setStyleSheet("color: #DC2626; font-weight: bold;")
             layout.addWidget(error_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        buttons.accepted.connect(msg.accept)
-        layout.addWidget(buttons)
+            error_text = "\n".join(errors)
+            error_display = QTextEdit()
+            error_display.setPlainText(error_text)
+            error_display.setReadOnly(True)
+            error_display.setMaximumHeight(150)
+            layout.addWidget(error_display)
+
+            full_text.append(f"\nПомилки ({len(errors)}):")
+            full_text.append(error_text)
+
+        # Buttons layout
+        buttons_layout = QHBoxLayout()
+
+        # Copy button
+        if generated or errors:
+            copy_btn = QPushButton("📋 Копіювати")
+            copy_btn.setStyleSheet("padding: 8px 16px;")
+            copy_btn.clicked.connect(lambda: self._copy_results("\n".join(full_text)))
+            buttons_layout.addWidget(copy_btn)
+
+        buttons_layout.addStretch()
+
+        ok_btn = QPushButton("OK")
+        ok_btn.setStyleSheet("padding: 8px 16px;")
+        ok_btn.clicked.connect(msg.accept)
+        buttons_layout.addWidget(ok_btn)
+
+        layout.addLayout(buttons_layout)
 
         if generated:
             self.document_created.emit()
 
         msg.exec()
+
+    def _copy_results(self, text: str):
+        """Copy results to clipboard."""
+        from PyQt6.QtGui import QClipboard
+        QApplication.clipboard().setText(text)
+        QMessageBox.information(self, "Скопійовано", "Результати скопійовано до буфера обміну")

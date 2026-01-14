@@ -1,8 +1,8 @@
-# VacationManager v5.5
+# VacationManager v6.0
 
-Система управління відпустками для університетської кафедри.
+Система управління відпустками та табелем обліку робочого часу для університетської кафедри.
 
-## Версія 14.01.2026 - Розширений функціонал
+## Версія Latest (v6.0) - Табель обліку та Відповідний Workflow
 
 ### Проект
 
@@ -10,135 +10,163 @@
 
 ### Основні функції
 
-- Управління персоналом кафедри
-- Річний графік відпусток з автоматичним розподілом
-- Конструктор заяв з live preview
-- Генерація документів з українською морфологією
+- Управління персоналом кафедри (з підтримкою кількох позицій на одного співробітника)
+- Річний графік відпусток з візуальним плануванням
+- Конструктор заяв з WYSIWYG-редактором та live preview
+- Генерація PDF документів з українською морфологією (WeasyPrint + Jinja2)
+- **Табель обліку робочого часу** — автоматична генерація табеля з усіма кодами відвідуваності
 - Web portal для завантаження сканів підписаних документів
 - WebSocket синхронізація між Desktop та Web
-- **Масова генерація документів**
-- **Підтримка воєнного стану**
-- **Розширена валідація дат**
+- **Повний workflow підписання документів**: заявник → диспетчерська → завідувач → наказ → ректор
 
 ### Технологічний стек
 
-- **Backend**: Python 3.10+, FastAPI, SQLAlchemy 2.0
-- **Desktop**: PyQt6
+- **Backend**: Python 3.10+, FastAPI, SQLAlchemy 2.0, Alembic
+- **Desktop**: PyQt6, PyQt6-WebEngine
 - **Database**: SQLite
-- **Document Generation**: docxtpl (Word templates)
+- **Document Generation**: WeasyPrint (HTML to PDF), Jinja2 templates
 - **Grammar**: pymorphy3 (Ukrainian morphology)
+- **Logging**: structlog
 
 ---
 
-## Новий функціонал (з 12.12.2025 по 14.01.2026)
+## Новий функціонал (з v14.01.2026 по v6.0 Latest)
 
-### Нові Сервіси (Services)
+### Major Changes
 
-#### 1. BulkDocumentService (`bulk_document_service.py`)
-Масова генерація документів для групи співробітників:
-- Генерація документів для списку співробітників
-- Валідація списку перед генерацією
-- Пошук доступних періодів для відпустки
-- Форматування імен файлів з українськими назвами місяців
+#### 1. Табель обліку робочого часу (TabelService)
+Повноцінна система генерації табеля згідно з наказом Мінпраці №55:
 
-#### 2. ScheduleService (`schedule_service.py`)
-Автоматичне управління річним графіком відпусток:
-- Автоматичний розподіл відпусток по місяцях
-- Вибір першого понеділка місяця для початку відпустки
-- Перевірка на перетини з існуючими записами
-- Статистика графіку по роках і місяцях
-- Валідація записів графіку
+**`tabel_service.py`** (30KB) — сервіс генерації табеля:
+- Автоматичний розрахунок робочих днів та годин за місяць
+- Підтримка всіх літерних кодів відвідуваності (Р, В, ВД, ТН, тощо)
+- Розрахунок підсумків по півмісяцях та за місяць
+- Підтримка надурочних годин (НУ), нічних (РН), вечірніх (ВЧ), вихідних (РВ)
+- Генерація HTML з Jinja2 шаблоном
+- Пагінація (кількість працівників на сторінці)
+- Підсумки відсутностей за категоріями:
+  - Відпустки 8-10 днів (вак_8_10)
+  - Відпустки 11-15 днів (вак_11_15)
+  - Відпустки 18 днів (вак_18)
+  - Відпустки 19 днів (вак_19)
+  - Відрядження, неповний день, тощо
 
-#### 3. ValidationService (`validation_service.py`)
-Комплексна валідація бізнес-правил:
-- **Валідація дат відпустки**: вихідні, перетини, баланс, termin контракту
-- **Розрахунок робочих та календарних днів**
-- **Парсинг складних форматів дат** українською мовою
-- **Підтримка воєнного стану**:
-  - Ліміт 24 дні відпустки під час воєнного стану
-  - Підрахунок всіх днів (включно з вихідними та святами)
-  - Налаштування для різних категорій працівників
-- **Визначення українських свят**
-- **Перевірка лімітів документів** (макс. 3 відпустки на підписі, 1 продовження контракту)
-- Клас `DateRange` для роботи з діапазонами дат
+**`attendance.py`** — модель відвідуваності:
+- Повний список кодів згідно з наказом Мінпраці №55 (30+ кодів)
+- Літерний код → числовий код (наприклад, Р → 01)
+- Підтримка діапазонів дат (`date_end`)
+- Properties для перевірки типу: `is_work_day`, `is_vacation`, `is_sick_leave`, тощо
 
-#### 4. DateParser (`date_parser.py`)
-Розпізнавання дат українською мовою:
-- `12 березня` — одиночна дата
-- `12, 14, 19 березня` — кілька дат
-- `12-19 березня` — діапазон
-- `12, 14, 19-21 березня` — комбінація
-- `12.03.2025` — класичний формат
-- `12/03/2025` — альтернативний роздільник
+#### 2. Attendance Tracking (AttendanceService)
+**`attendance_service.py`** (8KB) — CRUD для записів відвідуваності:
+- `create_attendance()` — створення запису на один день
+- `create_attendance_range()` — створення діапазону дат
+- `get_staff_attendance()` — отримання за місяць/рік
+- `update_attendance()`, `delete_attendance()`, `delete_attendance_range()`
+- Автоматичне оновлення існуючих записів при дублюванні
 
-#### 5. StaffService (`staff_service.py`)
-Ділові операції над співробітниками:
-- Create, Update, Delete, Restore
-- Фільтрація за статусом, типом працевлаштування
-- Пошук з закінчуючими контрактами
+#### 3. Staff History Tracking
+**`staff_history.py`** — модель історії змін співробітників:
+- Відстеження всіх змін (CREATE, UPDATE, DEACTIVATE, RESTORE)
+- JSON зі старими значеннями (тільки змінені поля)
+- `changed_by` — хто вніс зміни
+- `comment` — коментар до зміни
 
-#### 6. DocumentService (`document_service.py`)
-Операції над документами:
-- Створення, оновлення, видалення
-- Зміна статусів
-- Генерація Word/PDF документів
+#### 4. Shared Absence Types
+**`absence_types.py`** — централізовані типи відсутностей для UI:
+- Групи типів з українськими назвами
+- Маппінг назв → код (CODE_TO_ABSENCE_NAME)
+- Коди що вимагають вказання годин (CODES_REQUIRING_HOURS)
 
-#### 7. Enhanced GrammarService
-Нові методи:
-- `format_payment_period()` — форматування періоду оплати українською
-- `get_gender()` — визначення статі за ПІБ
-- `decline_position()` — відмінювання посад
+#### 5. WeasyPrint замість docxtpl
+- HTML → PDF замість Word → PDF
+- Jinja2 шаблони в `desktop/templates/tabel/`
+- Краща підтримка української мови та шрифтів
 
-### Нові Модулі
+#### 6. Вдосконалений Workflow
+Повний ланцюжок підписання:
+1. **Draft** — чернетка заявки
+2. **On Signature** — на підписі (до 3 відпусток, 1 контракт)
+3. **Signed** — підписано всіма
+4. **Processed** — оброблено (дні списано, додано до табеля)
 
-#### 1. Logging Module (`backend/core/logging.py`)
-Налаштування логування:
+#### 7. Структурне логування (structlog)
 - JSON або консольний формат
-- Рівні логування: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- Рівні: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- Контекстне логування для кращої дебаг-інформації
 
-#### 2. Enhanced Settings (`backend/core/config.py`)
-Додаткові налаштування:
-- Налаштування воєнного стану
-- Ліміт днів відпустки під час воєнного стану
-- Дні відпустки за категоріями працівників
-- Чи враховувати свята при підрахунку днів
-- Backup налаштування
+### Оновлені Константи
 
-### Нові Константи
-
-#### Воєнний стан
-- `SETTING_MARTIAL_LAW_ENABLED` — увімкнення режиму
-- `SETTING_MARTIAL_LAW_VACATION_LIMIT` — ліміт днів (за замовчуванням 24)
-
-#### Дні відпустки за категоріями
-- Науково-педагогічні працівники: 56 днів
-- Педагогічні працівники: 42 дні
-- Адміністративний персонал: 24 дні
-
-#### Українські свята
+** Ukrainian Attendance Codes (наказ Мінпраці №55)**
 ```
-(1, 1) Новий рік
-(1, 7) Різдво
-(3, 8) Міжнародний жіночий день
-(5, 1) День праці
-(5, 8) День пам'яті та перемоги
-(6, 28) День Конституції
-(8, 24) День Незалежності
-(9, 1) День знань
-(10, 14) День захисників та захисниць
-(12, 25) Різдво Христове
+# Явки на роботу
+Р = "01"  # Години роботи за договором
+РС = "20" # Неповний робочий день
+ВЧ = "03" # Вечірні години
+РН = "04" # Нічні години
+НУ = "05" # Надурочні години
+РВ = "06" # Робота у вихідні/святкові
+
+# Відрядження
+ВД = "10" # Службове відрядження
+
+# Відпустки оплачувані
+В = "08"  # Основна щорічна
+Д = "09"  # Додаткова щорічна
+Ч = "11"  # Чорнобильцям
+ТВ = "12" # Творча відпустка
+Н = "13"  # У зв'язку з навчанням
+ДО = "16" # З дітьми
+ВП = "17" # Вагітність/догляд до 3 років
+ДД = "18" # Догляд за дитиною до 6 років
+
+# Відпустки без зарплати
+НБ = "14" # У зв'язку з навчанням
+ДБ = "15" # Обов'язкова без збереження
+НА = "21" # За згодою сторін
+БЗ = "22" # Інші без зарплати
+
+# Неявки
+НД = "20" # Неповний робочий день
+НП = "21" # Тимчасовий переклад
+ІН = "22" # Інший невідпрацьований час
+П = "23"  # Простої
+ПР = "24" # Прогули
+С = "25"  # Страйки
+
+# Тимчасова непрацездатність
+ТН = "26" # Оплачувана
+НН = "27" # Неоплачувана
+
+# Інші причини
+НЗ = "28" # Нез'ясовані причини
+ІВ = "29" # Інші види за колдоговором
+І = "30"  # Інші причини
 ```
 
-### Нові Enums
+### Нові Моделі
 
-- `UserRole` — ролі користувачів (admin, user, viewer)
-- `StaffActionType` — типи дій над записами (create, update, deactivate, restore)
+```
+backend/models/
+├── attendance.py     # НОВЕ - відмітки про явки/неявки
+├── staff_history.py  # НОВЕ - історія змін співробітників
+```
 
-### Розширені Schemas
+### Нові Сервіси
 
-- `StaffCreate`, `StaffUpdate`, `StaffResponse`, `StaffListResponse`
-- `DocumentCreate`, `DocumentUpdate`, `DocumentResponse`
-- `ScheduleCreate`, `ScheduleResponse`
+```
+backend/services/
+├── attendance_service.py  # НОВЕ - CRUD для відвідуваності
+├── tabel_service.py       # НОВЕ - генерація табеля (30KB)
+```
+
+### Оновлені Schemas
+
+```
+backend/schemas/
+├── attendance.py    # НОВЕ - схеми для відвідуваності
+├── tabel.py         # НОВЕ - схеми для табеля
+```
 
 ---
 
@@ -183,7 +211,7 @@ copy .env.example .env
 
 ```bash
 # Створення міграції
-alembic revision --autogenerate -m "Initial migration"
+alembic revision --autogenerate -m "description"
 
 # Застосування міграцій
 alembic upgrade head
@@ -196,12 +224,27 @@ python -m backend.main
 ```
 
 API буде доступно за адресою: http://127.0.0.1:8000
-Документація API: http://127.0.0.1:8000/docs
+
+- Документація API: http://127.0.0.1:8000/docs
+- Upload Portal: http://127.0.0.1:8000/upload-portal
 
 ### Запуск Desktop додатку
 
 ```bash
 python -m desktop.main
+```
+
+### Генерація табеля
+
+```python
+from backend.services.tabel_service import generate_tabel_html
+
+# Генерація HTML для січня 2026
+html = generate_tabel_html(month=1, year=2026)
+
+# Збереження у файл
+from backend.services.tabel_service import save_tabel_to_file
+filepath = save_tabel_to_file(html, month=1, year=2026)
 ```
 
 ## Тестування
@@ -213,63 +256,129 @@ pytest
 # Запуск unit тестів
 pytest tests/unit
 
+# Запуск integration тестів
+pytest tests/integration
+
 # Запуск з покриттям
 pytest --cov=backend --cov=desktop
+```
+
+## Якість коду
+
+```bash
+# Форматування коду
+black .
+
+# Перевірка стилів
+ruff check .
+
+# Перевірка типів
+mypy .
 ```
 
 ## Структура проекту
 
 ```
 VacationManager/
-├── backend/            # FastAPI backend
-│   ├── core/          # Config, Database, Logging
-│   ├── models/        # SQLAlchemy ORM models
+├── backend/                # FastAPI backend
+│   ├── core/              # Config, Database, Logging (structlog)
+│   ├── models/            # SQLAlchemy ORM models
 │   │   ├── base.py
 │   │   ├── staff.py
 │   │   ├── document.py
 │   │   ├── schedule.py
-│   │   └── settings.py
-│   ├── schemas/       # Pydantic schemas
+│   │   ├── settings.py
+│   │   ├── attendance.py  # НОВЕ
+│   │   └── staff_history.py  # НОВЕ
+│   ├── schemas/           # Pydantic schemas
 │   │   ├── schedule.py
 │   │   ├── responses.py
 │   │   ├── staff.py
-│   │   └── document.py
-│   ├── services/      # Business logic
+│   │   ├── document.py
+│   │   ├── attendance.py  # НОВЕ
+│   │   └── tabel.py       # НОВЕ
+│   ├── services/          # Business logic
 │   │   ├── grammar_service.py
-│   │   ├── validation_service.py  # РОЗШИРЕНО
-│   │   ├── document_service.py    # НОВЕ
-│   │   ├── bulk_document_service.py  # НОВЕ
-│   │   ├── schedule_service.py    # НОВЕ
-│   │   ├── staff_service.py       # НОВЕ
-│   │   └── date_parser.py         # НОВЕ
-│   └── api/           # API routes
-│       ├── dependencies.py
-│       └── routes/
-│           ├── staff.py
-│           └── documents.py
-├── desktop/           # PyQt6 Desktop application
-│   ├── ui/            # UI components
-│   ├── widgets/       # Custom widgets
+│   │   ├── validation_service.py
+│   │   ├── document_service.py
+│   │   ├── bulk_document_service.py
+│   │   ├── schedule_service.py
+│   │   ├── staff_service.py
+│   │   ├── date_parser.py
+│   │   ├── attendance_service.py  # НОВЕ
+│   │   └── tabel_service.py       # НОВЕ
+│   ├── api/
+│   │   ├── routes/        # FastAPI endpoints
+│   │   │   ├── documents.py
+│   │   │   ├── staff.py
+│   │   │   ├── schedule.py
+│   │   │   ├── upload.py
+│   │   │   ├── attendance.py  # НОВЕ
+│   │   │   └── tabel.py       # НОВЕ
+│   │   └── dependencies.py
+│   ├── static/            # CSS, JS для upload portal
+│   └── templates/         # HTML templates для web
+├── desktop/               # PyQt6 Desktop application
+│   ├── ui/                # UI components
+│   ├── widgets/           # Custom widgets
 │   │   ├── status_badge.py
 │   │   └── live_preview.py
-│   └── utils/         # Utilities
-│       ├── theme.py
-│       └── sync_manager.py
-├── shared/            # Shared code
-│   ├── enums.py       # РОЗШИРЕНО (UserRole, StaffActionType)
-│   ├── constants.py   # РОЗШИРЕНО (воєнний стан, свята)
+│   ├── templates/         # Jinja2 templates для PDF
+│   │   └── tabel/         # НОВЕ - шаблони табеля
+│   └── utils/             # Utilities
+├── shared/                # Shared code
+│   ├── enums.py
+│   ├── constants.py
+│   ├── validators.py
 │   ├── exceptions.py
-│   └── validators.py
-├── templates/         # Word document templates
-├── static/            # Static files
-├── tests/             # Unit and integration tests
+│   └── absence_types.py   # НОВЕ
+├── storage/               # Generated documents and scans
+│   └── tabels/            # НОВЕ - згенеровані табелі
+├── tests/
 │   ├── unit/
-│   │   ├── test_grammar_service.py
-│   │   └── test_validation_service.py
 │   └── integration/
-└── alembic/           # Database migrations
+└── alembic/               # Database migrations
 ```
+
+## Документообіг
+
+### Статуси документів
+
+```
+Draft → On Signature → Signed → Processed
+```
+
+### Workflow підписання
+
+1. **Заявник** - створює та підписує заяву
+2. **Диспетчерська** - перевіряє та погоджує
+3. **Завідувач кафедри** - підписує
+4. **Наказ** - реєструє наказ
+5. **Ректор** - фінальне підписання
+6. **Сканування** - завантаження скану
+7. **Табель** - автоматичне додавання до табеля обліку
+
+### Літерні коди табеля
+
+Повний список кодів згідно з наказом Мінпраці №55:
+- **Р** — робочі дні
+- **В** — щорічна відпустка
+- **ВД** — відрядження
+- **ТН** — тимчасова непрацездатність (лікарняний)
+- **НУ** — надурочні години
+- **РН** — нічні години
+- **ВЧ** — вечірні години
+- **РВ** — робота у вихідні
+- [та багато інших...]
+
+## Код-стайл
+
+- **PEP 8** форматування (black)
+- **Google Style** docstrings
+- Коментарі українською мовою
+- Type hints обов'язкові
+- DRY, SOLID, Clean Architecture
 
 ## Ліцензія
 
-© 2025-2026 VacationManager
+© 2025-2026 VacationManager v6.0

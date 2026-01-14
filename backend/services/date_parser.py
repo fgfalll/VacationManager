@@ -351,12 +351,14 @@ class DateParser:
             errors.append("Список дат порожній")
             return False, errors
 
-        # Перевіряємо на вихідні
-        for d in dates:
-            if d.weekday() >= 5:  # Saturday=5, Sunday=6
-                errors.append(f"{d.strftime('%d.%m.%Y')} випадає на вихідний")
+        # Перевіряємо на вихідні ТІЛЬКИ початок і кінець
+        # Відпустка може включати вихідні дні всередині діапазону
+        if dates[0].weekday() >= 5:  # Saturday=5, Sunday=6
+            errors.append(f"{dates[0].strftime('%d.%m.%Y')} випадає на вихідний (початок)")
 
-        # Перевіряємо на перетин (тут не актуально, але може бути корисно)
+        if len(dates) > 1 and dates[-1].weekday() >= 5:
+            errors.append(f"{dates[-1].strftime('%d.%m.%Y')} випадає на вихідний (кінець)")
+
         # Перевіряємо чи всі дати в одному році/місяці
         years = set(d.year for d in dates)
         if len(years) > 1:

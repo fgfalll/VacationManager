@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Табель обліку робочого часу</title>
+    <script src="qwebchannel.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @page {
+            size: landscape;
+            margin: 0;
+        }
+
+        body {
+            font-family: 'Times New Roman', 'Calibri', Arial, sans-serif;
+            font-size: 9pt;
+            background-color: #f0f0f0;
+            padding: 20px;
+        }
+
+        .preview-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: linear-gradient(to bottom, #fff, #f8f8f8);
+            border-bottom: 2px solid #ddd;
+            padding: 10px 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .toolbar-btn {
+            padding: 8px 16px;
+            border: 1px solid #ccc;
+            background: linear-gradient(to bottom, #fff, #f0f0f0);
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+            transition: all 0.15s;
+        }
+
+        .toolbar-btn:hover {
+            background: linear-gradient(to bottom, #e8e8e8, #d8d8d8);
+            border-color: #aaa;
+        }
+
+        .toolbar-btn.success {
+            background: linear-gradient(to bottom, #10B981, #0ca678);
+            color: white;
+            border-color: #0ca678;
+        }
+
+        .toolbar-btn.success:hover {
+            background: linear-gradient(to bottom, #059669, #047857);
+        }
+
+        .month-select {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 13px;
+            background: white;
+        }
+
+        .year-select {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 13px;
+            background: white;
+        }
+
+        /* A4 Landscape container */
+        .a4-landscape {
+            width: 297mm;
+            min-height: 210mm;
+            background: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            padding: 6mm 6mm;
+            position: relative;
+        }
+
+        /* Table styles from the original tabel.html */
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            font-family: 'Times New Roman', serif;
+            font-size: 8pt;
+        }
+
+        table.gridlines td,
+        table.gridlines th {
+            border: 1px dotted #000;
+            padding: 2px 4px;
+        }
+
+        table td,
+        table th {
+            border: 1px solid #000;
+            padding: 2px 4px;
+            vertical-align: middle;
+            text-align: center;
+        }
+
+        .sheet0 col.col0 { width: 18.98pt; }
+        .sheet0 col.col1 { width: 132.17pt; }
+        .sheet0 col.col2 { width: 29.82pt; }
+        .sheet0 col.col3 { width: 22.37pt; }
+        .sheet0 col.col4 { width: 22.37pt; }
+        .sheet0 col.col5 { width: 22.37pt; }
+        .sheet0 col.col6 { width: 22.37pt; }
+        .sheet0 col.col7 { width: 22.37pt; }
+        .sheet0 col.col8 { width: 22.37pt; }
+        .sheet0 col.col9 { width: 22.37pt; }
+        .sheet0 col.col10 { width: 22.37pt; }
+        .sheet0 col.col11 { width: 22.37pt; }
+        .sheet0 col.col12 { width: 22.37pt; }
+        .sheet0 col.col13 { width: 22.37pt; }
+        .sheet0 col.col14 { width: 22.37pt; }
+        .sheet0 col.col15 { width: 22.37pt; }
+        .sheet0 col.col16 { width: 22.37pt; }
+        .sheet0 col.col17 { width: 22.37pt; }
+        .sheet0 col.col18 { width: 23.72pt; }
+        .sheet0 col.col19 { width: 31.86pt; }
+        .sheet0 col.col20 { width: 33.89pt; }
+        .sheet0 col.col21 { width: 27.11pt; }
+        .sheet0 col.col22 { width: 31.86pt; }
+        .sheet0 col.col23 { width: 37.28pt; }
+        .sheet0 col.col24 { width: 36.60pt; }
+        .sheet0 col.col25 { width: 39.31pt; }
+        .sheet0 col.col26 { width: 32.53pt; }
+        .sheet0 col.col27 { width: 33.89pt; }
+        .sheet0 col.col28 { width: 21.69pt; }
+        .sheet0 col.col29 { width: 31.18pt; }
+        .sheet0 col.col30 { width: 25.08pt; }
+        .sheet0 col.col31 { width: 18.30pt; }
+        .sheet0 col.col32 { width: 18.98pt; }
+        .sheet0 col.col33 { width: 16.27pt; }
+        .sheet0 col.col34 { width: 24.40pt; }
+        .sheet0 col.col35 { width: 23.72pt; }
+        .sheet0 col.col36 { width: 43.38pt; }
+
+        tr { height: 15pt; }
+        tr.row0 { height: 18.75pt; }
+        tr.row1 { height: 17.25pt; }
+        tr.row2 { height: 27.75pt; }
+        tr.row3 { height: 55.5pt; }
+        tr.row4 { height: 21.75pt; }
+
+        .s { text-align: left; }
+        .n { text-align: right; }
+        .b { text-align: center; }
+        .e { text-align: center; }
+
+        .bold { font-weight: bold; }
+        .italic { font-style: italic; }
+
+        /* Print styles */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .toolbar {
+                display: none;
+            }
+            .a4-landscape {
+                box-shadow: none;
+                width: 100%;
+                min-height: auto;
+            }
+        }
+
+        /* Month/year info */
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f8f8f8;
+            border-radius: 4px;
+        }
+
+        .info-bar span {
+            font-size: 12pt;
+            font-weight: bold;
+        }
+
+        /* Editable cells */
+        [contenteditable="true"] {
+            outline: 1px dashed #999;
+            background-color: rgba(59, 130, 246, 0.02);
+            min-width: 20px;
+            min-height: 1em;
+        }
+
+        [contenteditable="true"]:hover {
+            outline: 2px solid #3B82F6;
+        }
+
+        [contenteditable="true"]:focus {
+            outline: 2px solid #3B82F6;
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
+        .print-btn {
+            background: linear-gradient(to bottom, #3B82F6, #2563eb);
+            color: white;
+            border-color: #2563eb;
+        }
+
+        .print-btn:hover {
+            background: linear-gradient(to bottom, #2563eb, #1d4ed8);
+        }
+    </style>
+</head>
+<body>
+    <div class="preview-container">
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <label>Місяць:</label>
+            <select class="month-select" id="monthSelect">
+                <option value="1">Січень</option>
+                <option value="2">Лютий</option>
+                <option value="3">Березень</option>
+                <option value="4">Квітень</option>
+                <option value="5">Травень</option>
+                <option value="6">Червень</option>
+                <option value="7">Липень</option>
+                <option value="8">Серпень</option>
+                <option value="9">Вересень</option>
+                <option value="10">Жовтень</option>
+                <option value="11">Листопад</option>
+                <option value="12">Грудень</option>
+            </select>
+
+            <label>Рік:</label>
+            <select class="year-select" id="yearSelect">
+                <!-- Will be populated from Python -->
+            </select>
+
+            <button class="toolbar-btn" id="refreshBtn">Оновити</button>
+            <button class="toolbar-btn" id="printBtn">Друкувати</button>
+        </div>
+
+        <!-- A4 Landscape container -->
+        <div class="a4-landscape" id="tabelContent">
+            {{ tabel_content|safe }}
+        </div>
+    </div>
+
+    <script>
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set current month and year
+            const now = new Date();
+            const monthSelect = document.getElementById('monthSelect');
+            const yearSelect = document.getElementById('yearSelect');
+
+            monthSelect.value = (now.getMonth() + 1).toString();
+
+            // Populate year select
+            const currentYear = now.getFullYear();
+            for (let y = currentYear - 1; y <= currentYear + 1; y++) {
+                const option = document.createElement('option');
+                option.value = y;
+                option.textContent = y;
+                if (y === currentYear) option.selected = true;
+                yearSelect.appendChild(option);
+            }
+
+            // Connect events
+            monthSelect.addEventListener('change', () => {
+                if (window.pybridge) {
+                    window.pybridge.on_month_changed(parseInt(monthSelect.value), parseInt(yearSelect.value));
+                }
+            });
+
+            yearSelect.addEventListener('change', () => {
+                if (window.pybridge) {
+                    window.pybridge.on_month_changed(parseInt(monthSelect.value), parseInt(yearSelect.value));
+                }
+            });
+
+            document.getElementById('refreshBtn').addEventListener('click', () => {
+                if (window.pybridge) {
+                    window.pybridge.on_refresh();
+                }
+            });
+
+            document.getElementById('printBtn').addEventListener('click', () => {
+                if (window.pybridge) {
+                    window.pybridge.on_print();
+                } else {
+                    window.print();
+                }
+            });
+
+            console.log('Tabel Preview initialized');
+        });
+
+        // Update tabel content from Python
+        function updateTabelContent(html) {
+            const content = document.getElementById('tabelContent');
+            if (content) {
+                content.innerHTML = html;
+            }
+        }
+
+        // Set selected month/year
+        function setMonthYear(month, year) {
+            const monthSelect = document.getElementById('monthSelect');
+            const yearSelect = document.getElementById('yearSelect');
+            if (monthSelect) monthSelect.value = month.toString();
+            if (yearSelect) yearSelect.value = year.toString();
+        }
+    </script>
+</body>
+</html>

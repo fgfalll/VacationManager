@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
 from jinja2 import Environment, FileSystemLoader
+from sqlalchemy.orm import joinedload
 
 from shared.enums import DocumentType, DocumentStatus
 from desktop.ui.wysiwyg_bridge import WysiwygBridge, WysiwygEditorState
@@ -1494,6 +1495,7 @@ class BuilderTab(QWidget):
             "doc_type": self._get_doc_type().value,
             "staff_name": staff_name_display,  # Genitive case for signature
             "staff_name_nom": staff_name_nom,  # Nominative case for header
+            "staff_name_gen": staff_name_display,  # Genitive case for header (same as signature)
             "staff_position": staff_position_nom_capitalized,  # Capitalized nominative for signature
             "staff_position_nom": staff_position_nom_full,  # Lowercase nominative for header
             "date_start": date_start,
@@ -2941,6 +2943,7 @@ class BuilderTab(QWidget):
         """Генерує контекст шаблону для конкретного співробітника (з даними, без об'єкта Document)."""
         from backend.models.settings import Settings
         from backend.models.staff import Staff as StaffModel
+        from backend.services.grammar_service import GrammarService
 
         # Format dates
         date_start_str = date_start.strftime("%d.%m.%Y")
@@ -2948,6 +2951,25 @@ class BuilderTab(QWidget):
 
         # Staff info - use nominative case from dict
         staff_name_nom = staff_data.get('pib_nom', '')
+
+        # Format staff name in genitive case for header
+        grammar = GrammarService()
+        staff_name_gen = staff_name_nom
+        if staff_name_nom:
+            try:
+                parts = staff_name_nom.split()
+                if len(parts) >= 3:
+                    # "Дмитренко Вікторія Іванівна" - Surname First Middle
+                    surname = parts[0]
+                    first_name = grammar.to_genitive(parts[1])
+                    middle_name = grammar.to_genitive(parts[2])
+                    staff_name_gen = f"{surname} {first_name} {middle_name}"
+                elif len(parts) == 2:
+                    surname = parts[0]
+                    first_name = grammar.to_genitive(parts[1])
+                    staff_name_gen = f"{surname} {first_name}"
+            except Exception:
+                staff_name_gen = staff_name_nom
 
         # Position with department from dict
         staff_position = staff_data.get('position', '')
@@ -3064,6 +3086,7 @@ class BuilderTab(QWidget):
             "doc_type": doc_type,
             "staff_name": staff_name_nom,
             "staff_name_nom": staff_name_nom,
+            "staff_name_gen": staff_name_gen,  # Genitive case for header
             "staff_position": staff_position_nom_full,
             "staff_position_nom": staff_position_nom_full.lower() if staff_position_nom_full else "",
             "date_start": date_start_str,
@@ -3083,6 +3106,7 @@ class BuilderTab(QWidget):
         """Генерує контекст шаблону для конкретного співробітника."""
         from shared.enums import EmploymentType
         from backend.models.settings import Settings
+        from backend.services.grammar_service import GrammarService
 
         # Format dates
         date_start = document.date_start.strftime("%d.%m.%Y")
@@ -3091,6 +3115,25 @@ class BuilderTab(QWidget):
 
         # Staff info - use nominative case
         staff_name_nom = staff.pib_nom
+
+        # Format staff name in genitive case for header
+        grammar = GrammarService()
+        staff_name_gen = staff_name_nom
+        if staff_name_nom:
+            try:
+                parts = staff_name_nom.split()
+                if len(parts) >= 3:
+                    # "Дмитренко Вікторія Іванівна" - Surname First Middle
+                    surname = parts[0]
+                    first_name = grammar.to_genitive(parts[1])
+                    middle_name = grammar.to_genitive(parts[2])
+                    staff_name_gen = f"{surname} {first_name} {middle_name}"
+                elif len(parts) == 2:
+                    surname = parts[0]
+                    first_name = grammar.to_genitive(parts[1])
+                    staff_name_gen = f"{surname} {first_name}"
+            except Exception:
+                staff_name_gen = staff_name_nom
 
         # Position with department
         staff_position = staff.position
@@ -3191,6 +3234,7 @@ class BuilderTab(QWidget):
             "doc_type": document.doc_type.value,
             "staff_name": staff.pib_nom,
             "staff_name_nom": staff_name_nom,
+            "staff_name_gen": staff_name_gen,  # Genitive case for header
             "staff_position": staff_position_nom_full,
             "staff_position_nom": staff_position_nom_full.lower() if staff_position_nom_full else "",
             "date_start": date_start,
@@ -3332,7 +3376,7 @@ class AutoDateRangeDialog(QDialog):
         from backend.models.staff import Staff
 
         with get_db_context() as db:
-            staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
+            staff = db.query(Staff).options(joinedload(Staff.documents)).filter(Staff.id == self.staff_id).first()
             if not staff:
                 self.staff_data = None
                 return
@@ -3374,6 +3418,11 @@ class AutoDateRangeDialog(QDialog):
                     })
             self.booked_dates = booked_dates
             self.locked_info = locked_info
+
+            # Debug output
+            if booked_dates:
+                print(f"[DEBUG AutoDateRangeDialog] {self.staff_data['pib_nom']}: {len(booked_dates)} booked dates from {len(locked_info)} docs")
+                print(f"[DEBUG] Booked dates: {sorted(list(booked_dates))[:5]}...")
 
     def _setup_ui(self):
         """Налаштовує інтерфейс."""
@@ -3705,43 +3754,66 @@ class AutoDateRangeDialog(QDialog):
 
         Правила:
         - Рахуємо календарні дні (включаючи вихідні)
-        - Початок має бути в доступних датах (valid_dates)
+        - Початок має бути робочим днем (не вихідний, не заброньований)
+        - Всі дати в діапазоні НЕ МОЖУТЬ бути заброньовані
         - Кінець НЕ МОЖЕ бути вихідним
-        - Діапазон МОЖЕ переходити на наступний місяць (end може не бути в valid_dates)
+        - Діапазон МОЖЕ переходити на наступний місяць
         """
         if not valid_dates or len(valid_dates) < 1:
             return []
 
         possible_ranges = []
-        valid_set = set(valid_dates)
+        booked_dates = self.booked_dates
 
-        for start in valid_dates:
-            if self._is_weekend(start):
-                continue
+        # Get the date range to search (from first valid_date to a reasonable limit)
+        if not valid_dates:
+            return []
 
-            # Початок має бути в valid_dates
-            if start not in valid_set:
-                continue
+        # Also get contract end to limit search
+        contract_end = self.staff_data.get('term_end', date.today() + timedelta(days=365))
+        search_start = valid_dates[0]
+        search_end = min(contract_end, search_start + timedelta(days=180))  # Max 6 months ahead
 
-            # Цільова кінцева дата (включаючи вихідні)
-            target_end = start + timedelta(days=days_needed - 1)
+        # Iterate through calendar dates, not just valid_dates
+        # This allows us to find start dates AFTER booked periods
+        current = search_start
+        while current <= search_end:
+            # Skip weekends and booked dates as start candidates
+            if not self._is_weekend(current) and current not in booked_dates:
+                # Цільова кінцева дата (включаючи вихідні)
+                target_end = current + timedelta(days=days_needed - 1)
 
-            # Якщо target_end вихідний — зсуваємо на понеділок
-            end = target_end
-            while self._is_weekend(end):
-                end += timedelta(days=1)
+                # Якщо target_end вихідний — зсуваємо на понеділок
+                end = target_end
+                while self._is_weekend(end):
+                    end += timedelta(days=1)
 
-            # Кінець не повинен бути вихідним (він вже не вихідний завдяки циклу вище)
-            # end може бути в наступному місяці - це нормально!
-            calendar_span = (end - start).days + 1
-            if calendar_span >= days_needed:
-                possible_ranges.append((start, end))
+                # Перевіряємо, що ВСІ дати в діапазоні не заброньовані
+                all_dates_available = True
+                check_date = current
+                while check_date <= end:
+                    if check_date in booked_dates:
+                        all_dates_available = False
+                        print(f"[DEBUG] Skipping range {current}-{end}: {check_date} is booked")
+                        break
+                    check_date += timedelta(days=1)
+
+                if all_dates_available:
+                    # Перевіряємо що end не перевищує контракт
+                    if end <= contract_end:
+                        calendar_span = (end - current).days + 1
+                        if calendar_span >= days_needed:
+                            possible_ranges.append((current, end))
+
+            current += timedelta(days=1)
 
         if not possible_ranges:
+            print(f"[DEBUG] No available ranges found in {search_start} to {search_end}")
             return []
 
         # Вибираємо випадковий діапазон
         chosen = random.choice(possible_ranges)
+        print(f"[DEBUG] Found range: {chosen[0]} - {chosen[1]}")
         return [chosen]
 
     def _calculate_single_range_random(self, valid_dates: list[date], days_needed: int) -> list[tuple]:
@@ -3757,66 +3829,75 @@ class AutoDateRangeDialog(QDialog):
         - Мінімум 3 календарні дні в діапазоні
         - Діапазон НЕ МОЖЕ починатися у вихідний
         - Діапазон НЕ МОЖЕ закінчуватися у вихідний
+        - Всі дати в діапазоні НЕ МОЖУТЬ бути заброньовані
         - Діапазон МОЖЕ охоплювати вихідні (напр., пт-ср = 6 днів через сб-нд)
         """
         result = []
         remaining = days_needed
 
-        if not valid_dates or len(valid_dates) < 3:
+        if not valid_dates or len(valid_dates) < 1:
             return result
 
-        # Множина для швидкого пошуку
-        date_set = set(valid_dates)
-        available_dates = sorted(valid_dates)
+        booked_dates = self.booked_dates
+        contract_end = self.staff_data.get('term_end', date.today() + timedelta(days=365))
+        search_start = valid_dates[0]
+        search_end = min(contract_end, search_start + timedelta(days=180))
 
-        while remaining >= 3 and len(available_dates) >= 3:
-            # Вибираємо випадковий початок (тільки робочі дні)
-            working_start_dates = [d for d in available_dates if not self._is_weekend(d)]
-            if not working_start_dates:
-                break
+        # Track used dates (booked + already selected)
+        used_dates = set(booked_dates)
 
-            start = random.choice(working_start_dates)
+        # Iterate through calendar dates to find start dates
+        current = search_start
+        max_attempts = 1000  # Safety limit
+        attempts = 0
 
-            # Знаходимо всі можливі кінці (мінімум 3 календарні дні від початку, не вихідний)
-            min_end = start + timedelta(days=2)  # 3 календарні дні
-            possible_ends = []
-            for d in available_dates:
-                if d >= min_end and not self._is_weekend(d):
-                    possible_ends.append(d)
+        while remaining >= 3 and current <= search_end and attempts < max_attempts:
+            attempts += 1
 
-            if not possible_ends:
-                # Якщо немає підходящого кінця, видаляємо цей початок і пробуємо інший
-                available_dates.remove(start)
+            # Skip weekends and already used dates
+            if self._is_weekend(current) or current in used_dates:
+                current += timedelta(days=1)
                 continue
 
-            end = random.choice(possible_ends)
+            # Try to find a valid range starting from current
+            # Target end date (calendar days)
+            target_end = current + timedelta(days=2)  # At least 3 calendar days
 
-            # Рахуємо скільки календарних днів охоплює діапазон
-            calendar_days = (end - start).days + 1
+            # Adjust end if it's a weekend
+            end = target_end
+            while self._is_weekend(end):
+                end += timedelta(days=1)
 
-            # Перевіряємо чи є достатньо робочих днів у цьому діапазоні (для відпускних днів)
-            working_days_in_range = 0
-            current = start
-            while current <= end:
-                if current in date_set:
-                    working_days_in_range += 1
-                current += timedelta(days=1)
+            # Check if entire range is available
+            all_available = True
+            check = current
+            while check <= end:
+                if check in used_dates:
+                    all_available = False
+                    print(f"[DEBUG] Multiple ranges: skipping {current}-{end}, {check} is used")
+                    break
+                check += timedelta(days=1)
 
-            if working_days_in_range >= 3:
-                result.append((start, end))
-                remaining -= working_days_in_range
+            if all_available and end <= contract_end:
+                # Found a valid range
+                calendar_days = (end - current).days + 1
+                if calendar_days >= 3:
+                    result.append((current, end))
+                    remaining -= calendar_days
 
-                # Видаляємо всі використані робочі дні з доступних
-                used = set()
-                current = start
-                while current <= end:
-                    if current in date_set:
-                        used.add(current)
-                    current += timedelta(days=1)
-                available_dates = [d for d in available_dates if d not in used]
+                    # Mark dates as used
+                    check = current
+                    while check <= end:
+                        used_dates.add(check)
+                        check += timedelta(days=1)
 
-        # Сортуємо результат
+            current += timedelta(days=1)
+
+        # Sort result by start date
         result.sort(key=lambda x: x[0])
+
+        if not result:
+            print(f"[DEBUG] No multiple ranges found")
 
         return result
 
@@ -3973,9 +4054,25 @@ class AutoDateRangeDialog(QDialog):
         Підбирає окремі дні (випадковий вибір).
 
         Вибирає тільки робочі дні (вихідні виключаються).
+        Also looks for dates after booked periods.
         """
-        # Фільтруємо тільки робочі дні
-        working_dates = [d for d in valid_dates if not self._is_weekend(d)]
+        if not valid_dates:
+            return []
+
+        # Get contract end for search limit
+        contract_end = self.staff_data.get('term_end', date.today() + timedelta(days=365))
+        search_start = valid_dates[0]
+        search_end = min(contract_end, search_start + timedelta(days=180))
+
+        booked_dates = self.booked_dates
+
+        # Collect all available working dates (not weekend, not booked)
+        working_dates = []
+        current = search_start
+        while current <= search_end and len(working_dates) < days_needed:
+            if not self._is_weekend(current) and current not in booked_dates:
+                working_dates.append(current)
+            current += timedelta(days=1)
 
         if len(working_dates) <= days_needed:
             selected = working_dates.copy()

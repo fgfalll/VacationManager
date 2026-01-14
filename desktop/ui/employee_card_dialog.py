@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from shared.enums import StaffActionType
+from shared.absence_types import CODE_TO_ABSENCE_NAME
 
 
 class EmployeeCardDialog(QDialog):
@@ -108,10 +109,25 @@ class EmployeeCardDialog(QDialog):
                     "created_at": doc.created_at,
                 })
 
+            # Завантажуємо записи відвідуваності
+            from backend.services.attendance_service import AttendanceService
+            attendance_service = AttendanceService(db)
+            attendance_records = attendance_service.get_staff_attendance(self.staff_id)
+            self.attendance_records = []
+            for record in attendance_records:
+                self.attendance_records.append({
+                    "id": record.id,
+                    "date": record.date,
+                    "date_end": record.date_end,
+                    "code": record.code,
+                    "hours": record.hours,
+                    "notes": record.notes,
+                })
+
     def _setup_ui(self):
         """Налаштовує інтерфейс."""
         self.setWindowTitle(f"Картка працівника: {self.staff_data['pib_nom']}")
-        self.setMinimumSize(1000, 750)
+        self.setMinimumSize(1000, 900)
 
         layout = QVBoxLayout(self)
 
@@ -123,15 +139,16 @@ class EmployeeCardDialog(QDialog):
         self._vacation_history_table = self._create_vacation_history_table()
         layout.addWidget(self._vacation_history_table)
 
-        # Панель етапів підписання (для диспетчерської)
-        self._workflow_status_label = QLabel()
-        self._workflow_status_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
-        layout.addWidget(self._workflow_status_label)
-
-        # Кнопка оновити етапи
-        refresh_btn = QPushButton("Оновити етапи підписання")
-        refresh_btn.clicked.connect(self._show_workflow_dialog)
-        layout.addWidget(refresh_btn)
+        # Секція відсутностей та особливих відміток
+        layout.addWidget(QLabel("<b>📋 Відсутності та особливі відмітки</b>"))
+        absence_header = QHBoxLayout()
+        add_absence_btn = QPushButton("➕ Додати відмітку")
+        add_absence_btn.clicked.connect(self._on_add_absence)
+        absence_header.addWidget(add_absence_btn)
+        absence_header.addStretch()
+        layout.addLayout(absence_header)
+        self._absence_table = self._create_absence_table()
+        layout.addWidget(self._absence_table)
 
         # Історія змін
         layout.addWidget(QLabel("<b>Історія змін</b>"))
@@ -916,3 +933,188 @@ class EmployeeCardDialog(QDialog):
                     QMessageBox.warning(self, "Помилка", "Запис не знайдено")
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося видалити запис: {e}")
+
+    def _create_absence_table(self) -> QTableWidget:
+        """Створює таблицю відсутностей та особливих відміток."""
+        table = QTableWidget()
+        table.setObjectName("absence_table")
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(
+            ["Дата", "Код", "Тип", "Години", "Дії"]
+        )
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setRowCount(len(self.attendance_records))
+
+        for row, record in enumerate(self.attendance_records):
+            # Дата
+            if record.get('date_end'):
+                date_str = f"{record['date'].strftime('%d.%m.%Y')} - {record['date_end'].strftime('%d.%m.%Y')}"
+            else:
+                date_str = record['date'].strftime("%d.%m.%Y")
+            table.setItem(row, 0, QTableWidgetItem(date_str))
+
+            # Код
+            table.setItem(row, 1, QTableWidgetItem(record['code']))
+
+            # Тип (з українською назвою)
+            type_name = CODE_TO_ABSENCE_NAME.get(record['code'], record['code'])
+            table.setItem(row, 2, QTableWidgetItem(type_name))
+
+            # Години
+            hours_str = f"{float(record['hours']):.1f}" if record['hours'] else ""
+            table.setItem(row, 3, QTableWidgetItem(hours_str))
+
+            # Кнопки дій
+            button_container = QWidget()
+            button_layout = QHBoxLayout(button_container)
+            button_layout.setContentsMargins(2, 2, 2, 2)
+            button_layout.setSpacing(4)
+
+            # Редагування
+            edit_btn = QPushButton("✏️")
+            edit_btn.setFixedWidth(32)
+            edit_btn.setToolTip("Редагувати")
+            edit_btn.clicked.connect(lambda checked, r=record: self._on_edit_absence(r))
+            button_layout.addWidget(edit_btn)
+
+            # Видалення
+            delete_btn = QPushButton("🗑️")
+            delete_btn.setFixedWidth(32)
+            delete_btn.setToolTip("Видалити")
+            delete_btn.clicked.connect(lambda checked, r=record: self._on_delete_absence(r['id']))
+            button_layout.addWidget(delete_btn)
+
+            table.setCellWidget(row, 4, button_container)
+
+            # Зберігаємо ID
+            table.item(row, 0).setData(Qt.ItemDataRole.UserRole, record['id'])
+
+        return table
+
+    def _on_add_absence(self):
+        """Обробляє додавання нової відмітки."""
+        from desktop.ui.absence_entry_dialog import AbsenceEntryDialog
+        from backend.core.database import get_db_context
+        from backend.services.attendance_service import AttendanceService
+
+        dialog = AbsenceEntryDialog(
+            staff_id=self.staff_id,
+            staff_name=self.staff_data['pib_nom'],
+            parent=self,
+        )
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        result = dialog.get_result()
+
+        try:
+            with get_db_context() as db:
+                service = AttendanceService(db)
+
+                if result['is_range']:
+                    service.create_attendance_range(
+                        staff_id=self.staff_id,
+                        start_date=result['start_date'],
+                        end_date=result['end_date'],
+                        code=result['code'],
+                        hours=result['hours'],
+                        notes=result['notes'],
+                    )
+                else:
+                    service.create_attendance(
+                        staff_id=self.staff_id,
+                        attendance_date=result['date'],
+                        code=result['code'],
+                        hours=result['hours'],
+                        notes=result['notes'],
+                    )
+
+            QMessageBox.information(self, "Успіх", "Відмітку додано")
+            self._load_data()
+            self._refresh_absence_table()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося додати відмітку: {e}")
+
+    def _on_edit_absence(self, record: dict):
+        """Обробляє редагування відмітки."""
+        from desktop.ui.absence_entry_dialog import AbsenceEntryDialog
+        from backend.core.database import get_db_context
+        from backend.services.attendance_service import AttendanceService
+
+        dialog = AbsenceEntryDialog(
+            staff_id=self.staff_id,
+            staff_name=self.staff_data['pib_nom'],
+            parent=self,
+            edit_data=record,
+        )
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        result = dialog.get_result()
+
+        try:
+            with get_db_context() as db:
+                service = AttendanceService(db)
+                service.update_attendance(
+                    attendance_id=record['id'],
+                    code=result['code'],
+                    hours=result['hours'],
+                    notes=result['notes'],
+                )
+
+            QMessageBox.information(self, "Успіх", "Відмітку оновлено")
+            self._load_data()
+            self._refresh_absence_table()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося оновити відмітку: {e}")
+
+    def _on_delete_absence(self, attendance_id: int):
+        """Обробляє видалення відмітки."""
+        from backend.core.database import get_db_context
+        from backend.services.attendance_service import AttendanceService
+
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження",
+            "Ви впевнені, що хочете видалити цю відмітку?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            with get_db_context() as db:
+                service = AttendanceService(db)
+                service.delete_attendance(attendance_id)
+
+            QMessageBox.information(self, "Успіх", "Відмітку видалено")
+            self._load_data()
+            self._refresh_absence_table()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося видалити відмітку: {e}")
+
+    def _refresh_absence_table(self):
+        """Оновлює таблицю відсутностей."""
+        new_table = self._create_absence_table()
+
+        layout = self.layout()
+        if layout and hasattr(self, '_absence_table'):
+            old_table_index = -1
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if item and item.widget() == self._absence_table:
+                    old_table_index = i
+                    break
+
+            if old_table_index >= 0:
+                layout.takeAt(old_table_index)
+                self._absence_table.setParent(None)
+                layout.insertWidget(old_table_index, new_table)
+                self._absence_table = new_table

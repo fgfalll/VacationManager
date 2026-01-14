@@ -266,10 +266,10 @@ async def get_document_progress(
 async def update_workflow_step(
     document_id: int,
     step: str,
+    doc_service: DocumentSvc,
+    db: DBSession,
     comment: str | None = None,
     action: str = "complete",
-    db: DBSession,
-    doc_service: DocumentSvc = None,
 ):
     """
     Оновити етап підписання документа.

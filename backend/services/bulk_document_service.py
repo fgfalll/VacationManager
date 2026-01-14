@@ -152,7 +152,7 @@ class BulkDocumentService:
 
         # Update document with file path
         doc.file_docx_path = str(output_path)
-        doc.status = DocumentStatus.ON_SIGNATURE
+        # Status stays as DRAFT - will change to ON_SIGNATURE when applicant signs
         self.db.commit()
 
         return doc
@@ -165,7 +165,14 @@ class BulkDocumentService:
         """
         year = doc.date_start.year
         month_ua = _get_ukrainian_month(doc.date_start)
-        status_folder = "on_signature"
+        # Use document's actual status for folder
+        UKRAINIAN_STATUS = {
+            DocumentStatus.DRAFT: "чернетки",
+            DocumentStatus.ON_SIGNATURE: "на_підписі",
+            DocumentStatus.SIGNED: "підписані",
+            DocumentStatus.PROCESSED: "оброблені",
+        }
+        status_folder = UKRAINIAN_STATUS.get(doc.status, "чернетки")
 
         # Format initials
         initials = _format_surname_initials(staff.pib_nom)

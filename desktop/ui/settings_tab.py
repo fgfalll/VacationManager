@@ -222,6 +222,17 @@ class SettingsDialog(QDialog):
         specialist_group.setLayout(specialist_layout)
         layout.addWidget(specialist_group)
 
+        # Група "HR (Кадри)"
+        hr_group = QGroupBox("Працівник кадрової служби")
+        hr_layout = QFormLayout()
+
+        self.hr_employee_input = QComboBox()
+        self.hr_employee_input.setEditable(True)
+        hr_layout.addRow("Працівник HR:", self.hr_employee_input)
+
+        hr_group.setLayout(hr_layout)
+        layout.addWidget(hr_group)
+
         # Підказка
         help_label = QLabel(
             "Завідувач кафедри та фахівець обираються зі списку співробітників. "
@@ -509,6 +520,13 @@ class SettingsDialog(QDialog):
                 if index >= 0:
                     self.dept_specialist_input.setCurrentIndex(index)
 
+            # Встановлюємо HR
+            hr_employee_id = SystemSettings.get_value(db, "hr_signature_id", None)
+            if hr_employee_id:
+                index = self.hr_employee_input.findData(hr_employee_id)
+                if index >= 0:
+                    self.hr_employee_input.setCurrentIndex(index)
+
             # Погогоджувачі
             self._load_approvers(db)
 
@@ -580,6 +598,31 @@ class SettingsDialog(QDialog):
         for staff in specialist_list:
             # Додаємо з ID як data
             self.dept_specialist_input.addItem(staff.pib_nom, staff.id)
+
+        # Тільки HR для працівника кадрової служби
+        # Шукаємо тих, у кого в посаді є "кадрів", "персонал", "hr" або це просто "інспектор"
+        # Для простоти поки беремо всіх, або фільтруємо по ключевим словам
+        hr_list = (
+            db.query(Staff)
+            .filter(Staff.is_active == True)
+            .all()
+        )
+        # Client-side filtering for flexible matching
+        hr_filtered = [
+            s for s in hr_list 
+            if any(k in s.position.lower() for k in ['кадр', 'персонал', 'інспектор', 'hr'])
+        ]
+        
+        self.hr_employee_input.clear()
+        for staff in hr_filtered:
+            self.hr_employee_input.addItem(staff.pib_nom, staff.id)
+
+        # Відновлюємо значення, якщо є
+        current_hr = self.hr_employee_input.currentText()
+        if current_hr:
+            index = self.hr_employee_input.findText(current_hr)
+            if index >= 0:
+                self.hr_employee_input.setCurrentIndex(index)
 
         # Відновлюємо значення, якщо є
         if current_head:
@@ -709,6 +752,9 @@ class SettingsDialog(QDialog):
 
             specialist_id = self.dept_specialist_input.currentData()
             SystemSettings.set_value(db, "dept_specialist_id", specialist_id)
+
+            hr_employee_id = self.hr_employee_input.currentData()
+            SystemSettings.set_value(db, "hr_signature_id", hr_employee_id)
 
             # Форматування
             name_order = "first_last" if self.name_order_input.currentIndex() == 0 else "last_first"

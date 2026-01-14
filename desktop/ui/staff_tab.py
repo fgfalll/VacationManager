@@ -19,12 +19,13 @@ from PyQt6.QtWidgets import (
     QDateEdit,
     QHeaderView,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtGui import QColor
 
 from desktop.widgets.status_badge import StatusBadge
 from desktop.ui.employee_card_dialog import EmployeeCardDialog
 from shared.enums import EmploymentType, WorkBasis
+from backend.models.staff import WorkScheduleType
 
 
 class StaffTab(QWidget):
@@ -262,7 +263,7 @@ class StaffTab(QWidget):
         """Обробляє зміну виділення."""
         pass  # Більше не потрібно без кнопок
 
-    def _show_context_menu(self, pos):
+    def _show_context_menu(self, pos: QPoint) -> None:
         """Показує контекстне меню на правий клік."""
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QCursor
@@ -306,7 +307,7 @@ class StaffTab(QWidget):
         elif action == card_action:
             self._show_employee_card()
 
-    def _create_document(self, staff_id: int = None):
+    def _create_document(self, staff_id: int | None = None) -> None:
         """
         Створює документ - показує діалог вибору позиції якщо потрібно.
         """
@@ -1011,6 +1012,19 @@ class StaffDialog(QDialog):
         self.vacation_balance_input.setRange(0, 365)
         self.vacation_balance_input.setValue(0)
 
+        # Відділ/кафедра
+        self.department_input = QLineEdit()
+        self.department_input.setPlaceholderText("Назва відділу/кафедри")
+
+        # Графік роботи
+        self.work_schedule_input = QComboBox()
+        self.work_schedule_items = {
+            WorkScheduleType.STANDARD: "Повний робочий день (8 год)",
+            WorkScheduleType.PART_TIME: "Неповний робочий день/тиждень",
+        }
+        for ws, label in self.work_schedule_items.items():
+            self.work_schedule_input.addItem(label, ws)
+
         # Додаємо поля до форми (перед кнопками)
         layout.addRow("ПІБ:", self.pib_input)
         layout.addRow("Вчений ступінь:", self.degree_input)
@@ -1021,6 +1035,8 @@ class StaffDialog(QDialog):
         layout.addRow("Початок контракту:", self.term_start_input)
         layout.addRow("Кінець контракту:", self.term_end_input)
         layout.addRow("Кількість днів відпустки:", self.vacation_balance_input)
+        layout.addRow("Відділ/кафедра:", self.department_input)
+        layout.addRow("Графік роботи:", self.work_schedule_input)
 
         # Кнопки
         from PyQt6.QtWidgets import QDialogButtonBox
@@ -1067,6 +1083,14 @@ class StaffDialog(QDialog):
                     self.vacation_balance_input.setValue(0)
                 else:
                     self.vacation_balance_input.setValue(staff.vacation_balance)
+
+                # Load department and work_schedule
+                self.department_input.setText(staff.department or "")
+                # Find work schedule by enum value
+                for i in range(self.work_schedule_input.count()):
+                    if self.work_schedule_input.itemData(i) == staff.work_schedule:
+                        self.work_schedule_input.setCurrentIndex(i)
+                        break
 
     def accept(self):
         """Зберігає дані."""
@@ -1123,6 +1147,8 @@ class StaffDialog(QDialog):
             "term_end": self.term_end_input.date().toPyDate(),
             "is_active": True,
             "vacation_balance": self.vacation_balance_input.value(),
+            "department": self.department_input.text() or "",
+            "work_schedule": self.work_schedule_input.currentData(),
         }
 
         # Перевірка унікальності посади завідувача (можна тільки одного: завідувач або в.о.)

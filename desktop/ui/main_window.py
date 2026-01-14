@@ -1,5 +1,6 @@
 """Головне вікно Desktop додатку."""
 
+import webbrowser
 from pathlib import Path
 
 from PyQt6.QtCore import pyqtSignal
@@ -16,6 +17,7 @@ from desktop.ui.staff_tab import StaffTab
 from desktop.ui.schedule_tab import ScheduleTab
 from desktop.ui.builder_tab import BuilderTab
 from desktop.ui.settings_tab import SettingsDialog
+from desktop.ui.tabel_tab import TabelTab
 
 
 class MainWindow(QMainWindow):
@@ -47,10 +49,12 @@ class MainWindow(QMainWindow):
         self.staff_tab = StaffTab()
         self.schedule_tab = ScheduleTab()
         self.builder_tab = BuilderTab()
+        self.tabel_tab = TabelTab()
 
         self.tabs.addTab(self.staff_tab, "Персонал")
         self.tabs.addTab(self.schedule_tab, "Графік відпусток")
         self.tabs.addTab(self.builder_tab, "Конструктор заяв")
+        self.tabs.addTab(self.tabel_tab, "📋 Табель")
 
         # Меню
         menubar = self.menuBar()
@@ -89,17 +93,15 @@ class MainWindow(QMainWindow):
         else:
             self.builder_tab.new_document(staff_id)
 
-    def _open_settings(self, tab: str = None):
+    def _open_settings(self, tab: str | None = None) -> None:
         """Відкриває діалог налаштувань."""
         dialog = SettingsDialog(self)
         if tab:
             dialog.set_tab(tab)
         dialog.exec()
 
-    def _open_web_portal(self):
+    def _open_web_portal(self) -> None:
         """Відкриває Web Portal у браузері."""
-        import webbrowser
-
         webbrowser.open("http://127.0.0.1:8000")
 
     def _refresh_data(self):
@@ -107,6 +109,7 @@ class MainWindow(QMainWindow):
         self.staff_tab.refresh()
         self.schedule_tab.refresh()
         self.builder_tab.refresh()
+        self.tabel_tab.refresh()
 
     def _show_about(self):
         """Показує інформацію про програму."""
