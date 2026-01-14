@@ -39,3 +39,11 @@ class UserRole(str, Enum):
     ADMIN = "admin"
     USER = "user"
     VIEWER = "viewer"
+
+
+class StaffActionType(str, Enum):
+    """Тип дії над записом співробітника"""
+    CREATE = "create"              # Створення запису
+    UPDATE = "update"              # Оновлення даних
+    DEACTIVATE = "deactivate"      # Деактивація (soft delete)
+    RESTORE = "restore"            # Відновлення (створення нового запису)

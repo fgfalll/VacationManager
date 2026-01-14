@@ -1,14 +1,39 @@
 """Сервіс валідації бізнес-правил."""
 
 from datetime import date, timedelta
-from typing import Final, List
+from typing import Final, List, Optional
 
 from sqlalchemy.orm import Session
 
 from backend.models.staff import Staff
 from backend.services.date_parser import DateParser
-from shared.constants import WEEKEND_DAYS
+from shared.constants import (
+    WEEKEND_DAYS,
+    DEFAULT_VACATION_DAYS,
+    DEFAULT_MARTIAL_LAW_VACATION_LIMIT,
+    SETTING_MARTIAL_LAW_ENABLED,
+    SETTING_MARTIAL_LAW_VACATION_LIMIT,
+    SETTING_VACATION_DAYS_SCIENTIFIC_PEDAGOGICAL,
+    SETTING_VACATION_DAYS_PEDAGOGICAL,
+    SETTING_VACATION_DAYS_ADMINISTRATIVE,
+    SETTING_COUNT_HOLIDAYS_AS_VACATION,
+)
 from shared.exceptions import ValidationError
+
+
+# Українські державні свята (фіксовані дати)
+UKRAINIAN_HOLIDAYS = [
+    (1, 1),    # Новий рік
+    (1, 7),    # Різдво
+    (3, 8),    # Міжнародний жіночий день
+    (5, 1),    # День праці
+    (5, 8),    # День пам'яті та перемоги
+    (6, 28),   # День Конституції
+    (8, 24),   # День Незалежності
+    (9, 1),    # День знань
+    (10, 14),  # День захисників та захисниць
+    (12, 25),  # Різдво Христове
+]
 
 
 class ValidationService:
@@ -386,6 +411,269 @@ class ValidationService:
         """
         parser = DateParser()
         return parser.format_as_string(dates, format_type)
+
+    # ========== Методи для воєнного стану ==========
+
+    @staticmethod
+    def is_martial_law_enabled(db: Session) -> bool:
+        """
+        Перевіряє чи увімкнено режим воєнного стану.
+
+        Args:
+            db: Сесія бази даних
+
+        Returns:
+            True якщо воєнний стан увімкнено
+        """
+        from backend.models.settings import SystemSettings
+        return SystemSettings.get_value(db, SETTING_MARTIAL_LAW_ENABLED, False)
+
+    @staticmethod
+    def get_martial_law_vacation_limit(db: Session) -> int:
+        """
+        Отримує ліміт днів відпустки під час воєнного стану.
+
+        Args:
+            db: Сесія бази даних
+
+        Returns:
+            Ліміт днів відпустки (за замовчуванням 24)
+        """
+        from backend.models.settings import SystemSettings
+        return SystemSettings.get_value(
+            db, SETTING_MARTIAL_LAW_VACATION_LIMIT, DEFAULT_MARTIAL_LAW_VACATION_LIMIT
+        )
+
+    @staticmethod
+    def get_vacation_days_for_staff(db: Session, staff: Staff) -> int:
+        """
+        Отримує річну норму днів відпустки для співробітника.
+
+        Враховує тип посади та налаштування системи.
+
+        Args:
+            db: Сесія бази даних
+            staff: Співробітник
+
+        Returns:
+            Кількість днів відпустки на рік
+        """
+        from backend.models.settings import SystemSettings
+
+        # Визначаємо тип посади
+        position_lower = staff.position.lower() if staff.position else ""
+
+        # Науково-педагогічні працівники
+        if any(word in position_lower for word in ["професор", "доцент", "старший викладач", "викладач", "асистент", "завідувач"]):
+            return SystemSettings.get_value(
+                db, SETTING_VACATION_DAYS_SCIENTIFIC_PEDAGOGICAL,
+                DEFAULT_VACATION_DAYS["scientific_pedagogical"]
+            )
+        # Педагогічні працівники
+        elif any(word in position_lower for word in ["педагог", "вихователь", "методист"]):
+            return SystemSettings.get_value(
+                db, SETTING_VACATION_DAYS_PEDAGOGICAL,
+                DEFAULT_VACATION_DAYS["pedagogical"]
+            )
+        # Адміністративний персонал
+        else:
+            return SystemSettings.get_value(
+                db, SETTING_VACATION_DAYS_ADMINISTRATIVE,
+                DEFAULT_VACATION_DAYS["administrative"]
+            )
+
+    @staticmethod
+    def is_holiday(d: date) -> bool:
+        """
+        Перевіряє чи є дата державним святом.
+
+        Args:
+            d: Дата для перевірки
+
+        Returns:
+            True якщо дата є святом
+        """
+        return (d.month, d.day) in UKRAINIAN_HOLIDAYS
+
+    @staticmethod
+    def calculate_calendar_days_counting_holidays(start: date, end: date, count_holidays: bool = True) -> int:
+        """
+        Обчислює кількість календарних днів у періоді.
+
+        Args:
+            start: Початкова дата
+            end: Кінцева дата
+            count_holidays: Чи включати свята у підрахунок (під час воєнного стану - True)
+
+        Returns:
+            Кількість календарних днів
+        """
+        days = (end - start).days + 1
+
+        if not count_holidays:
+            # Підраховуємо скільки свят випадає на період
+            holidays_in_range = 0
+            current = start
+            while current <= end:
+                if ValidationService.is_holiday(current):
+                    holidays_in_range += 1
+                current += timedelta(days=1)
+            days -= holidays_in_range
+
+        return days
+
+    @staticmethod
+    def calculate_vacation_days(
+        start: date,
+        end: date,
+        db: Session,
+        staff: Optional[Staff] = None
+    ) -> int:
+        """
+        Обчислює кількість днів відпустки з урахуванням налаштувань воєнного стану.
+
+        Під час воєнного стану:
+        - Всі дні рахуються як відпускні (включаючи вихідні та свята)
+        - Діє ліміт 24 дні (або налаштований ліміт)
+
+        В звичайному режимі:
+        - Вихідні НЕ рахуються
+        - Свята НЕ рахуються
+
+        Args:
+            start: Початкова дата
+            end: Кінцева дата
+            db: Сесія бази даних
+            staff: Опціонально - співробітник для додаткових перевірок
+
+        Returns:
+            Кількість днів відпустки
+        """
+        martial_law = ValidationService.is_martial_law_enabled(db)
+
+        if martial_law:
+            # Під час воєнного стану - рахуємо всі календарні дні
+            return (end - start).days + 1
+        else:
+            # В звичайному режимі - рахуємо тільки робочі дні (виключаємо вихідні та свята)
+            return ValidationService.calculate_calendar_days_counting_holidays(start, end, count_holidays=False)
+
+    @staticmethod
+    def validate_vacation_against_balance(
+        start: date,
+        end: date,
+        staff: Staff,
+        db: Session
+    ) -> tuple[bool, str]:
+        """
+        Перевіряє чи не перевищує відпустка баланс співробітника.
+
+        Під час воєнного стану враховує ліміт 24 дні.
+
+        Args:
+            start: Початок відпустки
+            end: Кінець відпустки
+            staff: Співробітник
+            db: Сесія бази даних
+
+        Returns:
+            (True, "") якщо OK, (False, повідомлення про помилку) якщо ні
+        """
+        requested_days = ValidationService.calculate_vacation_days(start, end, db, staff)
+        balance = staff.vacation_balance or 0
+
+        martial_law = ValidationService.is_martial_law_enabled(db)
+
+        if martial_law:
+            limit = ValidationService.get_martial_law_vacation_limit(db)
+            # Перевіряємо і баланс, і ліміт
+            if requested_days > balance:
+                return False, (
+                    f"Недостатньо днів відпустки. "
+                    f"Запитано: {requested_days}, доступно: {balance}"
+                )
+            if requested_days > limit:
+                return False, (
+                    f"Під час воєнного стану ліміт відпустки: {limit} днів. "
+                    f"Запитано: {requested_days} днів."
+                )
+        else:
+            if requested_days > balance:
+                return False, (
+                    f"Недостатньо днів відпустки. "
+                    f"Запитано: {requested_days}, доступно: {balance}"
+                )
+
+        return True, ""
+
+    @staticmethod
+    def validate_document_limits(
+        staff_id: int,
+        doc_type: str,
+        exclude_document_id: int | None,
+        db: Session,
+    ) -> tuple[bool, str]:
+        """
+        Перевіряє ліміти кількості документів для співробітника.
+
+        Правила:
+        - Максимум 1 продовження контракту на підписі
+        - Максимум 3 відпустки на підписі
+
+        Args:
+            staff_id: ID співробітника
+            doc_type: Тип документа (vacation_paid, vacation_unpaid, term_extension)
+            exclude_document_id: ID документа який редагується (не враховувати)
+            db: Сесія бази даних
+
+        Returns:
+            (True, "") якщо OK, (False, повідомлення про помилку) якщо ні
+        """
+        from backend.models.document import Document
+        from shared.enums import DocumentStatus, DocumentType
+
+        # Конвертуємо рядок doc_type в DocumentType
+        try:
+            doc_type_enum = DocumentType(doc_type)
+        except ValueError:
+            return True, ""  # Невідомий тип - пропускаємо
+
+        # Підраховуємо документи на підписі для цього співробітника
+        query = db.query(Document).filter(
+            Document.staff_id == staff_id,
+            Document.status == DocumentStatus.ON_SIGNATURE,
+        )
+
+        # Виключаємо поточний документ при редагуванні
+        if exclude_document_id:
+            query = query.filter(Document.id != exclude_document_id)
+
+        existing_docs = query.all()
+
+        if doc_type_enum == DocumentType.TERM_EXTENSION:
+            # Перевіряємо чи вже є продовження контракту
+            term_extensions = [d for d in existing_docs if d.doc_type == DocumentType.TERM_EXTENSION]
+            if term_extensions:
+                existing = term_extensions[0]
+                return False, (
+                    f"На підписі вже є продовження контракту "
+                    f"(№{existing.id} від {existing.date_start.strftime('%d.%m.%Y')}). "
+                    f"Спочатку завершіть або відкликайте попередній документ."
+                )
+
+        elif doc_type_enum in (DocumentType.VACATION_PAID, DocumentType.VACATION_UNPAID):
+            # Перевіряємо кількість відпусток
+            vacations = [d for d in existing_docs if d.doc_type in (
+                DocumentType.VACATION_PAID, DocumentType.VACATION_UNPAID
+            )]
+            if len(vacations) >= 3:
+                doc_list = "\n".join([f"- №{d.id} ({d.date_start.strftime('%d.%m.%Y')})" for d in vacations[:3]])
+                return False, (
+                    f"На підписі вже є 3 відпустки. "
+                    f"Спочатку завершіть або відкликайте існуючі документи:\n{doc_list}"
+                )
+
+        return True, ""
 
 
 class DateRange:

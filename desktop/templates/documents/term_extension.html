@@ -1,15 +1,17 @@
 <!-- Шаблон для продовження контракту -->
-<!-- Header block - editable -->
-<div class="header" contenteditable="true" data-block="header">
+<!-- Header + Applicant info combined block - editable -->
+<div class="header" contenteditable="true" data-block="header" style="margin-left: 50%;">
+    <div style="text-align: left;">
     <p>Ректору<br>
-    {{ university or '[НАЗВА УНІВЕРСИТЕТУ]' }}<br>
-    {{ rector or '[ПІБ РЕКТОРА]' }}</p>
-</div>
+    {{ university_name or '[НАЗВА УНІВЕРСИТЕТУ]' }}<br>
+    {{ rector_name or '[ПІБ РЕКТОРА]' }}</p>
 
-<!-- Applicant info block - editable -->
-<div class="content" contenteditable="true" data-block="applicant_info" style="text-indent: 0;">
-    {{ position or '[ПОСАДА]' }}<br>
-    {{ name or '[ПІБ ЗАЙМАЛЬНИКА]' }}
+    <p>{{ staff_position_nom or '[ПОСАДА]' }}<br>
+    {{ staff_name_nom or '[ПІБ ЗАЙМАЛЬНИКА]' }}</p>
+    {% if employment_type_note %}
+    <p>{{ employment_type_note }}</p>
+    {% endif %}
+    </div>
 </div>
 
 <!-- Title block - editable -->
@@ -20,8 +22,7 @@
 <!-- Main content block - editable -->
 <div class="content" contenteditable="true" data-block="content">
     Прошу Вас продовжити мені термін дії контракту
-    з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
-    по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>
+    <span class="auto-field" contenteditable="false" data-field="formatted_dates">{{ formatted_dates or '[дати]' }}</span>
     у зв'язку з необхідністю завершення науково-дослідної роботи.
 </div>
 
@@ -34,5 +35,40 @@
 
 <!-- Applicant signature block - editable -->
 <div class="content" contenteditable="true" data-block="applicant_signature" style="text-indent: 0; margin-top: 30px;">
-    {{ position or '[Посада]' }}                    <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="flex: 1; min-width: 0; text-align: left;">
+            <span data-field="applicant_position">{{ staff_position or '[Посада]' }}</span>
+        </div>
+        <div style="flex: 1; text-align: center; padding: 0 10px;">
+            <span style="display: inline-block; border-bottom: 1px solid #000; width: 100%;"></span>
+        </div>
+        <div style="flex: 1; text-align: center; white-space: nowrap; padding-left: 10px;">
+            <span data-field="applicant_name">{{ staff_name_nom or '[ПІБ]' }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Погоджено section - editable -->
+<div class="approvals-section" contenteditable="true" data-block="approvals" style="margin-top: 50px;">
+    <p style="font-weight: bold; margin-bottom: 20px;">Погоджено:</p>
+    <div id="signatories-list">
+        {% for signatory in signatories %}
+        <div class="signatory-row" data-signatory-id="{{ loop.index }}" style="margin-top: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="flex: 1; min-width: 0;">
+                    <span data-field="signatory_{{ loop.index }}_position">{{ signatory.position or '[Посада]' }}</span>
+                    {% if signatory.position_multiline %}
+                    <br>{{ signatory.position_multiline or '' }}
+                    {% endif %}
+                </div>
+                <div style="flex: 1; text-align: center; padding: 0 10px;">
+                    <span style="display: inline-block; border-bottom: 1px solid #000; width: 100%;"></span>
+                </div>
+                <div style="flex: 1; text-align: center; white-space: nowrap; padding-left: 10px;">
+                    <span data-field="signatory_{{ loop.index }}_name">{{ signatory.name or '[ПІБ]' }}</span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
 </div>

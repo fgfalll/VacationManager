@@ -23,6 +23,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 
 from desktop.widgets.status_badge import StatusBadge
+from desktop.ui.employee_card_dialog import EmployeeCardDialog
 from shared.enums import EmploymentType, WorkBasis
 
 
@@ -72,6 +73,7 @@ class StaffTab(QWidget):
         # Таблиця
         self.table = QTableWidget()
         self.table.setColumnCount(7)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # Заборонити редагування
         self.table.setHorizontalHeaderLabels([
             "ПІБ",
             "Посада",
@@ -92,28 +94,21 @@ class StaffTab(QWidget):
         self.add_btn = QPushButton("Додати")
         self.add_btn.clicked.connect(self._add_staff)
 
-        self.edit_btn = QPushButton("Редагувати")
-        self.edit_btn.clicked.connect(self._edit_staff)
-        self.edit_btn.setEnabled(False)
-
-        self.delete_btn = QPushButton("Видалити")
-        self.delete_btn.clicked.connect(self._delete_staff)
-        self.delete_btn.setEnabled(False)
-
-        self.view_docs_btn = QPushButton("Документи")
-        self.view_docs_btn.clicked.connect(self._view_documents)
-        self.view_docs_btn.setEnabled(False)
+        self.all_cards_btn = QPushButton("📚 Всі картки")
+        self.all_cards_btn.clicked.connect(self._show_all_cards)
 
         actions_layout.addWidget(self.add_btn)
-        actions_layout.addWidget(self.edit_btn)
-        actions_layout.addWidget(self.delete_btn)
-        actions_layout.addWidget(self.view_docs_btn)
+        actions_layout.addWidget(self.all_cards_btn)
         actions_layout.addStretch()
 
         layout.addLayout(actions_layout)
 
+        # Контекстне меню на правий клік
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
+
         # Підключення сигналів таблиці
-        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.table.itemDoubleClicked.connect(self._show_employee_card)
 
     def _load_data(self):
         """Завантажує дані в таблицю."""
@@ -130,14 +125,52 @@ class StaffTab(QWidget):
             elif filter_idx == 2:  # Неактивні
                 query = query.filter(Staff.is_active == False)
 
-            staff_list = query.order_by(Staff.pib_nom).all()
+            all_staff = query.order_by(Staff.pib_nom, Staff.id.desc()).all()
+
+            # Групуємо по pib_nom і збираємо всі позиції для кожного
+            staff_groups = {}
+            for staff in all_staff:
+                if staff.pib_nom not in staff_groups:
+                    staff_groups[staff.pib_nom] = []
+                staff_groups[staff.pib_nom].append(staff)
+
+            # Створюємо список з групованими даними
+            staff_list = []
+            for pib, staff_records in staff_groups.items():
+                # Фільтруємо тільки активні позиції для відображення
+                active_records = [s for s in staff_records if s.is_active]
+
+                if not active_records:
+                    continue  # Пропускаємо якщо немає активних позицій
+
+                # Показуємо тільки активні позиції
+                combined_rate = sum(float(s.rate) for s in active_records)
+                positions = [s.position for s in active_records]
+                active_ids = [s.id for s in active_records]
+
+                # Зберігаємо дані
+                staff_list.append({
+                    "pib_nom": pib,
+                    "positions": positions,
+                    "combined_rate": combined_rate,
+                    "staff_records": active_records,  # Тільки активні
+                    "is_active": True,
+                    "term_start": max(s.term_start for s in active_records),
+                    "term_end": min(s.term_end for s in active_records),
+                    "vacation_balance": max(s.vacation_balance for s in active_records),
+                    "days_until_term_end": min(s.days_until_term_end for s in active_records),
+                    "is_term_expired": any(s.is_term_expired for s in active_records),
+                })
+
+            # Сортуємо за ПІБ
+            staff_list.sort(key=lambda s: s["pib_nom"])
 
             self.table.setRowCount(len(staff_list))
 
-            for row, staff in enumerate(staff_list):
-                self._set_row_data(row, staff)
+            for row, staff_data in enumerate(staff_list):
+                self._set_row_data(row, staff_data)
 
-    def _set_row_data(self, row: int, staff):
+    def _set_row_data(self, row: int, staff_data: dict):
         """Встановлює дані в рядок таблиці."""
         from backend.models.settings import SystemSettings
 
@@ -149,52 +182,72 @@ class StaffTab(QWidget):
         except Exception:
             pass
 
+        staff_records = staff_data["staff_records"]
+        pib_nom = staff_data["pib_nom"]
+        positions = staff_data["positions"]
+        combined_rate = staff_data["combined_rate"]
+        is_term_expired = staff_data["is_term_expired"]
+        days_until_term_end = staff_data["days_until_term_end"]
+
         # ПІБ - з іконкою попередження якщо контракт закінчується
-        name_text = staff.pib_nom
-        if staff.is_term_expired:
+        name_text = pib_nom
+        if is_term_expired:
             name_text = "⚠️ " + name_text
-        elif staff.days_until_term_end <= warning_days:
+        elif days_until_term_end <= warning_days:
             name_text = "⏰ " + name_text
 
         self.table.setItem(row, 0, QTableWidgetItem(name_text))
-        self.table.setItem(row, 1, QTableWidgetItem(staff.position))
-        self.table.setItem(row, 2, QTableWidgetItem(str(staff.rate)))
-        self.table.setItem(row, 3, QTableWidgetItem(staff.employment_type.value))
+
+        # Посади - показуємо всі позиції, якщо більше однієї
+        if len(positions) > 1:
+            position_text = " + ".join(positions)
+        else:
+            position_text = positions[0] if positions else ""
+        self.table.setItem(row, 1, QTableWidgetItem(position_text))
+
+        # Ставка - показуємо комбіновану, якщо > 1.0
+        rate_text = f"{combined_rate:.2f}"
+        self.table.setItem(row, 2, QTableWidgetItem(rate_text))
+
+        # Тип працевлаштування - показуємо для першого запису
+        emp_type = staff_records[0].employment_type.value if staff_records else "main"
+        self.table.setItem(row, 3, QTableWidgetItem(emp_type))
 
         term_item = QTableWidgetItem(
-            f"{staff.term_start.strftime('%d.%m.%Y')} - "
-            f"{staff.term_end.strftime('%d.%m.%Y')}"
+            f"{staff_data['term_start'].strftime('%d.%m.%Y')} - "
+            f"{staff_data['term_end'].strftime('%d.%m.%Y')}"
         )
         self.table.setItem(row, 4, term_item)
 
-        balance_item = QTableWidgetItem(str(staff.vacation_balance))
+        balance_item = QTableWidgetItem(str(staff_data["vacation_balance"]))
         self.table.setItem(row, 5, balance_item)
 
         # Дні до кінця контракту з підсвіткою
-        days_text = str(staff.days_until_term_end)
-        if staff.is_term_expired:
+        days_text = str(days_until_term_end)
+        if is_term_expired:
             days_text = f"⛔ {days_text}"
-        elif staff.days_until_term_end <= warning_days:
+        elif days_until_term_end <= warning_days:
             days_text = f"⚠️ {days_text}"
 
         days_item = QTableWidgetItem(days_text)
 
         # Підсвітка рядка червоним якщо контракт закінчується
-        if staff.is_term_expired:
+        if is_term_expired:
             for col in range(7):
                 item = QTableWidgetItem() if col != 0 else self.table.item(row, 0)
                 if col != 0:
                     self.table.setItem(row, col, item)
                 item.setBackground(QColor("#FFCCCC"))
-        elif staff.days_until_term_end <= warning_days:
+        elif days_until_term_end <= warning_days:
             # Тільки days_item підсвітчуємо
             days_item.setBackground(QColor("#FFEBEE"))
             days_item.setForeground(QColor("#D32F2F"))
 
         self.table.setItem(row, 6, days_item)
 
-        # Зберігаємо ID в першому елементі
-        self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, staff.id)
+        # Зберігаємо всі ID в першому елементі (список)
+        self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole,
+            [s.id for s in staff_records])
 
     def _on_search(self):
         """Фільтрує дані при пошуку."""
@@ -207,10 +260,133 @@ class StaffTab(QWidget):
 
     def _on_selection_changed(self):
         """Обробляє зміну виділення."""
-        has_selection = len(self.table.selectedItems()) > 0
-        self.edit_btn.setEnabled(has_selection)
-        self.delete_btn.setEnabled(has_selection)
-        self.view_docs_btn.setEnabled(has_selection)
+        pass  # Більше не потрібно без кнопок
+
+    def _show_context_menu(self, pos):
+        """Показує контекстне меню на правий клік."""
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QCursor
+
+        # Отримуємо рядок під курсором
+        item = self.table.itemAt(pos)
+        if not item:
+            return
+
+        row = item.row()
+        self.table.selectRow(row)
+
+        # Створюємо меню
+        menu = QMenu(self)
+
+        create_doc_action = menu.addAction("📄 Створити документ")
+        menu.addSeparator()
+        edit_action = menu.addAction("✏️ Редагувати")
+
+        # Підменю для видалення
+        delete_menu = menu.addMenu("🗑️ Видалити")
+        soft_delete_action = delete_menu.addAction("Деактивувати")
+        hard_delete_action = delete_menu.addAction("Видалити назавжди")
+
+        menu.addSeparator()
+        card_action = menu.addAction("📋 Картка")
+
+        # Отримуємо позицію курсору та показуємо меню
+        cursor_pos = QCursor.pos()
+        action = menu.exec(cursor_pos)
+
+        # Обробляємо вибір
+        if action == create_doc_action:
+            self._create_document()
+        elif action == edit_action:
+            self._edit_staff()
+        elif action == soft_delete_action:
+            self._soft_delete_staff()
+        elif action == hard_delete_action:
+            self._hard_delete_staff()
+        elif action == card_action:
+            self._show_employee_card()
+
+    def _create_document(self, staff_id: int = None):
+        """
+        Створює документ - показує діалог вибору позиції якщо потрібно.
+        """
+        from backend.core.database import get_db_context
+        from backend.models.staff import Staff
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QRadioButton, QPushButton, QButtonGroup, QLabel, QHBoxLayout
+
+        # Якщо staff_id не передано, отримуємо з поточного виділення
+        if not staff_id:
+            item = self.table.currentItem()
+            if not item:
+                return
+            staff_ids = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
+            if isinstance(staff_ids, list) and staff_ids:
+                staff_id = staff_ids[0]
+            elif isinstance(staff_ids, int):
+                staff_id = staff_ids
+            else:
+                return
+
+        # Отримуємо всі активні позиції співробітника
+        with get_db_context() as db:
+            staff_list = db.query(Staff).filter(
+                Staff.pib_nom == db.query(Staff).filter(Staff.id == staff_id).first().pib_nom,
+                Staff.is_active == True
+            ).all()
+
+            # Сортуємо: rate 1.00 завжди перший, потім за rate descending
+            staff_list.sort(key=lambda s: (s.rate != 1.0, -float(s.rate)))
+
+        # Якщо тільки одна позиція - одразу переходимо
+        if len(staff_list) == 1:
+            self._navigate_to_builder(staff_list[0].id)
+            return
+
+        # Показуємо діалог вибору позиції
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Оберіть позицію")
+        dialog.setMinimumWidth(400)
+
+        layout = QVBoxLayout(dialog)
+
+        # Знаходимо ПІБ співробітника
+        pib_nom = staff_list[0].pib_nom
+        layout.addWidget(QLabel(f"<b>{pib_nom}</b>"))
+        layout.addWidget(QLabel("Оберіть, для якої позиції створити документ:"))
+
+        button_group = QButtonGroup(dialog)
+
+        for staff in staff_list:
+            radio = QRadioButton(f"{staff.position} ({staff.rate})")
+            radio.setProperty("staff_id", staff.id)
+            button_group.addButton(radio)
+            layout.addWidget(radio)
+            if staff.id == staff_id:
+                radio.setChecked(True)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("ОК")
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn = QPushButton("Скасувати")
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected = button_group.checkedButton()
+            if selected:
+                selected_id = selected.property("staff_id")
+                self._navigate_to_builder(selected_id)
+
+    def _navigate_to_builder(self, staff_id: int):
+        """Переходить на вкладку конструктора заяв."""
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'navigate_to_builder'):
+                parent.navigate_to_builder(staff_id)
+                return
+            parent = parent.parent()
 
     def _add_staff(self):
         """Відкриває діалог додавання співробітника."""
@@ -220,30 +396,124 @@ class StaffTab(QWidget):
 
     def _edit_staff(self):
         """Відкриває діалог редагування співробітника."""
+        from backend.core.database import get_db_context
+        from backend.models.staff import Staff
+
         item = self.table.currentItem()
         if not item:
             return
 
-        staff_id = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
-        dialog = StaffDialog(staff_id, parent=self)
-        if dialog.exec():
-            self._load_data()
+        staff_ids = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
+        if isinstance(staff_ids, list) and len(staff_ids) > 1:
+            # Multiple positions - show selection dialog
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QRadioButton, QPushButton, QButtonGroup, QLabel
 
-    def _delete_staff(self):
-        """Видаляє співробітника."""
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Оберіть позицію для редагування")
+            dialog.setMinimumWidth(400)
+
+            layout = QVBoxLayout(dialog)
+
+            layout.addWidget(QLabel("Оберіть, яку позицію редагувати:"))
+
+            button_group = QButtonGroup(dialog)
+
+            for staff_id in staff_ids:
+                with get_db_context() as db:
+                    staff = db.query(Staff).filter(Staff.id == staff_id).first()
+                    if staff and staff.is_active:  # Only show active positions
+                        radio = QRadioButton(f"{staff.position} ({staff.rate})")
+                        radio.setProperty("staff_id", staff_id)
+                        button_group.addButton(radio)
+                        layout.addWidget(radio)
+                        if staff_ids[0] == staff_id:
+                            radio.setChecked(True)
+
+            btn_layout = QHBoxLayout()
+            ok_btn = QPushButton("ОК")
+            ok_btn.clicked.connect(dialog.accept)
+            cancel_btn = QPushButton("Скасувати")
+            cancel_btn.clicked.connect(dialog.reject)
+            btn_layout.addWidget(ok_btn)
+            btn_layout.addWidget(cancel_btn)
+            layout.addLayout(btn_layout)
+
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected = button_group.checkedButton()
+                if selected:
+                    selected_id = selected.property("staff_id")
+                    edit_dialog = StaffDialog(selected_id, parent=self)
+                    if edit_dialog.exec():
+                        self._load_data()
+        elif isinstance(staff_ids, list) and len(staff_ids) == 1:
+            edit_dialog = StaffDialog(staff_ids[0], parent=self)
+            if edit_dialog.exec():
+                self._load_data()
+
+    def _soft_delete_staff(self):
+        """Деактивує співробітника (soft delete)."""
         from backend.models.staff import Staff
         from backend.models.document import Document
         from backend.core.database import get_db_context
-        from PyQt6.QtWidgets import QMessageBox
+        from backend.services.staff_service import StaffService
+        from PyQt6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QRadioButton, QPushButton, QButtonGroup, QLabel, QHBoxLayout
         from shared.enums import DocumentStatus
 
         item = self.table.currentItem()
         if not item:
             return
 
-        staff_id = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
+        staff_ids = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
+
+        if isinstance(staff_ids, list) and len(staff_ids) > 1:
+            # Show selection dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Оберіть позицію")
+            dialog.setMinimumWidth(400)
+
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(QLabel("Оберіть, яку позицію деактивувати:"))
+
+            button_group = QButtonGroup(dialog)
+
+            for staff_id in staff_ids:
+                with get_db_context() as db:
+                    staff = db.query(Staff).filter(Staff.id == staff_id).first()
+                    if staff and staff.is_active:  # Only show active positions
+                        radio = QRadioButton(f"{staff.position} ({staff.rate})")
+                        radio.setProperty("staff_id", staff_id)
+                        button_group.addButton(radio)
+                        layout.addWidget(radio)
+                        if staff_ids[0] == staff_id:
+                            radio.setChecked(True)
+
+            btn_layout = QHBoxLayout()
+            ok_btn = QPushButton("ОК")
+            ok_btn.clicked.connect(dialog.accept)
+            cancel_btn = QPushButton("Скасувати")
+            cancel_btn.clicked.connect(dialog.reject)
+            btn_layout.addWidget(ok_btn)
+            btn_layout.addWidget(cancel_btn)
+            layout.addLayout(btn_layout)
+
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            selected = button_group.checkedButton()
+            if not selected:
+                return
+
+            staff_id = selected.property("staff_id")
+        elif isinstance(staff_ids, list):
+            staff_id = staff_ids[0]
+        else:
+            staff_id = staff_ids
 
         with get_db_context() as db:
+            staff = db.query(Staff).filter(Staff.id == staff_id).first()
+            if not staff or not staff.is_active:
+                return  # Only allow operations on active staff
+
             # Перевіряємо наявність документів
             documents = (
                 db.query(Document)
@@ -273,25 +543,376 @@ class StaffTab(QWidget):
 
             staff = db.query(Staff).filter(Staff.id == staff_id).first()
             if not staff:
+                QMessageBox.warning(self, "Помилка", "Співробітника не знайдено")
                 return
 
             reply = QMessageBox.question(
                 self,
                 "Підтвердження",
-                f"Деактивувати співробітника {staff.pib_nom}?\n\n"
-                "Це soft delete - дані залишаться в системі.",
+                f"Деактивувати {staff.pib_nom} ({staff.position})?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
             if reply == QMessageBox.StandardButton.Yes:
-                staff.is_active = False
-                db.commit()
-                self._load_data()
+                try:
+                    service = StaffService(db, changed_by="USER")
+                    service.deactivate_staff(staff, reason="Видалено користувачем")
+                    self.filter_active.setCurrentIndex(1)  # 1 = Активні
+                    self._load_data()
+                except Exception as e:
+                    QMessageBox.critical(self, "Помилка", f"Не вдалося деактивувати: {e}")
+
+    def _hard_delete_staff(self):
+        """Повністю видаляє співробітника (hard delete)."""
+        from backend.models.staff import Staff
+        from backend.models.document import Document
+        from backend.core.database import get_db_context
+        from backend.services.staff_service import StaffService
+        from PyQt6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QRadioButton, QPushButton, QButtonGroup, QLabel, QHBoxLayout
+        from shared.enums import DocumentStatus
+
+        item = self.table.currentItem()
+        if not item:
+            return
+
+        staff_ids = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
+
+        if isinstance(staff_ids, list) and len(staff_ids) > 1:
+            # Show selection dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Оберіть позицію")
+            dialog.setMinimumWidth(400)
+
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(QLabel("Оберіть, яку позицію видалити назавжди:"))
+
+            button_group = QButtonGroup(dialog)
+
+            for staff_id in staff_ids:
+                with get_db_context() as db:
+                    staff = db.query(Staff).filter(Staff.id == staff_id).first()
+                    if staff and staff.is_active:  # Only show active positions
+                        radio = QRadioButton(f"{staff.position} ({staff.rate})")
+                        radio.setProperty("staff_id", staff_id)
+                        button_group.addButton(radio)
+                        layout.addWidget(radio)
+                        if staff_ids[0] == staff_id:
+                            radio.setChecked(True)
+
+            btn_layout = QHBoxLayout()
+            ok_btn = QPushButton("ОК")
+            ok_btn.clicked.connect(dialog.accept)
+            cancel_btn = QPushButton("Скасувати")
+            cancel_btn.clicked.connect(dialog.reject)
+            btn_layout.addWidget(ok_btn)
+            btn_layout.addWidget(cancel_btn)
+            layout.addLayout(btn_layout)
+
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            selected = button_group.checkedButton()
+            if not selected:
+                return
+
+            staff_id = selected.property("staff_id")
+        elif isinstance(staff_ids, list):
+            staff_id = staff_ids[0]
+        else:
+            staff_id = staff_ids
+
+        with get_db_context() as db:
+            staff = db.query(Staff).filter(Staff.id == staff_id).first()
+            if not staff or not staff.is_active:
+                return  # Only allow operations on active staff
+
+            # Перевіряємо наявність документів
+            documents = (
+                db.query(Document)
+                .filter(Document.staff_id == staff_id)
+                .all()
+            )
+
+            # Кількість неархівованих документів
+            non_archived = [d for d in documents if d.status != DocumentStatus.PROCESSED]
+
+            if non_archived:
+                doc_info = "\n".join([
+                    f"  - {d.doc_type.value}: {d.date_start} - {d.date_end} ({d.status.value})"
+                    for d in non_archived[:5]
+                ])
+                if len(non_archived) > 5:
+                    doc_info += f"\n  ... та ще {len(non_archived) - 5} документів"
+
+                QMessageBox.warning(
+                    self,
+                    "Неможливо видалити",
+                    f"Неможливо видалити співробітника, оскільки є "
+                    f"{len(non_archived)} незавершених документів:\n\n{doc_info}\n\n"
+                    f"Спочатку архівуйте або видаліть ці документи."
+                )
+                return
+
+            staff = db.query(Staff).filter(Staff.id == staff_id).first()
+            if not staff:
+                QMessageBox.warning(self, "Помилка", "Співробітника не знайдено")
+                return
+
+            confirm = QMessageBox.warning(
+                self,
+                "ОСТОРОЖНО!",
+                f"Ви впевнені, що хочете назавжди видалити {staff.pib_nom} ({staff.position})?\n\n"
+                "ЦЯ ДІЯ НЕЗВОРОТНЯ! Всі дані та історія будуть втрачені.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+
+            if confirm == QMessageBox.StandardButton.Yes:
+                try:
+                    service = StaffService(db, changed_by="USER")
+                    service.hard_delete_staff(staff)
+                    self._load_data()
+                except Exception as e:
+                    QMessageBox.critical(self, "Помилка", f"Не вдалося видалити: {e}")
+
+    def _delete_staff(self):
+        """Видаляє співробітника (застарілий метод, використовуйте soft/hard)."""
+        self._soft_delete_staff()
 
     def _view_documents(self):
         """Відкриває список документів співробітника."""
         # TODO: Реалізувати перегляд документів
         pass
+
+    def _show_employee_card(self):
+        """Відкриває картку працівника."""
+        from backend.core.database import get_db_context
+        from backend.models.staff import Staff
+
+        item = self.table.currentItem()
+        if not item:
+            return
+
+        staff_ids = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
+
+        if isinstance(staff_ids, list) and len(staff_ids) > 1:
+            # Show selection dialog
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QRadioButton, QPushButton, QButtonGroup, QLabel, QHBoxLayout
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Оберіть позицію")
+            dialog.setMinimumWidth(400)
+
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(QLabel("Оберіть, картку якої позиції переглянути:"))
+
+            button_group = QButtonGroup(dialog)
+
+            for staff_id in staff_ids:
+                with get_db_context() as db:
+                    staff = db.query(Staff).filter(Staff.id == staff_id).first()
+                    if staff and staff.is_active:  # Only show active positions
+                        radio = QRadioButton(f"{staff.position} ({staff.rate})")
+                        radio.setProperty("staff_id", staff_id)
+                        button_group.addButton(radio)
+                        layout.addWidget(radio)
+                        if staff_ids[0] == staff_id:
+                            radio.setChecked(True)
+
+            btn_layout = QHBoxLayout()
+            ok_btn = QPushButton("ОК")
+            ok_btn.clicked.connect(dialog.accept)
+            cancel_btn = QPushButton("Скасувати")
+            cancel_btn.clicked.connect(dialog.reject)
+            btn_layout.addWidget(ok_btn)
+            btn_layout.addWidget(cancel_btn)
+            layout.addLayout(btn_layout)
+
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            selected = button_group.checkedButton()
+            if not selected:
+                return
+
+            staff_id = selected.property("staff_id")
+        elif isinstance(staff_ids, list):
+            staff_id = staff_ids[0]
+        else:
+            staff_id = staff_ids
+
+        dialog = EmployeeCardDialog(staff_id, parent=self)
+        # Connect signals for document actions
+        dialog.edit_document.connect(self._on_edit_document)
+        dialog.delete_document.connect(self._on_delete_document)
+
+        # Use open() instead of exec() to allow non-blocking signal handling
+        # After dialog closes, refresh the table
+        dialog.finished.connect(lambda result: self._load_data())
+        dialog.open()
+
+    def _on_edit_document(self, document_id: int):
+        """Обробляє сигнал редагування документа."""
+        # Navigate to builder tab and load document
+        self._edit_document_in_builder(document_id)
+
+    def _on_delete_document(self, document_id: int):
+        """Обробляє сигнал видалення документа."""
+        self._load_data()  # Refresh to show changes
+
+    def _edit_document_in_builder(self, document_id: int):
+        """Відкриває документ у конструкторі заяв."""
+        from backend.core.database import get_db_context
+        from backend.models.document import Document
+
+        with get_db_context() as db:
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            if not doc:
+                return
+
+            staff_id = doc.staff_id
+
+        # Navigate to builder tab
+        self._edit_document(document_id, staff_id)
+
+    def _edit_document(self, document_id: int, staff_id: int):
+        """Редагує існуючий документ."""
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'navigate_to_builder'):
+                parent.navigate_to_builder(staff_id, document_id)
+                return
+            parent = parent.parent()
+
+    def _show_all_cards(self):
+        """Відкриває діалог з усіма картками працівників."""
+        from backend.core.database import get_db_context
+        from backend.models.staff import Staff
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+        from PyQt6.QtCore import Qt
+
+        # Завантажуємо дані перед створенням діалогу
+        def load_staff_data():
+            with get_db_context() as db:
+                # Отримуємо ВСІ записи (включаючи деактивовані)
+                staff_list = db.query(Staff).order_by(Staff.pib_nom, Staff.id.desc()).all()
+
+                # Конвертуємо ВСІ записи в список даних
+                staff_data_list = []
+                for staff in staff_list:
+                    staff_data_list.append({
+                        "id": staff.id,
+                        "pib_nom": staff.pib_nom,
+                        "position": staff.position,
+                        "rate": str(staff.rate),
+                        "is_active": staff.is_active,
+                        "term_start": staff.term_start,
+                        "term_end": staff.term_end,
+                        "vacation_balance": staff.vacation_balance,
+                        "days_until_term_end": staff.days_until_term_end,
+                        "is_term_expired": staff.days_until_term_end < 0,
+                    })
+                return staff_data_list
+
+        staff_data_list = load_staff_data()
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Всі картки працівників")
+        dialog.setMinimumSize(1200, 600)
+
+        layout = QVBoxLayout(dialog)
+
+        # Таблиця всіх співробітників
+        table = QTableWidget()
+        table.setColumnCount(8)
+        table.setHorizontalHeaderLabels([
+            "ID",
+            "ПІБ",
+            "Посада",
+            "Ставка",
+            "Статус",
+            "Контракт",
+            "Баланс",
+            "Дні до кінця",
+        ])
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # Заборонити редагування
+
+        # Функція для заповнення таблиці
+        def populate_table(data_list):
+            table.setRowCount(len(data_list))
+            for row, staff in enumerate(data_list):
+                # ID
+                id_item = QTableWidgetItem(str(staff["id"]))
+                id_item.setData(Qt.ItemDataRole.UserRole, staff["id"])
+                table.setItem(row, 0, id_item)
+
+                # ПІБ
+                table.setItem(row, 1, QTableWidgetItem(staff["pib_nom"]))
+
+                # Посада
+                table.setItem(row, 2, QTableWidgetItem(staff["position"]))
+
+                # Ставка
+                table.setItem(row, 3, QTableWidgetItem(staff.get("rate", "")))
+
+                # Статус
+                status_text = "✅ Активний" if staff["is_active"] else "❌ Неактивний"
+                status_item = QTableWidgetItem(status_text)
+                if not staff["is_active"]:
+                    status_item.setBackground(QColor("#FFCDD2"))
+                table.setItem(row, 4, status_item)
+
+                # Контракт
+                term_item = QTableWidgetItem(
+                    f"{staff['term_start'].strftime('%d.%m.%Y')} - "
+                    f"{staff['term_end'].strftime('%d.%m.%Y')}"
+                )
+                table.setItem(row, 5, term_item)
+
+                # Баланс
+                table.setItem(row, 6, QTableWidgetItem(str(staff["vacation_balance"])))
+
+                # Дні до кінця
+                days_text = str(staff["days_until_term_end"])
+                if staff["is_term_expired"]:
+                    days_text = f"⛔ {days_text}"
+                elif staff["days_until_term_end"] <= 30:
+                    days_text = f"⚠️ {days_text}"
+                table.setItem(row, 7, QTableWidgetItem(days_text))
+
+        # Заповнюємо таблицю початковими даними
+        populate_table(staff_data_list)
+
+        # Функція для оновлення таблиці
+        def refresh_table():
+            new_data = load_staff_data()
+            populate_table(new_data)
+
+        # Двійний клік відкриває картку
+        def on_double_click(item):
+            staff_id = table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
+            card_dialog = EmployeeCardDialog(staff_id, self)  # Use self (StaffTab) as parent
+            # Connect signals for document actions
+            card_dialog.edit_document.connect(self._on_edit_document)
+            card_dialog.delete_document.connect(self._on_delete_document)
+            card_dialog.finished.connect(lambda result: refresh_table())
+            card_dialog.open()
+
+        table.itemDoubleClicked.connect(on_double_click)
+
+        layout.addWidget(QLabel("<b>Двійний клік для перегляду картки працівника</b>"))
+        layout.addWidget(table)
+
+        # Кнопка закриття
+        close_layout = QHBoxLayout()
+        close_layout.addStretch()
+        close_btn = QPushButton("Закрити")
+        close_btn.clicked.connect(dialog.accept)
+        close_layout.addWidget(close_btn)
+        layout.addLayout(close_layout)
+
+        dialog.exec()
 
     def refresh_documents(self):
         """Оновлює список документів (слот для сигналу)."""
@@ -322,26 +943,38 @@ class StaffDialog(QDialog):
         layout = QFormLayout(self)
 
         self.pib_input = QLineEdit()
+        self.pib_input.setPlaceholderText("Прізвище Ім'я По батькові")
         self.degree_input = QLineEdit()
 
         # Посада - dropdown with predefined values
         self.position_input = QComboBox()
         self.position_input.setEditable(True)
         self.position_input.addItems([
-            "В.о завідувача кафедри",
-            "професор",
-            "доцент",
-            "ст. викладач",
-            "асистент",
-            "фахівець",
+            "Завідувач кафедри",
+            "В.о. завідувача кафедри",
+            "Професор",
+            "Доцент",
+            "Ст. викладач",
+            "Асистент",
+            "Фахівець",
         ])
 
-        # Ставка - from 1.0 to 0.1 with step 0.1
+        # Ставка - from 1.0 to 0.1 with step 0.25 for quick selection
+        rate_layout = QHBoxLayout()
         self.rate_input = QDoubleSpinBox()
-        self.rate_input.setRange(0.1, 1.0)
-        self.rate_input.setSingleStep(0.1)
-        self.rate_input.setDecimals(1)
+        self.rate_input.setRange(0.0, 1.0)
+        self.rate_input.setSingleStep(0.25)
+        self.rate_input.setDecimals(2)
         self.rate_input.setValue(1.0)
+        rate_layout.addWidget(self.rate_input)
+
+        # Quick rate buttons
+        for rate_value in [1.0, 0.75, 0.5, 0.25]:
+            rate_btn = QPushButton(f"{rate_value:.2f}")
+            rate_btn.setFixedWidth(50)
+            rate_btn.setStyleSheet("font-weight: bold;")
+            rate_btn.clicked.connect(lambda checked, r=rate_value: self.rate_input.setValue(r))
+            rate_layout.addWidget(rate_btn)
 
         # Тип працевлаштування - with Ukrainian labels
         self.employment_type_input = QComboBox()
@@ -354,26 +987,40 @@ class StaffDialog(QDialog):
             self.employment_type_input.addItem(label, et)
 
         self.work_basis_input = QComboBox()
-        self.work_basis_input.addItems([e.value for e in WorkBasis])
+        # Ukrainian labels for work basis
+        self.work_basis_items = {
+            WorkBasis.CONTRACT: "Контракт",
+            WorkBasis.COMPETITIVE: "Конкурсна основа",
+            WorkBasis.STATEMENT: "Заява",
+        }
+        for wb, label in self.work_basis_items.items():
+            self.work_basis_input.addItem(label, wb)
 
-        # Контракт - dates
+        # Контракт - dates with current date defaults
+        from datetime import date
+
         self.term_start_input = QDateEdit()
         self.term_start_input.setCalendarPopup(True)
+        self.term_start_input.setDate(date.today())
+
         self.term_end_input = QDateEdit()
         self.term_end_input.setCalendarPopup(True)
+        self.term_end_input.setDate(date.today())
 
         self.vacation_balance_input = QSpinBox()
         self.vacation_balance_input.setRange(0, 365)
+        self.vacation_balance_input.setValue(0)
 
+        # Додаємо поля до форми (перед кнопками)
         layout.addRow("ПІБ:", self.pib_input)
         layout.addRow("Вчений ступінь:", self.degree_input)
         layout.addRow("Посада:", self.position_input)
-        layout.addRow("Ставка:", self.rate_input)
+        layout.addRow("Ставка:", rate_layout)
         layout.addRow("Тип працевлаштування:", self.employment_type_input)
         layout.addRow("Основа:", self.work_basis_input)
-        layout.addRow("Період контракту (початок):", self.term_start_input)
-        layout.addRow("Період контракту (кінець):", self.term_end_input)
-        layout.addRow("Наявна кількість днів відпустки:", self.vacation_balance_input)
+        layout.addRow("Початок контракту:", self.term_start_input)
+        layout.addRow("Кінець контракту:", self.term_end_input)
+        layout.addRow("Кількість днів відпустки:", self.vacation_balance_input)
 
         # Кнопки
         from PyQt6.QtWidgets import QDialogButtonBox
@@ -408,49 +1055,110 @@ class StaffDialog(QDialog):
                     if self.employment_type_input.itemData(i) == staff.employment_type:
                         self.employment_type_input.setCurrentIndex(i)
                         break
-                self.work_basis_input.setCurrentText(staff.work_basis.value)
+                # Find work basis by enum value
+                for i in range(self.work_basis_input.count()):
+                    if self.work_basis_input.itemData(i) == staff.work_basis:
+                        self.work_basis_input.setCurrentIndex(i)
+                        break
                 self.term_start_input.setDate(staff.term_start)
                 self.term_end_input.setDate(staff.term_end)
-                self.vacation_balance_input.setValue(staff.vacation_balance)
+                # For new employee without vacation record, show special text
+                if staff.vacation_balance == 0 and not staff.documents:
+                    self.vacation_balance_input.setValue(0)
+                else:
+                    self.vacation_balance_input.setValue(staff.vacation_balance)
 
     def accept(self):
         """Зберігає дані."""
-        from backend.models.staff import Staff
         from backend.core.database import get_db_context
+        from backend.services.staff_service import StaffService
+        from PyQt6.QtWidgets import QMessageBox
+        from sqlalchemy.exc import IntegrityError
+
+        # Валідація ПІБ: Прізвище Ім'я По батькові
+        pib = self.pib_input.text().strip()
+        pib_parts = pib.split()
+
+        if len(pib_parts) != 3:
+            QMessageBox.warning(
+                self,
+                "Некоректний ПІБ",
+                "ПІБ має бути у форматі: Прізвище Ім'я По батькові\n\n"
+                "Приклад: Петренко Тарас Сергійович\n\n"
+                f"Введено: {pib}"
+            )
+            return
+
+        # Перевірка на українські літери та велику першу літеру
+        import re
+        ukrainian_pattern = r"^[А-ЩЬЮЯЇІЄҐA-Z][а-щьюяїієҐ'a-z\-]+$"
+
+        for part in pib_parts:
+            if not re.match(ukrainian_pattern, part):
+                QMessageBox.warning(
+                    self,
+                    "Некоректний ПІБ",
+                    f"Кожна частина ПІБ має починатися з великої літери\n"
+                    "та містити лише українські літери.\n\n"
+                    f"Некоректна частина: {part}\n\n"
+                    "Приклад: Петренко Тарас Сергійович"
+                )
+                return
 
         # Rate is now already in decimal format (1.0 to 0.1)
         rate = self.rate_input.value()
-        # Get employment type from stored data
+        # Get employment type and work basis from stored data
         employment_type = self.employment_type_input.currentData()
+        work_basis = self.work_basis_input.currentData()
 
-        with get_db_context() as db:
-            if self.staff_id is None:
-                # Створення
-                staff = Staff(
-                    pib_nom=self.pib_input.text(),
-                    degree=self.degree_input.text() or None,
-                    position=self.position_input.currentText(),
-                    rate=rate,
-                    employment_type=employment_type,
-                    work_basis=WorkBasis(self.work_basis_input.currentText()),
-                    term_start=self.term_start_input.date().toPyDate(),
-                    term_end=self.term_end_input.date().toPyDate(),
-                    vacation_balance=self.vacation_balance_input.value(),
-                )
-                db.add(staff)
-            else:
-                # Оновлення
-                staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
-                if staff:
-                    staff.pib_nom = self.pib_input.text()
-                    staff.degree = self.degree_input.text() or None
-                    staff.position = self.position_input.currentText()
-                    staff.rate = rate
-                    staff.employment_type = employment_type
-                    staff.work_basis = WorkBasis(self.work_basis_input.currentText())
-                    staff.term_start = self.term_start_input.date().toPyDate()
-                    staff.term_end = self.term_end_input.date().toPyDate()
-                    staff.vacation_balance = self.vacation_balance_input.value()
+        # Prepare staff data
+        staff_data = {
+            "pib_nom": pib,
+            "degree": self.degree_input.text() or None,
+            "position": self.position_input.currentText(),
+            "rate": rate,
+            "employment_type": employment_type,
+            "work_basis": work_basis,
+            "term_start": self.term_start_input.date().toPyDate(),
+            "term_end": self.term_end_input.date().toPyDate(),
+            "is_active": True,
+            "vacation_balance": self.vacation_balance_input.value(),
+        }
 
-            db.commit()
-        super().accept()
+        # Перевірка унікальності посади завідувача (можна тільки одного: завідувач або в.о.)
+        head_positions = ["Завідувач кафедри", "В.о завідувача кафедри"]
+        if staff_data["position"] in head_positions:
+            from backend.models.staff import Staff
+            with get_db_context() as db:
+                existing_head = db.query(Staff).filter(
+                    Staff.position.in_(head_positions),
+                    Staff.is_active == True
+                ).first()
+                if existing_head and (self.staff_id is None or existing_head.id != self.staff_id):
+                    QMessageBox.warning(
+                        self,
+                        "Помилка",
+                        f"Посада завідувача кафедри вже зайнята.\n\n"
+                        f"Поточний: {existing_head.pib_nom} ({existing_head.position})\n"
+                        "Спочатку деактивуйте або змініть посаду поточного запису."
+                    )
+                    return
+
+        try:
+            with get_db_context() as db:
+                service = StaffService(db, changed_by="USER")
+
+                if self.staff_id is None:
+                    # Створення нового працівника
+                    service.create_staff(staff_data)
+                else:
+                    # Оновлення існуючого працівника
+                    staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
+                    if staff:
+                        service.update_staff(staff, staff_data)
+
+            super().accept()
+        except IntegrityError as e:
+            QMessageBox.critical(self, "Помилка", f"Помилка цілісності даних: {e}")
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося зберегти: {e}")

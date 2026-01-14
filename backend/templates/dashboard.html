@@ -210,6 +210,112 @@
         .badge-signed { background: #E8F5E9; color: #388E3C; }
         .badge-processed { background: #ECEFF1; color: #455A64; }
 
+        /* Workflow Progress Styles */
+        .workflow-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .workflow-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            cursor: pointer;
+        }
+
+        .workflow-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .workflow-toggle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .workflow-steps {
+            display: none;
+            border-top: 1px solid #eee;
+            padding-top: 15px;
+        }
+
+        .workflow-steps.expanded {
+            display: block;
+        }
+
+        .workflow-step {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 12px;
+            padding: 10px;
+            border-radius: 6px;
+            background: #f9f9f9;
+        }
+
+        .workflow-step.completed {
+            background: #E8F5E9;
+            border-left: 3px solid #4CAF50;
+        }
+
+        .workflow-step.pending {
+            background: #FFFDE7;
+            border-left: 3px solid #FFC107;
+        }
+
+        .workflow-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .workflow-step.completed .workflow-icon {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .workflow-step.pending .workflow-icon {
+            background: #FFC107;
+            color: white;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-name {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .step-date {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .step-comment {
+            font-size: 13px;
+            color: #555;
+            margin-top: 4px;
+            font-style: italic;
+        }
+
+        .document-dates {
+            color: #666;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
         .action-btn {
             padding: 8px 16px;
             border-radius: 6px;
@@ -479,23 +585,92 @@
                 }
 
                 container.innerHTML = data.items.map(doc => `
-                    <div class="document-item">
-                        <div class="document-info">
-                            <h4>${getDocumentTypeLabel(doc.doc_type)}</h4>
-                            <div class="document-meta">
-                                ${formatDate(doc.date_start)} - ${formatDate(doc.date_end)} |
-                                ${doc.days_count} днів
+                    <div class="workflow-container">
+                        <div class="workflow-header" onclick="toggleWorkflow(this)">
+                            <div>
+                                <div class="workflow-title">${getDocumentTypeLabel(doc.doc_type)}</div>
+                                <div class="document-dates">
+                                    ${formatDate(doc.date_start)} - ${formatDate(doc.date_end)} | ${doc.days_count} днів
+                                </div>
+                            </div>
+                            <div>
+                                <span class="document-badge badge-${doc.status}">
+                                    ${getStatusLabel(doc.status)}
+                                </span>
+                                <span class="workflow-toggle">▼</span>
                             </div>
                         </div>
-                        <span class="document-badge badge-${doc.status}">
-                            ${getStatusLabel(doc.status)}
-                        </span>
+                        <div class="workflow-steps" id="workflow-${doc.id}">
+                            ${renderWorkflowSteps(doc.progress || getEmptyProgress())}
+                        </div>
                     </div>
                 `).join('');
 
             } catch (error) {
                 console.error('Error loading documents:', error);
             }
+        }
+
+        function getEmptyProgress() {
+            return {
+                applicant: { completed: false, at: null, comment: null },
+                approval: { completed: false, at: null, comment: null },
+                department_head: { completed: false, at: null, comment: null },
+                approval_order: { completed: false, at: null, comment: null },
+                rector: { completed: false, at: null, comment: null },
+                scanned: { completed: false, at: null, comment: null },
+                tabel: { completed: false, at: null, comment: null },
+            };
+        }
+
+        function renderWorkflowSteps(progress) {
+            const steps = [
+                { key: 'applicant', name: 'Підпис викладача', icon: '✍️' },
+                { key: 'approval', name: 'Перевірено диспетчерською', icon: '📋' },
+                { key: 'department_head', name: 'Підпис завідувача', icon: '👔' },
+                { key: 'approval_order', name: 'Підписано наказом', icon: '📄' },
+                { key: 'rector', name: 'Підпис ректора', icon: '🏛️' },
+                { key: 'scanned', name: 'Відскановано', icon: '📷' },
+                { key: 'tabel', name: 'Додано до табелю', icon: '✅' },
+            ];
+
+            return steps.map(step => {
+                const p = progress[step.key] || { completed: false, at: null, comment: null };
+                const statusClass = p.completed ? 'completed' : 'pending';
+                const icon = p.completed ? '✓' : '○';
+                const dateStr = p.at ? formatDateTime(p.at) : 'Очікується';
+                const commentHtml = p.comment ? `<div class="step-comment">${p.comment}</div>` : '';
+
+                return `
+                    <div class="workflow-step ${statusClass}">
+                        <div class="workflow-icon">${icon}</div>
+                        <div class="step-content">
+                            <div class="step-name">${step.icon} ${step.name}</div>
+                            <div class="step-date">${dateStr}</div>
+                            ${commentHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleWorkflow(header) {
+            const steps = header.nextElementSibling;
+            const toggle = header.querySelector('.workflow-toggle');
+            steps.classList.toggle('expanded');
+            toggle.textContent = steps.classList.contains('expanded') ? '▲' : '▼';
+        }
+
+        function formatDateTime(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('uk-UA', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
         }
 
         async function loadPendingUploads() {

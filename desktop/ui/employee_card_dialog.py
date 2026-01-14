@@ -1,8 +1,9 @@
 """Діалог картки працівника з повною історією змін."""
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDateEdit,
     QDialog,
     QDialogButtonBox,
@@ -10,15 +11,17 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
-    QPushButton,
     QComboBox,
     QDoubleSpinBox,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from shared.enums import StaffActionType
@@ -31,6 +34,10 @@ class EmployeeCardDialog(QDialog):
     Показує поточну інформацію та повну історію змін.
     Дозволяє відновлення неактивних співробітників.
     """
+
+    # Сигнали для комунікації з батьківським вікном
+    edit_document = pyqtSignal(int)  # document_id
+    delete_document = pyqtSignal(int)  # document_id
 
     def __init__(self, staff_id: int, parent=None):
         """
@@ -88,15 +95,43 @@ class EmployeeCardDialog(QDialog):
                     "comment": entry.comment,
                 })
 
+            # Зберігаємо документи для відображення історії відпусток
+            self.vacation_documents = []
+            for doc in staff.documents:
+                self.vacation_documents.append({
+                    "id": doc.id,
+                    "doc_type": doc.doc_type.value if hasattr(doc.doc_type, 'value') else str(doc.doc_type),
+                    "status": doc.status.value if hasattr(doc.status, 'value') else str(doc.status),
+                    "date_start": doc.date_start,
+                    "date_end": doc.date_end,
+                    "days_count": doc.days_count,
+                    "created_at": doc.created_at,
+                })
+
     def _setup_ui(self):
         """Налаштовує інтерфейс."""
         self.setWindowTitle(f"Картка працівника: {self.staff_data['pib_nom']}")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(1000, 750)
 
         layout = QVBoxLayout(self)
 
         # Інформація про співробітника
         layout.addWidget(self._create_info_section())
+
+        # Історія відпусток
+        layout.addWidget(QLabel("<b>Історія відпусток</b>"))
+        self._vacation_history_table = self._create_vacation_history_table()
+        layout.addWidget(self._vacation_history_table)
+
+        # Панель етапів підписання (для диспетчерської)
+        self._workflow_status_label = QLabel()
+        self._workflow_status_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(self._workflow_status_label)
+
+        # Кнопка оновити етапи
+        refresh_btn = QPushButton("Оновити етапи підписання")
+        refresh_btn.clicked.connect(self._show_workflow_dialog)
+        layout.addWidget(refresh_btn)
 
         # Історія змін
         layout.addWidget(QLabel("<b>Історія змін</b>"))
@@ -129,11 +164,11 @@ class EmployeeCardDialog(QDialog):
         # Деталі
         details_text = f"""
         <table cellspacing="5">
-            <tr><td><b>Посада:</b></td><td>{self.staff_data['position']}</td></tr>
+            <tr><td><b>Посада:</b></td><td>{self._format_position(self.staff_data['position'])}</td></tr>
             <tr><td><b>Вчений ступінь:</b></td><td>{self.staff_data['degree'] or '—'}</td></tr>
             <tr><td><b>Ставка:</b></td><td>{self.staff_data['rate']}</td></tr>
             <tr><td><b>Тип працевлаштування:</b></td><td>{self._format_employment_type(self.staff_data['employment_type'].value)}</td></tr>
-            <tr><td><b>Основа:</b></td><td>{self.staff_data['work_basis'].value}</td></tr>
+            <tr><td><b>Основа:</b></td><td>{self._format_work_basis(self.staff_data['work_basis'].value)}</td></tr>
             <tr><td><b>Контракт:</b></td><td>
                 {self.staff_data['term_start'].strftime('%d.%m.%Y')} —
                 {self.staff_data['term_end'].strftime('%d.%m.%Y')}
@@ -147,6 +182,102 @@ class EmployeeCardDialog(QDialog):
         layout.addWidget(details)
 
         return frame
+
+    def _create_vacation_history_table(self) -> QTableWidget:
+        """Створює таблицю історії відпусток з кнопками дій."""
+        table = QTableWidget()
+        table.setObjectName("vacation_history")
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(
+            ["Період", "Тип", "Днів", "Статус", "Створено", "Дії"]
+        )
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setRowCount(len(self.vacation_documents))
+
+        # Status colors
+        status_colors = {
+            "draft": QColor("#E0E0E0"),       # Сірий - чернетка
+            "on_signature": QColor("#FFE082"), # Жовтий - на підписі
+            "signed": QColor("#C8E6C9"),       # Зелений - підписано
+            "processed": QColor("#81D4FA"),    # Блакитний - оброблено
+        }
+
+        for row, doc in enumerate(self.vacation_documents):
+            # Період
+            period = f"{doc['date_start'].strftime('%d.%m.%Y')} - {doc['date_end'].strftime('%d.%m.%Y')}"
+            table.setItem(row, 0, QTableWidgetItem(period))
+
+            # Тип документа
+            doc_type_labels = {
+                "vacation_paid": "Оплачувана відпустка",
+                "vacation_unpaid": "Відпустка без збереження",
+                "term_extension": "Продовження контракту",
+            }
+            doc_type = doc_type_labels.get(doc['doc_type'], doc['doc_type'])
+            table.setItem(row, 1, QTableWidgetItem(doc_type))
+
+            # Кількість днів
+            table.setItem(row, 2, QTableWidgetItem(str(doc['days_count'])))
+
+            # Статус з кольором
+            status_labels = {
+                "draft": "Чернетка",
+                "on_signature": "На підписі",
+                "signed": "Підписано",
+                "processed": "Оброблено",
+            }
+            status = status_labels.get(doc['status'], doc['status'])
+            status_item = QTableWidgetItem(status)
+            status_item.setBackground(status_colors.get(doc['status'], QColor("white")))
+            table.setItem(row, 3, status_item)
+
+            # Дата створення
+            created = doc['created_at'].strftime("%d.%m.%Y %H:%M") if doc['created_at'] else "—"
+            table.setItem(row, 4, QTableWidgetItem(created))
+
+            # Кнопки дій
+            button_container = QWidget()
+            button_layout = QHBoxLayout(button_container)
+            button_layout.setContentsMargins(2, 2, 2, 2)
+            button_layout.setSpacing(4)
+
+            # Перевіряємо чи документ відскановано (не можна редагувати/видаляти)
+            is_scanned = doc['status'] in ('processed', 'signed')
+
+            # Кнопка редагування (для чернеток та на підписі)
+            edit_btn = QPushButton("✏️")
+            edit_btn.setFixedWidth(32)
+            edit_btn.setToolTip("Редагувати документ")
+            edit_btn.setEnabled(not is_scanned)
+            if is_scanned:
+                edit_btn.setToolTip("Неможливо редагувати (документ відскановано)")
+            edit_btn.clicked.connect(lambda checked, d=doc: self._on_edit_document(d['id']))
+            button_layout.addWidget(edit_btn)
+
+            # Кнопка видалення
+            delete_btn = QPushButton("🗑️")
+            delete_btn.setFixedWidth(32)
+            delete_btn.setToolTip("Видалити документ")
+            delete_btn.setEnabled(not is_scanned)
+            if is_scanned:
+                delete_btn.setToolTip("Неможливо видалити (документ відскановано)")
+            delete_btn.clicked.connect(lambda checked, d=doc: self._on_delete_document(d['id']))
+            button_layout.addWidget(delete_btn)
+
+            # Кнопка етапів підписання
+            workflow_btn = QPushButton("📋")
+            workflow_btn.setFixedWidth(32)
+            workflow_btn.setToolTip("Етапи підписання")
+            workflow_btn.clicked.connect(lambda checked, d=doc: self._on_workflow_document(d['id']))
+            button_layout.addWidget(workflow_btn)
+
+            table.setCellWidget(row, 5, button_container)
+
+            # Зберігаємо ID
+            table.item(row, 0).setData(Qt.ItemDataRole.UserRole, doc['id'])
+
+        return table
 
     def _create_history_table(self) -> QTableWidget:
         """Створює таблицю історії змін."""
@@ -189,27 +320,17 @@ class EmployeeCardDialog(QDialog):
     def _create_action_buttons(self) -> QHBoxLayout:
         """Створює кнопки дій."""
         layout = QHBoxLayout()
-        layout.addStretch()
 
         if not self.staff_data['is_active']:
             # Кнопка відновлення для неактивних
             restore_btn = QPushButton("Відновити (новий запис)")
-            restore_btn.setStyleSheet(
-                """
-                QPushButton {
-                    background-color: #4CAF50;
-                    color: white;
-                    font-weight: bold;
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                }
-                QPushButton:hover {
-                    background-color: #45a049;
-                }
-            """
-            )
             restore_btn.clicked.connect(self._restore_staff)
             layout.addWidget(restore_btn)
+
+            # Кнопка повного видалення для неактивних
+            hard_delete_btn = QPushButton("🗑️ Видалити назавжди")
+            hard_delete_btn.clicked.connect(self._hard_delete_staff)
+            layout.addWidget(hard_delete_btn)
 
         # Закрити
         close_btn = QPushButton("Закрити")
@@ -217,6 +338,362 @@ class EmployeeCardDialog(QDialog):
         layout.addWidget(close_btn)
 
         return layout
+
+    def _on_edit_document(self, document_id: int):
+        """Обробляє редагування документа."""
+        self.edit_document.emit(document_id)
+        self.accept()
+
+    def _on_workflow_document(self, document_id: int):
+        """Обробляє оновлення етапів підписання."""
+        self._update_workflow_steps(document_id)
+
+    def _on_delete_document(self, document_id: int):
+        """Обробляє видалення документа."""
+        from backend.core.database import get_db_context
+        from backend.models.document import Document
+        from backend.services.document_service import DocumentService
+        from backend.services.grammar_service import GrammarService
+        from shared.enums import DocumentStatus
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTextEdit, QDialogButtonBox
+
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження",
+            "Ви впевнені, що хочете видалити цей документ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        with get_db_context() as db:
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            if not doc:
+                QMessageBox.warning(self, "Помилка", "Документ не знайдено")
+                return
+
+            # Перевіряємо статус
+            if doc.status == DocumentStatus.DRAFT:
+                # Чернетка - видаляємо повністю
+                db.delete(doc)
+                db.commit()
+                QMessageBox.information(self, "Успіх", "Документ видалено")
+
+            elif doc.status == DocumentStatus.ON_SIGNATURE:
+                # На підписі - показуємо діалог введення причини
+                reason_dialog = QDialog(self)
+                reason_dialog.setWindowTitle("Причина відкату")
+                reason_dialog.setMinimumWidth(400)
+
+                layout = QVBoxLayout(reason_dialog)
+                layout.addWidget(QLabel("Вкажіть причину повернення документа в чернетку:"))
+
+                reason_input = QTextEdit()
+                reason_input.setPlaceholderText("Наприклад: Помилка в датах, зміна планів тощо...")
+                reason_input.setMinimumHeight(100)
+                layout.addWidget(reason_input)
+
+                buttons = QDialogButtonBox(
+                    QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+                )
+                buttons.accepted.connect(reason_dialog.accept)
+                buttons.rejected.connect(reason_dialog.reject)
+                layout.addWidget(buttons)
+
+                if reason_dialog.exec() != QDialog.DialogCode.Accepted:
+                    return  # Користувач скасував
+
+                reason = reason_input.toPlainText().strip()
+                if not reason:
+                    QMessageBox.warning(self, "Попередження", "Будь ласка, вкажіть причину відкату документа.")
+                    return
+
+                # Відкатуємо до чернетки з причиною
+                doc_service = DocumentService(db, GrammarService())
+                doc_service.rollback_to_draft(doc, reason)
+                QMessageBox.information(self, "Успіх", "Документ повернуто в чернетку")
+
+            elif doc.status in (DocumentStatus.SIGNED, DocumentStatus.PROCESSED):
+                QMessageBox.warning(
+                    self,
+                    "Помилка",
+                    "Неможливо видалити підписаний або оброблений документ."
+                )
+                return
+
+        # Перезавантажуємо дані та оновлюємо таблиці
+        self._load_data()
+        # Refresh the tables in place
+        self._refresh_tables()
+
+    def _refresh_tables(self):
+        """Оновлює таблиці без перестворення всього інтерфейсу."""
+        # Create new vacation history table
+        new_table = self._create_vacation_history_table()
+
+        # Replace the old table in layout
+        layout = self.layout()
+        if layout and hasattr(self, '_vacation_history_table'):
+            # Find index of old table
+            old_table_index = -1
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if item and item.widget() == self._vacation_history_table:
+                    old_table_index = i
+                    break
+
+            if old_table_index >= 0:
+                # Remove old table from layout
+                layout.takeAt(old_table_index)
+                self._vacation_history_table.setParent(None)
+
+                # Insert new table at the same position
+                layout.insertWidget(old_table_index, new_table)
+                self._vacation_history_table = new_table
+
+    def _show_workflow_dialog(self):
+        """Показує діалог для оновлення етапів підписання."""
+        from backend.core.database import get_db_context
+        from backend.models.document import Document
+        from backend.models.settings import Approvers
+        from backend.services.grammar_service import GrammarService
+        import datetime
+
+        # Ask user which document to update
+        doc_dialog = QDialog(self)
+        doc_dialog.setWindowTitle("Оберіть документ")
+        doc_dialog.setMinimumWidth(400)
+        layout = QVBoxLayout(doc_dialog)
+
+        layout.addWidget(QLabel("Оберіть документ для оновлення етапів підписання:"))
+
+        # Create document list
+        from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+        doc_list = QListWidget()
+        for doc in self.vacation_documents:
+            item = QListWidgetItem()
+            item.setText(f"#{doc['id']} - {doc['date_start'].strftime('%d.%m.%Y')} - {doc['doc_type']}")
+            item.setData(Qt.ItemDataRole.UserRole, doc['id'])
+            doc_list.addItem(item)
+        layout.addWidget(doc_list)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(doc_dialog.accept)
+        buttons.rejected.connect(doc_dialog.reject)
+        layout.addWidget(buttons)
+
+        if doc_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected = doc_list.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Попередження", "Оберіть документ")
+            return
+
+        document_id = selected.data(Qt.ItemDataRole.UserRole)
+
+        # Now show the workflow dialog for this document
+        self._update_workflow_steps(document_id)
+
+    def _update_workflow_steps(self, document_id: int):
+        """Оновлює етапи підписання для документа."""
+        from backend.core.database import get_db_context
+        from backend.models.document import Document
+        from backend.models.settings import Approvers
+        from backend.services.grammar_service import GrammarService
+        import datetime
+
+        # Define fixed workflow steps (order: applicant -> approval -> department_head)
+        fixed_steps = [
+            ("applicant", "Підпис викладача", "✍️"),
+            ("approval", "Перевірено диспетчерською", "📋"),
+            ("department_head", "Підпис завідувача кафедри", "👔"),
+        ]
+
+        # Get approvers from database (between department_head and rector)
+        approvers = []
+        with get_db_context() as db:
+            approvers_data = db.query(Approvers).order_by(Approvers.order_index).all()
+            for approver in approvers_data:
+                full_name = approver.full_name_nom or approver.full_name_dav
+                if full_name:
+                    approvers.append((f"approver_{full_name}", full_name, "📄"))
+
+        # Fixed steps after approvers (rector -> scanned -> tabel)
+        final_steps = [
+            ("rector", "Підпис ректора", "🏛️"),
+            ("scanned", "Відскановано (вхідний скан)", "📷"),
+            ("tabel", "Додано до табелю", "✅"),
+        ]
+
+        # Create workflow dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Етапи підписання документа #{document_id}")
+        dialog.setMinimumWidth(600)
+        dialog_layout = QVBoxLayout(dialog)
+
+        # Load document data
+        with get_db_context() as db:
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            if not doc:
+                QMessageBox.warning(self, "Помилка", "Документ не знайдено")
+                return
+
+            progress = doc.get_workflow_progress()
+            completed_approvers = doc.approval_order_comment or ""
+
+            # Store checkboxes
+            checkboxes = {}
+            comments = {}
+
+            # Add fixed steps
+            for step_key, step_name, step_icon in fixed_steps:
+                step_layout = QHBoxLayout()
+                checkbox = QCheckBox(f"{step_icon} {step_name}")
+                step_data = progress.get(step_key, {})
+                checkbox.setChecked(step_data.get("completed", False))
+                checkboxes[step_key] = checkbox
+                step_layout.addWidget(checkbox)
+
+                comment_edit = QLineEdit()
+                comment_edit.setPlaceholderText("Коментар")
+                comment_edit.setText(step_data.get("comment") or "")
+                comment_edit.setMaximumWidth(200)
+                comments[step_key] = comment_edit
+                step_layout.addWidget(comment_edit)
+
+                dialog_layout.addLayout(step_layout)
+
+            # Add separator for approvers
+            dialog_layout.addWidget(QLabel("<b>Підписи погоджувачів</b>"))
+            approver_checkboxes = {}
+            approver_comments = {}
+
+            for step_key, approver_name, icon in approvers:
+                step_layout = QHBoxLayout()
+                checkbox = QCheckBox(f"{icon} {approver_name}")
+                is_completed = approver_name in completed_approvers
+                checkbox.setChecked(is_completed)
+                approver_checkboxes[step_key] = checkbox
+                step_layout.addWidget(checkbox)
+
+                comment_edit = QLineEdit()
+                comment_edit.setPlaceholderText("Коментар")
+                comment_edit.setMaximumWidth(200)
+                approver_comments[step_key] = comment_edit
+                step_layout.addWidget(comment_edit)
+
+                dialog_layout.addLayout(step_layout)
+
+            # Add final steps
+            dialog_layout.addWidget(QLabel("<b>Завершальні етапи</b>"))
+
+            for step_key, step_name, step_icon in final_steps:
+                step_layout = QHBoxLayout()
+                checkbox = QCheckBox(f"{step_icon} {step_name}")
+                step_data = progress.get(step_key, {})
+                checkbox.setChecked(step_data.get("completed", False))
+                checkboxes[step_key] = checkbox
+                step_layout.addWidget(checkbox)
+
+                comment_edit = QLineEdit()
+                comment_edit.setPlaceholderText("Коментар")
+                comment_edit.setText(step_data.get("comment") or "")
+                comment_edit.setMaximumWidth(200)
+                comments[step_key] = comment_edit
+                step_layout.addWidget(comment_edit)
+
+                dialog_layout.addLayout(step_layout)
+
+            # Buttons
+            btn_layout = QHBoxLayout()
+
+            save_btn = QPushButton("Зберегти")
+            save_btn.clicked.connect(dialog.accept)
+            btn_layout.addWidget(save_btn)
+
+            clear_btn = QPushButton("Очистити всі")
+            clear_btn.clicked.connect(lambda: self._clear_all_workflow_steps(document_id, dialog))
+            btn_layout.addWidget(clear_btn)
+
+            cancel_btn = QPushButton("Скасувати")
+            cancel_btn.clicked.connect(dialog.reject)
+            btn_layout.addWidget(cancel_btn)
+
+            dialog_layout.addLayout(btn_layout)
+
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                now = datetime.datetime.now()
+
+                # Update fixed steps
+                for step_key, _, _ in fixed_steps:
+                    checkbox = checkboxes[step_key]
+                    comment = comments[step_key].text().strip() or None
+
+                    if step_key == "applicant":
+                        doc.applicant_signed_at = now if checkbox.isChecked() else None
+                        doc.applicant_signed_comment = comment
+                    elif step_key == "approval":
+                        doc.approval_at = now if checkbox.isChecked() else None
+                        doc.approval_comment = comment
+                    elif step_key == "department_head":
+                        doc.department_head_at = now if checkbox.isChecked() else None
+                        doc.department_head_comment = comment
+                    elif step_key == "rector":
+                        doc.rector_at = now if checkbox.isChecked() else None
+                        doc.rector_comment = comment
+                    elif step_key == "scanned":
+                        doc.scanned_at = now if checkbox.isChecked() else None
+                        doc.scanned_comment = comment
+                    elif step_key == "tabel":
+                        doc.tabel_added_at = now if checkbox.isChecked() else None
+                        doc.tabel_added_comment = comment
+
+                # Update approvers
+                completed_approvers_list = []
+                for step_key, approver_name, _ in approvers:
+                    checkbox = approver_checkboxes[step_key]
+                    if checkbox.isChecked():
+                        completed_approvers_list.append(approver_name)
+
+                doc.approval_order_at = now if completed_approvers_list else None
+                doc.approval_order_comment = ", ".join(completed_approvers_list) if completed_approvers_list else None
+
+                # Оновлюємо статус на основі етапів
+                doc.update_status_from_workflow()
+
+                db.commit()
+                QMessageBox.information(self, "Успіх", "Етапи підписання оновлено")
+
+    def _clear_all_workflow_steps(self, document_id: int, dialog: QDialog):
+        """Очищає всі етапи підписання."""
+        from backend.core.database import get_db_context
+        from backend.models.document import Document
+
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження",
+            "Очистити всі етапи підписання?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        with get_db_context() as db:
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            if not doc:
+                return
+
+            # Скидаємо всі етапи підписання
+            doc.reset_workflow()
+            db.commit()
+
+        dialog.accept()
+        QMessageBox.information(self, "Успіх", "Всі етапи очищено")
 
     def _format_employment_type(self, value: str) -> str:
         """Форматує тип працевлаштування для відображення."""
@@ -226,6 +703,22 @@ class EmployeeCardDialog(QDialog):
             "external": "Зовнішній сумісник",
         }
         return type_map.get(value, value)
+
+    def _format_work_basis(self, value: str) -> str:
+        """Форматує основу роботи для відображення."""
+        basis_map = {
+            "contract": "Контракт",
+            "competitive": "Конкурсна основа",
+            "statement": "Заява",
+        }
+        return basis_map.get(value, value)
+
+    def _format_position(self, position: str) -> str:
+        """Форматує посаду - перша літера велика."""
+        if not position:
+            return position
+        # Capitalize first letter of each word
+        return position.title()
 
     def _format_action_type(self, action_type: str) -> str:
         """Форматує тип дії для відображення."""
@@ -388,3 +881,38 @@ class EmployeeCardDialog(QDialog):
                     self.accept()
                 except Exception as e:
                     QMessageBox.critical(self, "Помилка", f"Не вдалося відновити запис: {e}")
+
+    def _hard_delete_staff(self):
+        """Повністю видаляє співробітника (hard delete)."""
+        from backend.core.database import get_db_context
+        from backend.services.staff_service import StaffService
+        from backend.models.staff import Staff
+
+        # Підтвердження
+        confirm = QMessageBox.warning(
+            self,
+            "ОСТОРОЖНО!",
+            f"Ви впевнені, що хочете назавжди видалити\n"
+            f"{self.staff_data['pib_nom']} ({self.staff_data['position']})?\n\n"
+            f"ЦЯ ДІЯ НЕЗВОРОТНЯ! Всі дані та історія будуть втрачені.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            with get_db_context() as db:
+                service = StaffService(db, changed_by="USER")
+                staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
+                if staff:
+                    service.hard_delete_staff(staff)
+                    QMessageBox.information(
+                        self, "Успішно", f"Запис повністю видалено"
+                    )
+                    self.accept()
+                else:
+                    QMessageBox.warning(self, "Помилка", "Запис не знайдено")
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося видалити запис: {e}")

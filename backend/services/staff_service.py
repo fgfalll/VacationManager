@@ -60,7 +60,7 @@ class StaffService:
             comment="Створено новий запис",
         )
 
-        self.db.commit()
+        # Коміт буде виконаний в get_db_context()
         return staff
 
     def update_staff(self, staff: Staff, updates: dict[str, Any], comment: str | None = None) -> None:
@@ -103,7 +103,7 @@ class StaffService:
             comment=comment or f"Оновлено поля: {', '.join(previous_values.keys())}",
         )
 
-        self.db.commit()
+        # Коміт буде виконаний в get_db_context()
 
     def deactivate_staff(self, staff: Staff, reason: str | None = None) -> None:
         """
@@ -124,7 +124,7 @@ class StaffService:
             comment=reason or "Деактивовано запис",
         )
 
-        self.db.commit()
+        # Коміт буде виконаний в get_db_context()
 
     def hard_delete_staff(self, staff: Staff) -> None:
         """
@@ -137,7 +137,7 @@ class StaffService:
         """
         staff_id = staff.id
         self.db.delete(staff)
-        self.db.commit()
+        # Коміт буде виконаний в get_db_context()
 
     def restore_staff(self, old_staff: Staff, new_data: dict[str, Any]) -> Staff:
         """
@@ -178,7 +178,7 @@ class StaffService:
             comment="Відновлено запис з новими даними",
         )
 
-        self.db.commit()
+        # Коміт буде виконаний в get_db_context()
         return old_staff
 
     def auto_deactivate_expired_contracts(self) -> int:

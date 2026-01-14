@@ -48,24 +48,18 @@ class MainWindow(QMainWindow):
         self.schedule_tab = ScheduleTab()
         self.builder_tab = BuilderTab()
 
-        self.tabs.addTab(self.staff_tab, "👥 Персонал")
-        self.tabs.addTab(self.schedule_tab, "📅 Графік відпусток")
-        self.tabs.addTab(self.builder_tab, "📝 Конструктор заяв")
+        self.tabs.addTab(self.staff_tab, "Персонал")
+        self.tabs.addTab(self.schedule_tab, "Графік відпусток")
+        self.tabs.addTab(self.builder_tab, "Конструктор заяв")
 
         # Меню
         menubar = self.menuBar()
 
         # Файл
         file_menu = menubar.addMenu("Файл")
+        file_menu.addAction("Налаштування", self._open_settings)
+        file_menu.addSeparator()
         file_menu.addAction("Вихід", self.close)
-
-        # Налаштування
-        settings_menu = menubar.addMenu("⚙️ Налаштування")
-        settings_menu.addAction("Налаштування системи", self._open_settings)
-        settings_menu.addAction("Ректор та університет", lambda: self._open_settings("institution"))
-        settings_menu.addAction("Кафедра та відділ", lambda: self._open_settings("department"))
-        settings_menu.addAction("Погоджувачі", lambda: self._open_settings("approvers"))
-        settings_menu.addAction("Форматування", lambda: self._open_settings("formatting"))
 
         # Синхронізація
         sync_menu = menubar.addMenu("Синхронізація")
@@ -80,6 +74,20 @@ class MainWindow(QMainWindow):
         """Підключає сигнали між компонентами."""
         # Коли документ створено, оновити список у персоналі
         self.builder_tab.document_created.connect(self.staff_tab.refresh_documents)
+
+    def navigate_to_builder(self, staff_id: int, document_id: int | None = None):
+        """
+        Переходить на вкладку конструктора заяв.
+
+        Args:
+            staff_id: ID співробітника
+            document_id: ID документа для редагування (None для нового документа)
+        """
+        self.tabs.setCurrentWidget(self.builder_tab)
+        if document_id:
+            self.builder_tab.load_document(document_id, staff_id)
+        else:
+            self.builder_tab.new_document(staff_id)
 
     def _open_settings(self, tab: str = None):
         """Відкриває діалог налаштувань."""
@@ -103,7 +111,6 @@ class MainWindow(QMainWindow):
     def _show_about(self):
         """Показує інформацію про програму."""
         from PyQt6.QtWidgets import QMessageBox
-
         QMessageBox.information(
             self,
             "Про VacationManager",

@@ -1,8 +1,9 @@
 """Міст для взаємодії між Python та JavaScript у WYSIWYG редакторі."""
 
 import json
+from pathlib import Path
 from typing import Any, Callable
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QUrl
 from PyQt6.QtWebEngineCore import QWebEngineScript
 
 
@@ -16,6 +17,7 @@ class WysiwygBridge(QObject):
     # Сигнали, що генеруються JavaScript
     content_changed = pyqtSignal(str, bool)  # (content_json, has_changes)
     field_updated = pyqtSignal(str, str)  # (field_name, value)
+    signatories_changed = pyqtSignal(str)  # (signatories_json)
 
     def __init__(self, parent=None):
         """
@@ -26,6 +28,7 @@ class WysiwygBridge(QObject):
         """
         super().__init__(parent)
         self._current_content: dict[str, str] = {}
+        self._current_signatories: list[dict] = []
 
     @pyqtSlot(str, bool)
     def on_content_changed(self, content_json: str, has_changes: bool) -> None:
@@ -52,6 +55,20 @@ class WysiwygBridge(QObject):
             value: Нове значення
         """
         self.field_updated.emit(field_name, value)
+
+    @pyqtSlot(str)
+    def on_signatories_changed(self, signatories_json: str) -> None:
+        """
+        Обробляє зміну списку погоджувачів.
+
+        Args:
+            signatories_json: JSON рядок зі списком погоджувачів
+        """
+        try:
+            self._current_signatories = json.loads(signatories_json)
+            self.signatories_changed.emit(signatories_json)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing signatories JSON from JS: {e}")
 
     def get_current_content(self) -> dict[str, str]:
         """
@@ -132,6 +149,60 @@ class WysiwygBridge(QObject):
         script = "exportContent();"
         web_view.page().runJavaScript(script)
 
+    def get_document_html_for_pdf(self, web_view, callback: Callable[[str], None]) -> None:
+        """
+        Отримує повний HTML документ для генерації PDF.
+
+        Args:
+            web_view: QWebEngineView інстанс
+            callback: Функція зворотного виклику з результатом HTML
+        """
+        script = "getDocumentHtmlForPdf();"
+        web_view.page().runJavaScript(script, callback)
+
+    def update_signatories(self, web_view, signatories: list[dict]) -> None:
+        """
+        Оновлює список погоджувачів у документі.
+
+        Args:
+            web_view: QWebEngineView інстанс
+            signatories: Список словників з даними погоджувачів
+        """
+        signatories_json = json.dumps(signatories, ensure_ascii=False)
+        script = f"updateSignatories({signatories_json});"
+        web_view.page().runJavaScript(script)
+
+    def set_predefined_signatories(self, web_view, signatories: list[dict]) -> None:
+        """
+        Встановлює попередньо визначених погоджувачів (будуть додаватися при натисканні + Погоджувач).
+
+        Args:
+            web_view: QWebEngineView інстанс
+            signatories: Список словників з даними погоджувачів
+        """
+        signatories_json = json.dumps(signatories, ensure_ascii=False)
+        script = f"setPredefinedSignatories({signatories_json});"
+        web_view.page().runJavaScript(script)
+
+    def initialize_signatories(self, web_view) -> None:
+        """
+        Ініціалізує погоджувачів (викликає завантаження попередньо визначених).
+
+        Args:
+            web_view: QWebEngineView інстанс
+        """
+        script = "initializeSignatories();"
+        web_view.page().runJavaScript(script)
+
+    def get_current_signatories(self) -> list[dict]:
+        """
+        Повертає поточний список погоджувачів.
+
+        Returns:
+            Список словників з даними погоджувачів
+        """
+        return self._current_signatories.copy()
+
     def execute_format_command(self, web_view, command: str, value: Any = None) -> None:
         """
         Виконує команду форматування.
@@ -159,6 +230,19 @@ class WysiwygBridge(QObject):
         script = f"document.getElementById('fontSizeSelect').value = '{size}';"
         script += f"document.execCommand('fontSize', false, '{size}');"
         web_view.page().runJavaScript(script)
+
+    def load_content(self, web_view, html_content: str) -> None:
+        """
+        Завантажує HTML контент у редактор.
+
+        Args:
+            web_view: QWebEngineView інстанс
+            html_content: HTML контент документа
+        """
+        # Отримуємо базові налаштування
+        templates_dir = Path(__file__).parent.parent / "templates"
+        base_url = QUrl.fromLocalFile(str(templates_dir) + "/")
+        web_view.setHtml(html_content, base_url)
 
     def set_line_height(self, web_view, height: float) -> None:
         """

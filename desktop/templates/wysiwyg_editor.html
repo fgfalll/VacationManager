@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WYSIWYG Редактор документа</title>
+    <script src="qwebchannel.js"></script>
     <style>
         * {
             margin: 0;
@@ -23,18 +24,18 @@
             position: sticky;
             top: 0;
             z-index: 1000;
-            background: #fff;
+            background: linear-gradient(to bottom, #fff, #f8f8f8);
             border-bottom: 2px solid #ddd;
             padding: 10px;
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
 
         .toolbar-group {
             display: flex;
-            gap: 4px;
+            gap: 3px;
             padding-right: 12px;
             border-right: 1px solid #ddd;
             align-items: center;
@@ -46,38 +47,58 @@
 
         .toolbar-btn {
             padding: 6px 10px;
-            border: 1px solid #ddd;
-            background: #f8f8f8;
+            border: 1px solid #ccc;
+            background: linear-gradient(to bottom, #fff, #f0f0f0);
             cursor: pointer;
             border-radius: 3px;
-            font-size: 14px;
-            transition: all 0.2s;
+            font-size: 13px;
+            transition: all 0.15s;
+            min-width: 32px;
+            text-align: center;
         }
 
         .toolbar-btn:hover {
-            background: #e0e0e0;
+            background: linear-gradient(to bottom, #e8e8e8, #d8d8d8);
+            border-color: #aaa;
         }
 
         .toolbar-btn.active {
-            background: #3B82F6;
+            background: linear-gradient(to bottom, #4a90d9, #3B82F6);
             color: white;
             border-color: #3B82F6;
         }
 
+        .toolbar-btn.danger {
+            background: linear-gradient(to bottom, #dc3545, #c82333);
+            color: white;
+            border-color: #bd2130;
+        }
+
+        .toolbar-btn.success {
+            background: linear-gradient(to bottom, #28a745, #218838);
+            color: white;
+            border-color: #1e7e34;
+        }
+
         .toolbar-select {
-            padding: 6px 8px;
-            border: 1px solid #ddd;
+            padding: 5px 8px;
+            border: 1px solid #ccc;
             border-radius: 3px;
             font-size: 13px;
-            background: #f8f8f8;
+            background: #fff;
+            cursor: pointer;
+        }
+
+        .toolbar-select:hover {
+            border-color: #aaa;
         }
 
         .document {
             max-width: 21cm;
             margin: 20px auto;
             background-color: white;
-            padding: 2cm;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2.54cm; /* 1 inch margins like Word */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             min-height: 29.7cm;
         }
 
@@ -85,54 +106,149 @@
         [contenteditable="true"] {
             outline: none;
             transition: outline 0.2s;
+            min-height: 1.5em;
         }
 
         [contenteditable="true"]:hover {
-            outline: 1px dashed #ccc;
+            outline: 1px dashed #999;
+            background-color: rgba(59, 130, 246, 0.02);
         }
 
         [contenteditable="true"]:focus {
             outline: 2px solid #3B82F6;
             outline-offset: 2px;
+            background-color: rgba(59, 130, 246, 0.05);
         }
 
+        /* Header block */
         .header {
             text-align: right;
-            margin-bottom: 30px;
+            margin-bottom: 24pt;
         }
 
+        /* Title block */
         .title {
             text-align: center;
             font-weight: bold;
-            margin-bottom: 30px;
+            margin-bottom: 24pt;
             text-transform: uppercase;
+            font-size: 16pt;
         }
 
+        /* Content block with proper indentation */
         .content {
             text-align: justify;
-            text-indent: 1.5cm;
-            margin-bottom: 20px;
+            text-indent: 1.27cm; /* 0.5 inch like Word */
+            margin-bottom: 0;
+            line-height: 1.5;
         }
 
+        /* Signature block */
         .signature-block {
-            margin-top: 50px;
+            margin-top: 48pt;
         }
 
         .signature-row {
             display: flex;
             justify-content: space-between;
-            margin-top: 30px;
+            align-items: flex-start;
+            margin-top: 24pt;
+            position: relative;
+        }
+
+        .signatory-row {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: flex-start !important;
+            margin-top: 20px !important;
+            padding: 0 !important;
+            width: 100% !important;
+            border: 1px dashed transparent;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .signatory-row > div {
+            flex: 1 !important;
+            min-width: 0 !important;
+        }
+
+        .signatory-row > div:nth-child(1) {
+            text-align: left !important;
+        }
+
+        .signatory-row > div:nth-child(2) {
+            text-align: center !important;
+            padding: 0 10px !important;
+        }
+
+        .signatory-row > div:nth-child(3) {
+            text-align: right !important;
+            white-space: nowrap !important;
+        }
+
+        .signatory-row:hover {
+            border-color: #ddd;
+            background-color: rgba(59, 130, 246, 0.02);
+        }
+
+        .signatory-row:hover .signatory-controls {
+            opacity: 1;
+        }
+
+        .signatory-controls {
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .signatory-btn {
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            background: #f8f8f8;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 11px;
+            min-width: 24px;
+        }
+
+        .signatory-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .signatory-btn.move-up:hover {
+            background: #d4edda;
+            border-color: #28a745;
+        }
+
+        .signatory-btn.move-down:hover {
+            background: #d4edda;
+            border-color: #28a745;
+        }
+
+        .signatory-btn.remove:hover {
+            background: #f8d7da;
+            border-color: #dc3545;
         }
 
         .signature-left,
         .signature-right {
-            width: 45%;
+            flex: 1;
+            min-width: 0;
         }
 
         .signature-label {
             text-align: center;
-            margin-top: 40px;
+            margin-top: 32pt;
             font-size: 12pt;
+        }
+
+        .signature-line {
+            display: inline-block;
+            border-bottom: 1px solid #000;
+            min-width: 180px;
+            margin: 0 10px;
         }
 
         .status {
@@ -146,6 +262,7 @@
             font-size: 12px;
             font-weight: bold;
             z-index: 1001;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
 
         .status.on-signature {
@@ -162,12 +279,41 @@
 
         /* Field markers for auto-generated content */
         .auto-field {
-            background-color: rgba(59, 130, 246, 0.05);
+            background-color: rgba(59, 130, 246, 0.08);
             border-radius: 2px;
+            padding: 0 2px;
         }
 
         .auto-field:hover {
-            background-color: rgba(59, 130, 246, 0.1);
+            background-color: rgba(59, 130, 246, 0.15);
+        }
+
+        /* Paragraph spacing controls */
+        .paragraph-spacing {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .spacing-btn {
+            padding: 4px 8px;
+            font-size: 11px;
+            min-width: 28px;
+        }
+
+        /* Approvals section */
+        .approvals-section {
+            margin-top: 48pt;
+        }
+
+        .approvals-section h4 {
+            margin-bottom: 16pt;
+            font-size: 12pt;
+        }
+
+        /* Indentation buttons */
+        .indent-btn {
+            font-size: 14px;
         }
     </style>
 </head>
@@ -187,47 +333,76 @@
             <button class="toolbar-btn" data-command="underline" title="Підкреслення (Ctrl+U)">
                 <u>U</u>
             </button>
+            <button class="toolbar-btn" data-command="strikeThrough" title="Закреслення">
+                <s>abc</s>
+            </button>
         </div>
 
         <!-- Alignment -->
         <div class="toolbar-group">
-            <button class="toolbar-btn" data-command="justifyLeft" title="По лівому краю">
+            <button class="toolbar-btn" data-command="justifyLeft" title="По лівому краю (Ctrl+L)">
                 ⬅
             </button>
-            <button class="toolbar-btn" data-command="justifyCenter" title="По центру">
+            <button class="toolbar-btn" data-command="justifyCenter" title="По центру (Ctrl+E)">
                 ⬌
             </button>
-            <button class="toolbar-btn" data-command="justifyRight" title="По правому краю">
+            <button class="toolbar-btn" data-command="justifyRight" title="По правому краю (Ctrl+R)">
                 ➡
             </button>
-            <button class="toolbar-btn" data-command="justifyFull" title="По ширині">
+            <button class="toolbar-btn" data-command="justifyFull" title="По ширині (Ctrl+J)">
                 ⬌⬌
             </button>
         </div>
 
         <!-- Font size -->
         <div class="toolbar-group">
-            <label style="font-size: 12px;">Розмір:</label>
-            <select class="toolbar-select" id="fontSizeSelect">
-                <option value="1">Дуже малий</option>
-                <option value="2">Малий</option>
-                <option value="3" selected>Звичайний</option>
-                <option value="4">Середній</option>
-                <option value="5">Великий</option>
-                <option value="6">Дуже великий</option>
-                <option value="7">Огромний</option>
+            <label style="font-size: 11px; color: #666;">Розмір:</label>
+            <select class="toolbar-select" id="fontSizeSelect" title="Розмір шрифту">
+                <option value="1">8</option>
+                <option value="2">10</option>
+                <option value="3" selected>12</option>
+                <option value="4">14</option>
+                <option value="5">16</option>
+                <option value="6">18</option>
+                <option value="7">24</option>
+                <option value="8">36</option>
             </select>
         </div>
 
-        <!-- Line height -->
+        <!-- Line spacing (like Word) -->
         <div class="toolbar-group">
-            <label style="font-size: 12px;">Інтервал:</label>
-            <select class="toolbar-select" id="lineHeightSelect">
-                <option value="1.0">1.0</option>
-                <option value="1.15">1.15</option>
-                <option value="1.5" selected>1.5</option>
-                <option value="2.0">2.0</option>
-            </select>
+            <div class="paragraph-spacing">
+                <label style="font-size: 11px; color: #666;">Інтервал:</label>
+                <button class="toolbar-btn spacing-btn" id="decreaseLineSpacing" title="Зменшити інтервал">-</button>
+                <select class="toolbar-select" id="lineHeightSelect" title="Міжрядковий інтервал">
+                    <option value="1.0">1.0</option>
+                    <option value="1.15">1.15</option>
+                    <option value="1.5" selected>1.5</option>
+                    <option value="2.0">2.0</option>
+                    <option value="2.5">2.5</option>
+                    <option value="3.0">3.0</option>
+                </select>
+                <button class="toolbar-btn spacing-btn" id="increaseLineSpacing" title="Збільшити інтервал">+</button>
+            </div>
+        </div>
+
+        <!-- Paragraph spacing -->
+        <div class="toolbar-group">
+            <div class="paragraph-spacing">
+                <label style="font-size: 11px; color: #666;">Абзац:</label>
+                <button class="toolbar-btn spacing-btn" id="decreaseSpacing" title="Зменшити відступ">-</button>
+                <button class="toolbar-btn spacing-btn" id="increaseSpacing" title="Збільшити відступ">+</button>
+            </div>
+        </div>
+
+        <!-- Indentation -->
+        <div class="toolbar-group">
+            <button class="toolbar-btn indent-btn" data-command="indent" title="Відступ (Ctrl+M)">
+                →
+            </button>
+            <button class="toolbar-btn indent-btn" data-command="outdent" title="Зменшити відступ (Ctrl+Shift+M)">
+                ←
+            </button>
         </div>
 
         <!-- Undo/Redo -->
@@ -240,132 +415,38 @@
             </button>
         </div>
 
+        <!-- Signatories management -->
+        <div class="toolbar-group">
+            <button class="toolbar-btn success" id="addSignatoryBtn" title="Додати погоджувача">
+                + Погоджувач
+            </button>
+            <button class="toolbar-btn danger" id="removeSignatoryBtn" title="Видалити останнього">
+                −
+            </button>
+        </div>
+
+        <!-- Clear formatting -->
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="clearFormatBtn" title="Очистити форматування (Ctrl+Space)">
+                🗑️
+            </button>
+        </div>
+
         <!-- Export -->
         <div class="toolbar-group" style="border-right: none;">
-            <button class="toolbar-btn" id="exportBtn" style="background: #10B981; color: white;">
-                ✓ Зберегти зміни
+            <button class="toolbar-btn" id="exportBtn" style="background: linear-gradient(to bottom, #10B981, #0ca678); color: white; border-color: #0ca678;">
+                💾 Зберегти
             </button>
         </div>
     </div>
 
+
     <!-- Document container -->
     <div class="document" id="document">
-        {% if doc_type == 'VACATION_PAID' or doc_type == 'VACATION_UNPAID' %}
-            {% call vacancy_template(
-                staff_name, staff_position, date_start, date_end,
-                days_count, payment_period, doc_type, custom_text,
-                rector_name, dept_name, show_dept_head, dept_head_name, dept_head_position
-            ) %}
-            {% endcall %}
-        {% elif doc_type == 'TERM_EXTENSION' %}
-            {% call extension_template(
-                staff_name, staff_position, date_start, date_end,
-                custom_text, rector_name, dept_name
-            ) %}
-            {% endcall %}
-        {% endif %}
+        {{ document_content|safe }}
     </div>
-
-    {% macro vacancy_template(name, position, start, end, days, payment, doc_type, custom_text, rector, dept, show_dept, dept_head_name, dept_head_position) %}
-        <!-- Header block - editable -->
-        <div class="header" contenteditable="true" data-block="header">
-            <p>Ректору<br>
-            {{ rector or '[ІМ\'Я РЕКТОРА]' }}<br><br>
-            {{ dept or '[НАЗВА КАФЕДРИ/ІНСТИТУТУ]' }}</p>
-        </div>
-
-        <!-- Title block - editable -->
-        <div class="title" contenteditable="true" data-block="title">
-            Заява
-        </div>
-
-        <!-- Main content block - editable -->
-        <div class="content" contenteditable="true" data-block="content">
-            Прошу Вас звільнити мене від виконання посадових обов'язків
-            у період з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
-            по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>
-            включно (<span class="auto-field" contenteditable="false" data-field="days_count">{{ days or '0' }}</span> днів)
-            та надати мені відпустку
-            {% if doc_type == 'VACATION_PAID' %}
-            з наступною оплатою <span class="auto-field" contenteditable="false" data-field="payment_period">{{ payment or '[першій/другій половині місяця]' }}</span>.
-            {% else %}
-            без збереження заробітної плати.
-            {% endif %}
-        </div>
-
-        <!-- Custom text block - editable -->
-        {% if custom_text %}
-        <div class="content" contenteditable="true" data-block="custom_text">
-            {{ custom_text }}
-        </div>
-        {% endif %}
-
-        <!-- Signature block - editable -->
-        <div class="signature-block" contenteditable="true" data-block="signature">
-            <div class="content" style="text-indent: 0; margin-top: 40px;">
-                «____» ____________ 202__ р.
-            </div>
-
-            <div class="signature-row">
-                <div class="signature-left">
-                    <div class="signature-label" data-field="position">{{ position or '[Посада]' }}</div>
-                    <div class="signature-label">_____________________ / <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span> /</div>
-                </div>
-                {% if show_dept %}
-                <div class="signature-right">
-                    <div class="signature-label" data-field="dept_head_position">{{ dept_head_position or '[Посада завідувача]' }}</div>
-                    <div class="signature-label">_____________________ / <span data-field="dept_head_name">{{ dept_head_name or '[ПІБ завідувача]' }}</span> /</div>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    {% endmacro %}
-
-    {% macro extension_template(name, position, start, end, custom_text, rector, dept) %}
-        <!-- Header block -->
-        <div class="header" contenteditable="true" data-block="header">
-            <p>Ректору<br>
-            {{ rector or '[ІМ\'Я РЕКТОРА]' }}<br><br>
-            {{ dept or '[НАЗВА КАФЕДРИ/ІНСТИТУТУ]' }}</p>
-        </div>
-
-        <!-- Title block -->
-        <div class="title" contenteditable="true" data-block="title">
-            Заява
-        </div>
-
-        <!-- Main content block -->
-        <div class="content" contenteditable="true" data-block="content">
-            Прошу Вас продовжити мені термін дії контракту
-            з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
-            по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>
-            у зв'язку з необхідністю завершення науково-дослідної роботи.
-        </div>
-
-        <!-- Custom text block -->
-        {% if custom_text %}
-        <div class="content" contenteditable="true" data-block="custom_text">
-            {{ custom_text }}
-        </div>
-        {% endif %}
-
-        <!-- Signature block -->
-        <div class="signature-block" contenteditable="true" data-block="signature">
-            <div class="content" style="text-indent: 0; margin-top: 40px;">
-                «____» ____________ 202__ р.
-            </div>
-
-            <div class="signature-row">
-                <div class="signature-left">
-                    <div class="signature-label" data-field="position">{{ position or '[Посада]' }}</div>
-                    <div class="signature-label">_____________________ / <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span> /</div>
-                </div>
-            </div>
-        </div>
-    {% endmacro %}
-
     <script>
-        // ========== WYSIWYG Editor JavaScript ==========
+// ========== WYSIWYG Editor JavaScript ==========
 
         // Editor state
         const editorState = {
@@ -390,7 +471,8 @@
         // Get document content as structured object
         function getDocumentContent() {
             const blocks = {};
-            document.querySelectorAll('[data-block]').forEach(block => {
+            const elements = document.querySelectorAll('[data-block]');
+            elements.forEach(block => {
                 blocks[block.dataset.block] = block.innerHTML;
             });
             return blocks;
@@ -552,11 +634,45 @@
             }, 2000);
         }
 
+        // Get full rendered HTML for PDF generation (exact copy of preview)
+        function getDocumentHtmlForPdf() {
+            const documentDiv = document.querySelector('.document');
+            if (!documentDiv) return '';
+
+            // Clone to avoid modifying the display
+            const clone = documentDiv.cloneNode(true);
+
+            // Remove contenteditable attributes
+            clone.querySelectorAll('[contenteditable]').forEach(el => {
+                el.removeAttribute('contenteditable');
+            });
+
+            // Remove signatory controls (buttons) - they are in .signatory-controls
+            clone.querySelectorAll('.signatory-controls').forEach(el => {
+                el.remove();
+            });
+
+            // Remove any UI elements that shouldn't be in PDF
+            clone.querySelectorAll('[class*="control"], .add-signatory-btn, .remove-signatory-btn').forEach(el => {
+                el.remove();
+            });
+
+            // Remove data-field markers that are just for editing
+            clone.querySelectorAll('[data-field]').forEach(el => {
+                el.removeAttribute('data-field');
+            });
+
+            return clone.innerHTML;
+        }
+
         // Update auto-field values (called from Python)
         function updateAutoField(fieldName, value) {
             const field = document.querySelector(`[data-field="${fieldName}"]`);
             if (field) {
                 field.textContent = value;
+            } else {
+                // Retry after delay if field not found
+                setTimeout(() => updateAutoField(fieldName, value), 100);
             }
         }
 
@@ -565,6 +681,9 @@
             const block = document.querySelector(`[data-block="${blockName}"]`);
             if (block) {
                 block.innerHTML = html;
+            } else {
+                // Retry after delay if block not found
+                setTimeout(() => updateBlock(blockName, html), 100);
             }
         }
 
@@ -583,9 +702,15 @@
             updateStatusDisplay();
         }
 
-        // Set document status (for display)
+        // Set document status (for display) - called from Python
         function setDocumentStatus(status, statusText) {
+            // Wait for status element to be available
             const statusEl = document.getElementById('status');
+            if (!statusEl) {
+                // Retry after delay if element not found
+                setTimeout(() => setDocumentStatus(status, statusText), 100);
+                return;
+            }
             statusEl.className = 'status ' + status;
 
             // Update status text mapping
@@ -605,11 +730,311 @@
             });
 
             // Hide toolbar if not editable
-            document.querySelector('.toolbar').style.display = isEditable ? 'flex' : 'none';
+            const toolbar = document.querySelector('.toolbar');
+            if (toolbar) {
+                toolbar.style.display = isEditable ? 'flex' : 'none';
+            }
         }
+
+        // ========== Signatories Management ==========
+
+        let signatoryCounter = 0;
+        let predefinedSignatories = []; // Will be set from Python
+
+        // Add signatory button handler
+        document.addEventListener('DOMContentLoaded', () => {
+            const addBtn = document.getElementById('addSignatoryBtn');
+            const removeBtn = document.getElementById('removeSignatoryBtn');
+
+            if (addBtn) {
+                addBtn.addEventListener('click', addSignatory);
+            }
+            if (removeBtn) {
+                removeBtn.addEventListener('click', removeSignatory);
+            }
+        });
+
+        // Initialize signatories from predefined list
+        function initializeSignatories() {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            // Check if signatories already exist from template
+            const existingRows = signatoriesList.querySelectorAll('.signatory-row');
+            if (existingRows.length > 0) {
+                // Clear template rows and use predefined instead
+                signatoriesList.innerHTML = '';
+                signatoryCounter = 0;
+            }
+
+            // Add predefined signatories
+            if (predefinedSignatories && predefinedSignatories.length > 0) {
+                predefinedSignatories.forEach((signatory, index) => {
+                    addSignatoryRow(signatory.position, signatory.name, signatory.position_multiline, false);
+                });
+            }
+        }
+
+        // Set predefined signatories from Python and initialize them
+        function setPredefinedSignatories(signatories) {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) {
+                // Retry after delay if element not found
+                setTimeout(() => setPredefinedSignatories(signatories), 100);
+                return;
+            }
+            predefinedSignatories = signatories || [];
+            // Initialize signatories immediately after setting predefined
+            initializeSignatories();
+        }
+
+        // Add new signatory (with predefined data first, then empty)
+        function addSignatory() {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            // Count existing signatories
+            const existingCount = signatoriesList.querySelectorAll('.signatory-row').length;
+
+            // Check if there are predefined signatories not yet added
+            if (existingCount < predefinedSignatories.length) {
+                // Add next predefined signatory
+                const nextSignatory = predefinedSignatories[existingCount];
+                addSignatoryRow(nextSignatory.position, nextSignatory.name, nextSignatory.position_multiline, false);
+            } else {
+                // All predefined added, add new empty signatory at the TOP
+                addSignatoryRow('', '', '', true);
+            }
+
+            markAsModified();
+            notifySignatoriesChanged();
+        }
+
+        // Add a single signatory row
+        function addSignatoryRow(position, name, positionMultiline, insertAtTop) {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            signatoryCounter++;
+            const newId = signatoryCounter;
+
+            const newRow = document.createElement('div');
+            newRow.className = 'signatory-row';
+            newRow.dataset.signatoryId = newId;
+
+            // Build position HTML
+            let positionHtml = `<span contenteditable="true" class="signatory-position" data-field="signatory_${newId}_position">${position || '[Посада]'}</span>`;
+            if (positionMultiline) {
+                positionHtml += `<br><span contenteditable="true" class="signatory-position-multiline">${positionMultiline}</span>`;
+            }
+
+            // Build controls HTML (only for editing)
+            const controlsHtml = `
+                <div class="signatory-controls" style="display: flex; gap: 2px;">
+                    <button class="signatory-btn move-up" onclick="moveSignatory('${newId}', 'up')" title="Перемістити вгору">↑</button>
+                    <button class="signatory-btn move-down" onclick="moveSignatory('${newId}', 'down')" title="Перемістити вниз">↓</button>
+                    <button class="signatory-btn remove" onclick="removeSignatoryById('${newId}')" title="Видалити">×</button>
+                </div>
+            `;
+
+            // Use signature line in center, controls overlay on hover or separate
+            newRow.innerHTML = `
+                <div style="flex: 1; min-width: 0; text-align: left;">${positionHtml}</div>
+                <div style="flex: 1; text-align: center; padding: 0 10px; position: relative;">
+                    <span style="display: inline-block; border-bottom: 1px solid #000; width: 100%;"></span>
+                    <div class="signatory-controls" style="position: absolute; top: -20px; left: 50%; transform: translateX(-50%); opacity: 0; transition: opacity 0.2s;">
+                        <button class="signatory-btn move-up" onclick="moveSignatory('${newId}', 'up')" title="Перемістити вгору">↑</button>
+                        <button class="signatory-btn move-down" onclick="moveSignatory('${newId}', 'down')" title="Перемістити вниз">↓</button>
+                        <button class="signatory-btn remove" onclick="removeSignatoryById('${newId}')" title="Видалити">×</button>
+                    </div>
+                </div>
+                <div style="flex: 1; min-width: 0; text-align: right; white-space: nowrap;">
+                    <span contenteditable="true" class="signatory-name" data-field="signatory_${newId}_name">${name || '[ПІБ]'}</span>
+                </div>
+            `;
+
+            // Show controls on hover
+            newRow.addEventListener('mouseenter', () => {
+                newRow.querySelector('.signatory-controls').style.opacity = '1';
+            });
+            newRow.addEventListener('mouseleave', () => {
+                newRow.querySelector('.signatory-controls').style.opacity = '0';
+            });
+
+            if (insertAtTop) {
+                signatoriesList.insertBefore(newRow, signatoriesList.firstChild);
+            } else {
+                signatoriesList.appendChild(newRow);
+            }
+
+            return newRow;
+        }
+
+        // Move signatory up or down
+        function moveSignatory(id, direction) {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            const row = signatoriesList.querySelector(`.signatory-row[data-signatory-id="${id}"]`);
+            if (!row) return;
+
+            if (direction === 'up') {
+                const prevRow = row.previousElementSibling;
+                if (prevRow && prevRow.classList.contains('signatory-row')) {
+                    signatoriesList.insertBefore(row, prevRow);
+                }
+            } else if (direction === 'down') {
+                const nextRow = row.nextElementSibling;
+                if (nextRow && nextRow.classList.contains('signatory-row')) {
+                    signatoriesList.insertBefore(nextRow, row);
+                }
+            }
+
+            markAsModified();
+            notifySignatoriesChanged();
+        }
+
+        // Remove signatory by ID
+        function removeSignatoryById(id) {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            const row = signatoriesList.querySelector(`.signatory-row[data-signatory-id="${id}"]`);
+            if (row) {
+                row.remove();
+                markAsModified();
+                notifySignatoriesChanged();
+            }
+        }
+
+        // Remove last signatory
+        function removeSignatory() {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            const rows = signatoriesList.querySelectorAll('.signatory-row');
+            if (rows.length === 0) return;
+
+            // Remove the last row (bottom-most signatory)
+            rows[rows.length - 1].remove();
+            markAsModified();
+
+            notifySignatoriesChanged();
+        }
+
+        // Get current signatories data (in display order)
+        function getSignatoriesData() {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return [];
+
+            const rows = signatoriesList.querySelectorAll('.signatory-row');
+            const signatories = [];
+
+            rows.forEach(row => {
+                const id = row.dataset.signatoryId;
+                const positionEl = row.querySelector(`[data-field="signatory_${id}_position"]`);
+                const nameEl = row.querySelector(`[data-field="signatory_${id}_name"]`);
+
+                if (positionEl && nameEl) {
+                    // Check for multiline position
+                    let position = positionEl.textContent.trim();
+                    let positionMultiline = '';
+
+                    // Try to get multiline from sibling element
+                    const multilineEl = row.querySelector('.signatory-position-multiline');
+                    if (multilineEl) {
+                        positionMultiline = multilineEl.textContent.trim();
+                    }
+
+                    signatories.push({
+                        id: id,
+                        position: position,
+                        position_multiline: positionMultiline,
+                        name: nameEl.textContent.trim()
+                    });
+                }
+            });
+
+            return signatories;
+        }
+
+        // Notify Python backend about signatories change
+        function notifySignatoriesChanged() {
+            const signatories = getSignatoriesData();
+
+            if (window.pybridge) {
+                window.pybridge.on_signatories_changed(JSON.stringify(signatories));
+            }
+        }
+
+        // Update signatories from Python
+        function updateSignatories(signatoriesData) {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) {
+                // Retry after delay if element not found
+                setTimeout(() => updateSignatories(signatoriesData), 100);
+                return;
+            }
+
+            // Store predefined
+            predefinedSignatories = signatoriesData.filter(s => s.position && s.name &&
+                s.position !== '[Посада]' && s.name !== '[ПІБ]');
+
+            // Clear existing
+            signatoriesList.innerHTML = '';
+            signatoryCounter = 0;
+
+            // Add new signatories
+            signatoriesData.forEach((signatory, index) => {
+                addSignatoryRow(
+                    signatory.position || '',
+                    signatory.name || '',
+                    signatory.position_multiline || '',
+                    false
+                );
+            });
+        }
+
+        // Initialize line spacing controls
+        document.addEventListener('DOMContentLoaded', () => {
+            // Line spacing buttons
+            const decreaseLineSpacing = document.getElementById('decreaseLineSpacing');
+            const increaseLineSpacing = document.getElementById('increaseLineSpacing');
+            const lineHeightSelect = document.getElementById('lineHeightSelect');
+
+            if (decreaseLineSpacing) {
+                decreaseLineSpacing.addEventListener('click', () => {
+                    const select = lineHeightSelect;
+                    const currentIndex = select.selectedIndex;
+                    if (currentIndex < select.options.length - 1) {
+                        select.selectedIndex = currentIndex + 1;
+                        select.dispatchEvent(new Event('change'));
+                    }
+                });
+            }
+
+            if (increaseLineSpacing) {
+                increaseLineSpacing.addEventListener('click', () => {
+                    const select = lineHeightSelect;
+                    const currentIndex = select.selectedIndex;
+                    if (currentIndex > 0) {
+                        select.selectedIndex = currentIndex - 1;
+                        select.dispatchEvent(new Event('change'));
+                    }
+                });
+            }
+
+            // Clear formatting
+            const clearFormatBtn = document.getElementById('clearFormatBtn');
+            if (clearFormatBtn) {
+                clearFormatBtn.addEventListener('click', () => {
+                    document.execCommand('removeFormat', false, null);
+                    markAsModified();
+                });
+            }
+        });
 
         // Log for debugging
         console.log('WYSIWYG Editor initialized');
+    
     </script>
-</body>
-</html>

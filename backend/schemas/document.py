@@ -42,6 +42,24 @@ class DocumentUpdate(BaseModel):
     custom_text: str | None = None
 
 
+class WorkflowStep(BaseModel):
+    """Схема для етапу підписання."""
+    completed: bool
+    at: datetime | None
+    comment: str | None
+
+
+class DocumentProgress(BaseModel):
+    """Схема прогресу документа."""
+    applicant: WorkflowStep
+    approval: WorkflowStep
+    department_head: WorkflowStep
+    approval_order: WorkflowStep
+    rector: WorkflowStep
+    scanned: WorkflowStep
+    tabel: WorkflowStep
+
+
 class DocumentResponse(DocumentBase):
     """Схема відповіді документа."""
 
@@ -58,6 +76,9 @@ class DocumentResponse(DocumentBase):
     # Вкладений об'єкт співробітника
     staff_name: str | None = None
     staff_position: str | None = None
+
+    # Прогрес документа
+    progress: DocumentProgress | None = None
 
     class Config:
         from_attributes = True

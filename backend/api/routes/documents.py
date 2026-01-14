@@ -55,6 +55,7 @@ async def list_documents(
         doc_dict = DocumentResponse.model_validate(doc).model_dump()
         doc_dict["staff_name"] = doc.staff.pib_nom
         doc_dict["staff_position"] = doc.staff.position
+        doc_dict["progress"] = doc.get_workflow_progress()
         result_items.append(DocumentResponse(**doc_dict))
 
     return DocumentListResponse(
@@ -78,6 +79,7 @@ async def get_document(
     response = DocumentResponse.model_validate(doc)
     response.staff_name = doc.staff.pib_nom
     response.staff_position = doc.staff.position
+    response.progress = doc.get_workflow_progress()
 
     return response
 
@@ -137,7 +139,7 @@ async def generate_document(
     db: DBSession,
     doc_service: DocumentSvc,
 ):
-    """Згенерувати .docx файл з документа."""
+    """Згенерувати PDF файл з документа."""
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не знайдено")
@@ -233,6 +235,110 @@ async def get_pending_documents(
         doc_dict = DocumentResponse.model_validate(doc).model_dump()
         doc_dict["staff_name"] = doc.staff.pib_nom
         doc_dict["staff_position"] = doc.staff.position
+        result_items.append(DocumentResponse(**doc_dict))
+
+    return DocumentListResponse(
+        items=result_items,
+        total=len(items),
+        page=1,
+        page_size=len(items),
+    )
+
+
+@router.get("/{document_id}/progress")
+async def get_document_progress(
+    document_id: int,
+    db: DBSession,
+):
+    """Отримати прогрес підписання документа."""
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Документ не знайдено")
+
+    return {
+        "document_id": document_id,
+        "status": doc.status.value,
+        "progress": doc.get_workflow_progress(),
+    }
+
+
+@router.post("/{document_id}/workflow/{step}")
+async def update_workflow_step(
+    document_id: int,
+    step: str,
+    comment: str | None = None,
+    action: str = "complete",
+    db: DBSession,
+    doc_service: DocumentSvc = None,
+):
+    """
+    Оновити етап підписання документа.
+
+    Args:
+        document_id: ID документа
+        step: Етап (applicant, approval, department_head, approval_order, rector, scanned, tabel)
+        action: Дія (complete - позначити виконаним, clear - очистити)
+        comment: Коментар до етапу
+    """
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Документ не знайдено")
+
+    valid_steps = [
+        "applicant", "approval", "department_head",
+        "approval_order", "rector", "scanned", "tabel"
+    ]
+    if step not in valid_steps:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Невідомий етап. Доступні: {', '.join(valid_steps)}"
+        )
+
+    try:
+        if action == "complete":
+            if step == "applicant":
+                doc_service.set_applicant_signed(doc, comment)
+            elif step == "approval":
+                doc_service.set_approval(doc, comment)
+            elif step == "department_head":
+                doc_service.set_department_head_signed(doc, comment)
+            elif step == "approval_order":
+                doc_service.set_approval_order(doc, comment)
+            elif step == "rector":
+                doc_service.set_rector_signed(doc, comment)
+            elif step == "scanned":
+                doc_service.set_scanned(doc, comment)
+            elif step == "tabel":
+                doc_service.set_tabel_added(doc, comment)
+        elif action == "clear":
+            doc_service.clear_workflow_step(doc, step)
+        else:
+            raise HTTPException(status_code=400, detail="Невідома дія")
+
+        return {
+            "success": True,
+            "message": f"Етап '{step}' оновлено",
+            "progress": doc.get_workflow_progress(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/my-documents", response_model=DocumentListResponse)
+async def get_my_documents(
+    staff_id: int,
+    db: DBSession,
+):
+    """Отримати документи співробітника для відображення в web portal."""
+    query = db.query(Document).filter(Document.staff_id == staff_id)
+    items = query.order_by(Document.created_at.desc()).all()
+
+    result_items = []
+    for doc in items:
+        doc_dict = DocumentResponse.model_validate(doc).model_dump()
+        doc_dict["staff_name"] = doc.staff.pib_nom
+        doc_dict["staff_position"] = doc.staff.position
+        doc_dict["progress"] = doc.get_workflow_progress()
         result_items.append(DocumentResponse(**doc_dict))
 
     return DocumentListResponse(
