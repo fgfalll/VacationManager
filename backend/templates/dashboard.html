@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VacationManager - Кабінет співробітника</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stat-card.warning {
+            background: #FFF3E0;
+            border-left: 4px solid #FF9800;
+        }
+
+        .stat-card.danger {
+            background: #FFEBEE;
+            border-left: 4px solid #F44336;
+        }
+
+        .stat-card.success {
+            background: #E8F5E9;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .schedule-item {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid #3B82F6;
+        }
+
+        .schedule-item.used {
+            border-left-color: #4CAF50;
+            opacity: 0.7;
+        }
+
+        .schedule-dates {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .schedule-days {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .schedule-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+
+        .status-planned {
+            background: #E3F2FD;
+            color: #1976D2;
+        }
+
+        .status-used {
+            background: #E8F5E9;
+            color: #388E3C;
+        }
+
+        .contract-info {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .contract-info.warning {
+            background: #FFF3E0;
+            border: 2px solid #FF9800;
+        }
+
+        .contract-info.danger {
+            background: #FFEBEE;
+            border: 2px solid #F44336;
+        }
+
+        .expiry-days {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .expiry-days.warning {
+            color: #FF9800;
+        }
+
+        .expiry-days.danger {
+            color: #F44336;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .nav-tab {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+
+        .nav-tab:hover {
+            color: #3B82F6;
+        }
+
+        .nav-tab.active {
+            color: #3B82F6;
+            border-bottom-color: #3B82F6;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 20px;
+            background: #E0E0E0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.3s;
+        }
+
+        .document-item {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .document-info h4 {
+            margin: 0 0 5px 0;
+        }
+
+        .document-meta {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .document-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .badge-draft { background: #E3F2FD; color: #1976D2; }
+        .badge-on-signature { background: #FFF3E0; color: #F57C00; }
+        .badge-signed { background: #E8F5E9; color: #388E3C; }
+        .badge-processed { background: #ECEFF1; color: #455A64; }
+
+        .action-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .action-btn.upload {
+            background: #3B82F6;
+            color: white;
+        }
+
+        .action-btn.view {
+            background: #E0E0E0;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>👤 Кабінет співробітника</h1>
+            <p class="subtitle">Перегляд балансу, графіку та документів</p>
+        </header>
+
+        <main class="main">
+            <!-- Employee Selection -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>Виберіть співробітника</h2>
+                </div>
+                <div class="card-body">
+                    <select id="staff-select" class="form-control" onchange="loadEmployeeData()">
+                        <option value="">-- Оберіть співробітника --</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- Dashboard Content (hidden until staff selected) -->
+            <div id="dashboard-content" style="display: none;">
+                <!-- Stats Cards -->
+                <div class="dashboard-grid">
+                    <div class="stat-card" id="vacation-balance-card">
+                        <div class="stat-label">🏖️ Залишок днів відпустки</div>
+                        <div class="stat-value" id="vacation-balance">0</div>
+                        <div class="stat-label">днів доступно</div>
+                    </div>
+
+                    <div class="stat-card" id="used-days-card">
+                        <div class="stat-label">✅ Використано за рік</div>
+                        <div class="stat-value" id="used-days">0</div>
+                        <div class="stat-label">днів відпустки</div>
+                    </div>
+
+                    <div class="stat-card" id="contract-card">
+                        <div class="stat-label">📋 Контракт</div>
+                        <div class="stat-value" id="contract-days">0</div>
+                        <div class="stat-label">днів до завершення</div>
+                    </div>
+                </div>
+
+                <!-- Navigation Tabs -->
+                <div class="nav-tabs">
+                    <button class="nav-tab active" onclick="showTab('schedule')">📅 Графік</button>
+                    <button class="nav-tab" onclick="showTab('documents')">📄 Документи</button>
+                    <button class="nav-tab" onclick="showTab('upload')">📤 Завантажити скан</button>
+                </div>
+
+                <!-- Schedule Tab -->
+                <div id="tab-schedule" class="tab-content active">
+                    <section class="card">
+                        <div class="card-header">
+                            <h2>Плановий графік відпусток на <span id="schedule-year">2025</span></h2>
+                        </div>
+                        <div class="card-body">
+                            <div id="schedule-list"></div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Documents Tab -->
+                <div id="tab-documents" class="tab-content">
+                    <section class="card">
+                        <div class="card-header">
+                            <h2>Мої документи</h2>
+                        </div>
+                        <div class="card-body">
+                            <div id="documents-list"></div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Upload Tab -->
+                <div id="tab-upload" class="tab-content">
+                    <section class="card">
+                        <div class="card-header">
+                            <h2>Завантажити скан підписаного документа</h2>
+                        </div>
+                        <div class="card-body">
+                            <div id="pending-upload-list"></div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>VacationManager v6.0 © 2025</p>
+        </footer>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let currentStaffId = null;
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStaffList();
+        });
+
+        async function loadStaffList() {
+            try {
+                const response = await fetch(`${API_BASE}/staff`);
+                if (!response.ok) throw new Error('Помилка завантаження');
+
+                const data = await response.json();
+                const select = document.getElementById('staff-select');
+
+                data.items.forEach(staff => {
+                    const option = document.createElement('option');
+                    option.value = staff.id;
+                    option.textContent = staff.pib_nom;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading staff:', error);
+            }
+        }
+
+        async function loadEmployeeData() {
+            const select = document.getElementById('staff-select');
+            currentStaffId = select.value;
+
+            if (!currentStaffId) {
+                document.getElementById('dashboard-content').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('dashboard-content').style.display = 'block';
+
+            // Load all data in parallel
+            await Promise.all([
+                loadStaffInfo(),
+                loadSchedule(),
+                loadDocuments(),
+                loadPendingUploads()
+            ]);
+        }
+
+        async function loadStaffInfo() {
+            try {
+                const response = await fetch(`${API_BASE}/staff/${currentStaffId}`);
+                if (!response.ok) throw new Error('Помилка');
+
+                const staff = await response.json();
+
+                // Update vacation balance
+                document.getElementById('vacation-balance').textContent = staff.vacation_balance;
+
+                // Calculate used days from documents
+                const docsResponse = await fetch(`${API_BASE}/documents?staff_id=${currentStaffId}`);
+                const docsData = await docsResponse.json();
+                const usedDays = docsData.items
+                    .filter(d => d.status === 'processed' && d.doc_type === 'vacation_paid')
+                    .reduce((sum, d) => sum + d.days_count, 0);
+                document.getElementById('used-days').textContent = usedDays;
+
+                // Update contract info
+                const daysUntilExpiry = Math.floor((new Date(staff.term_end) - new Date()) / (1000 * 60 * 60 * 24));
+                const contractCard = document.getElementById('contract-card');
+                const contractDays = document.getElementById('contract-days');
+
+                contractDays.textContent = daysUntilExpiry;
+
+                contractCard.classList.remove('warning', 'danger', 'success');
+                if (daysUntilExpiry < 0) {
+                    contractCard.classList.add('danger');
+                    contractDays.classList.add('danger');
+                } else if (daysUntilExpiry <= 30) {
+                    contractCard.classList.add('warning');
+                    contractDays.classList.add('warning');
+                } else {
+                    contractCard.classList.add('success');
+                }
+
+            } catch (error) {
+                console.error('Error loading staff info:', error);
+            }
+        }
+
+        async function loadSchedule() {
+            try {
+                const year = new Date().getFullYear();
+                const response = await fetch(`${API_BASE}/schedule/${year}`);
+                if (!response.ok) throw new Error('Помилка');
+
+                const data = await response.json();
+                const staffSchedule = data.items.filter(s => s.staff_id == currentStaffId);
+
+                const container = document.getElementById('schedule-list');
+                document.getElementById('schedule-year').textContent = year;
+
+                if (staffSchedule.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📅</div>
+                            <p>На ${year} рік графік не сформовано</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = staffSchedule.map(entry => `
+                    <div class="schedule-item ${entry.is_used ? 'used' : ''}">
+                        <div class="schedule-dates">
+                            ${formatDate(entry.planned_start)} - ${formatDate(entry.planned_end)}
+                        </div>
+                        <div class="schedule-days">
+                            ${(new Date(entry.planned_end) - new Date(entry.planned_start)) / (1000 * 60 * 60 * 24) + 1} календарних днів
+                        </div>
+                        <span class="schedule-status ${entry.is_used ? 'status-used' : 'status-planned'}">
+                            ${entry.is_used ? 'Використано' : 'Заплановано'}
+                        </span>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Error loading schedule:', error);
+                document.getElementById('schedule-list').innerHTML =
+                    '<p class="error">Помилка завантаження графіку</p>';
+            }
+        }
+
+        async function loadDocuments() {
+            try {
+                const response = await fetch(`${API_BASE}/documents?staff_id=${currentStaffId}`);
+                if (!response.ok) throw new Error('Помилка');
+
+                const data = await response.json();
+                const container = document.getElementById('documents-list');
+
+                if (data.items.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📄</div>
+                            <p>Документів не знайдено</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = data.items.map(doc => `
+                    <div class="document-item">
+                        <div class="document-info">
+                            <h4>${getDocumentTypeLabel(doc.doc_type)}</h4>
+                            <div class="document-meta">
+                                ${formatDate(doc.date_start)} - ${formatDate(doc.date_end)} |
+                                ${doc.days_count} днів
+                            </div>
+                        </div>
+                        <span class="document-badge badge-${doc.status}">
+                            ${getStatusLabel(doc.status)}
+                        </span>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Error loading documents:', error);
+            }
+        }
+
+        async function loadPendingUploads() {
+            try {
+                const response = await fetch(`${API_BASE}/documents/pending?staff_id=${currentStaffId}`);
+                if (!response.ok) throw new Error('Помилка');
+
+                const data = await response.json();
+                const container = document.getElementById('pending-upload-list');
+
+                if (data.items.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">✓</div>
+                            <p>Немає документів на підпис</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = data.items.map(doc => `
+                    <div class="document-item">
+                        <div class="document-info">
+                            <h4>${getDocumentTypeLabel(doc.doc_type)}</h4>
+                            <div class="document-meta">
+                                ${formatDate(doc.date_start)} - ${formatDate(doc.date_end)} |
+                                ${doc.days_count} днів
+                            </div>
+                        </div>
+                        <button class="action-btn upload" onclick="openUpload(${doc.id})">
+                            Завантажити скан
+                        </button>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Error loading pending uploads:', error);
+            }
+        }
+
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-tab').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('uk-UA', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+        }
+
+        function getDocumentTypeLabel(type) {
+            const labels = {
+                'vacation_paid': 'Відпустка оплачувана',
+                'vacation_unpaid': 'Відпустка без збереження',
+                'term_extension': 'Продовження контракту'
+            };
+            return labels[type] || type;
+        }
+
+        function getStatusLabel(status) {
+            const labels = {
+                'draft': 'Чернетка',
+                'on_signature': 'На підписі',
+                'signed': 'Підписано',
+                'processed': 'В табелі'
+            };
+            return labels[status] || status;
+        }
+
+        function openUpload(docId) {
+            // Redirect to main upload page with document pre-selected
+            window.location.href = `/portal?document_id=${docId}`;
+        }
+    </script>
+</body>
+</html>

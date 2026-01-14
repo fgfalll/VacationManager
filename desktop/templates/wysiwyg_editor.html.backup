@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WYSIWYG Редактор документа</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Times New Roman', serif;
+            font-size: 14pt;
+            line-height: 1.5;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: #fff;
+            border-bottom: 2px solid #ddd;
+            padding: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .toolbar-group {
+            display: flex;
+            gap: 4px;
+            padding-right: 12px;
+            border-right: 1px solid #ddd;
+            align-items: center;
+        }
+
+        .toolbar-group:last-child {
+            border-right: none;
+        }
+
+        .toolbar-btn {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            background: #f8f8f8;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .toolbar-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .toolbar-btn.active {
+            background: #3B82F6;
+            color: white;
+            border-color: #3B82F6;
+        }
+
+        .toolbar-select {
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 13px;
+            background: #f8f8f8;
+        }
+
+        .document {
+            max-width: 21cm;
+            margin: 20px auto;
+            background-color: white;
+            padding: 2cm;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            min-height: 29.7cm;
+        }
+
+        /* Editable regions styling */
+        [contenteditable="true"] {
+            outline: none;
+            transition: outline 0.2s;
+        }
+
+        [contenteditable="true"]:hover {
+            outline: 1px dashed #ccc;
+        }
+
+        [contenteditable="true"]:focus {
+            outline: 2px solid #3B82F6;
+            outline-offset: 2px;
+        }
+
+        .header {
+            text-align: right;
+            margin-bottom: 30px;
+        }
+
+        .title {
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+        }
+
+        .content {
+            text-align: justify;
+            text-indent: 1.5cm;
+            margin-bottom: 20px;
+        }
+
+        .signature-block {
+            margin-top: 50px;
+        }
+
+        .signature-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+        }
+
+        .signature-left,
+        .signature-right {
+            width: 45%;
+        }
+
+        .signature-label {
+            text-align: center;
+            margin-top: 40px;
+            font-size: 12pt;
+        }
+
+        .status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            background-color: #3B82F6;
+            color: white;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 1001;
+        }
+
+        .status.on-signature {
+            background-color: #F59E0B;
+        }
+
+        .status.signed {
+            background-color: #10B981;
+        }
+
+        .status.processed {
+            background-color: #047857;
+        }
+
+        /* Field markers for auto-generated content */
+        .auto-field {
+            background-color: rgba(59, 130, 246, 0.05);
+            border-radius: 2px;
+        }
+
+        .auto-field:hover {
+            background-color: rgba(59, 130, 246, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="status" class="status">ЧЕРНЕТКА</div>
+
+    <!-- Toolbar for WYSIWYG editing -->
+    <div class="toolbar">
+        <!-- Text formatting -->
+        <div class="toolbar-group">
+            <button class="toolbar-btn" data-command="bold" title="Жирний (Ctrl+B)">
+                <b>B</b>
+            </button>
+            <button class="toolbar-btn" data-command="italic" title="Курсив (Ctrl+I)">
+                <i>I</i>
+            </button>
+            <button class="toolbar-btn" data-command="underline" title="Підкреслення (Ctrl+U)">
+                <u>U</u>
+            </button>
+        </div>
+
+        <!-- Alignment -->
+        <div class="toolbar-group">
+            <button class="toolbar-btn" data-command="justifyLeft" title="По лівому краю">
+                ⬅
+            </button>
+            <button class="toolbar-btn" data-command="justifyCenter" title="По центру">
+                ⬌
+            </button>
+            <button class="toolbar-btn" data-command="justifyRight" title="По правому краю">
+                ➡
+            </button>
+            <button class="toolbar-btn" data-command="justifyFull" title="По ширині">
+                ⬌⬌
+            </button>
+        </div>
+
+        <!-- Font size -->
+        <div class="toolbar-group">
+            <label style="font-size: 12px;">Розмір:</label>
+            <select class="toolbar-select" id="fontSizeSelect">
+                <option value="1">Дуже малий</option>
+                <option value="2">Малий</option>
+                <option value="3" selected>Звичайний</option>
+                <option value="4">Середній</option>
+                <option value="5">Великий</option>
+                <option value="6">Дуже великий</option>
+                <option value="7">Огромний</option>
+            </select>
+        </div>
+
+        <!-- Line height -->
+        <div class="toolbar-group">
+            <label style="font-size: 12px;">Інтервал:</label>
+            <select class="toolbar-select" id="lineHeightSelect">
+                <option value="1.0">1.0</option>
+                <option value="1.15">1.15</option>
+                <option value="1.5" selected>1.5</option>
+                <option value="2.0">2.0</option>
+            </select>
+        </div>
+
+        <!-- Undo/Redo -->
+        <div class="toolbar-group">
+            <button class="toolbar-btn" data-command="undo" title="Скасувати (Ctrl+Z)">
+                ↶
+            </button>
+            <button class="toolbar-btn" data-command="redo" title="Повторити (Ctrl+Y)">
+                ↷
+            </button>
+        </div>
+
+        <!-- Signatories management -->
+        <div class="toolbar-group">
+            <button class="toolbar-btn" id="addSignatoryBtn" title="Додати погоджувача">
+                + Погоджувач
+            </button>
+            <button class="toolbar-btn" id="removeSignatoryBtn" title="Видалити останнього погоджувача">
+                - Погоджувач
+            </button>
+        </div>
+
+        <!-- Export -->
+        <div class="toolbar-group" style="border-right: none;">
+            <button class="toolbar-btn" id="exportBtn" style="background: #10B981; color: white;">
+                ✓ Зберегти зміни
+            </button>
+        </div>
+    </div>
+
+    {% macro vacancy_template(name, position, start, end, days, payment, doc_type, custom_text, rector, university, dept, signatories) %}
+        <!-- Header block - editable -->
+        <div class="header" contenteditable="true" data-block="header">
+            <p>Ректору<br>
+            {{ university or '[НАЗВА УНІВЕРСИТЕТУ]' }}<br>
+            {{ rector or '[ПІБ РЕКТОРА]' }}</p>
+        </div>
+
+        <!-- Applicant info block - editable -->
+        <div class="content" contenteditable="true" data-block="applicant_info" style="text-indent: 0;">
+            {{ position or '[ПОСАДА]' }}<br>
+            {{ name or '[ПІБ ЗАЙМАЛЬНИКА]' }}
+        </div>
+
+        <!-- Title block - editable -->
+        <div class="title" contenteditable="true" data-block="title">
+            Заява
+        </div>
+
+        <!-- Main content block - editable -->
+        <div class="content" contenteditable="true" data-block="content">
+            Прошу надати мені частину щорічної відпустки, тривалістю <span class="auto-field" contenteditable="false" data-field="days_count">{{ days or '0' }}</span>,
+            з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
+            по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>.
+            {% if doc_type == 'vacation_paid' %}
+            Заробітну плату за час щорічної відпустки прошу виплатити <span class="auto-field" contenteditable="false" data-field="payment_period">{{ payment or '[період виплати]' }}</span>.
+            {% endif %}
+        </div>
+
+        <!-- Custom text block - editable -->
+        {% if custom_text %}
+        <div class="content" contenteditable="true" data-block="custom_text">
+            {{ custom_text }}
+        </div>
+        {% endif %}
+
+        <!-- Applicant signature block - editable -->
+        <div class="content" contenteditable="true" data-block="applicant_signature" style="text-indent: 0; margin-top: 30px;">
+            {{ position or '[Посада]' }}                    <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span>
+        </div>
+
+        <!-- Погоджено section - editable -->
+        <div class="approvals-section" contenteditable="true" data-block="approvals" style="margin-top: 50px;">
+            <p style="font-weight: bold; margin-bottom: 20px;">Погоджено:</p>
+            <div id="signatories-list">
+                {% for signatory in signatories %}
+                <div class="signatory-row" data-signatory-id="{{ loop.index }}" style="margin-top: 30px;">
+                    <span data-field="signatory_{{ loop.index }}_position">{{ signatory.position or '[Посада]' }}</span>
+                    {% if signatory.position_multiline %}
+                    <br>{{ signatory.position_multiline or '' }}
+                    {% endif %}
+                    <span style="display: inline-block; min-width: 200px; text-align: left;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&span>
+                    <span data-field="signatory_{{ loop.index }}_name">{{ signatory.name or '[ПІБ]' }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endmacro %}
+
+    {% macro extension_template(name, position, start, end, custom_text, rector, university, dept) %}
+        <!-- Header block -->
+        <div class="header" contenteditable="true" data-block="header">
+            <p>Ректору<br>
+            {{ university or '[НАЗВА УНІВЕРСИТЕТУ]' }}<br>
+            {{ rector or '[ПІБ РЕКТОРА]' }}</p>
+        </div>
+
+        <!-- Applicant info block - editable -->
+        <div class="content" contenteditable="true" data-block="applicant_info" style="text-indent: 0;">
+            {{ position or '[ПОСАДА]' }}<br>
+            {{ name or '[ПІБ ЗАЙМАЛЬНИКА]' }}
+        </div>
+
+        <!-- Title block -->
+        <div class="title" contenteditable="true" data-block="title">
+            Заява
+        </div>
+
+        <!-- Main content block -->
+        <div class="content" contenteditable="true" data-block="content">
+            Прошу Вас продовжити мені термін дії контракту
+            з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
+            по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>
+            у зв'язку з необхідністю завершення науково-дослідної роботи.
+        </div>
+
+        <!-- Custom text block -->
+        {% if custom_text %}
+        <div class="content" contenteditable="true" data-block="custom_text">
+            {{ custom_text }}
+        </div>
+        {% endif %}
+
+        <!-- Applicant signature block -->
+        <div class="content" contenteditable="true" data-block="applicant_signature" style="text-indent: 0; margin-top: 30px;">
+            {{ position or '[Посада]' }}                    <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span>
+        </div>
+    {% endmacro %}
+
+    <!-- Document container -->
+    <div class="document" id="document">
+        {% if doc_type == 'vacation_paid' or doc_type == 'vacation_unpaid' %}
+            {{ vacancy_template(
+                staff_name, staff_position, date_start, date_end,
+                days_count, payment_period, doc_type, custom_text,
+                rector_name, university_name, dept_name, signatories
+            ) }}
+        {% elif doc_type == 'term_extension' %}
+            {{ extension_template(
+                staff_name, staff_position, date_start, date_end,
+                custom_text, rector_name, university_name, dept_name
+            ) }}
+        {% endif %}
+    </div>
+
+    <script>
+        // ========== WYSIWYG Editor JavaScript ==========
+
+        // Editor state
+        const editorState = {
+            isModified: false,
+            originalContent: null,
+            blockContents: {}
+        };
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeToolbar();
+            initializeEditableBlocks();
+            saveOriginalContent();
+            setupKeyboardShortcuts();
+        });
+
+        // Save original content for change detection
+        function saveOriginalContent() {
+            editorState.originalContent = getDocumentContent();
+        }
+
+        // Get document content as structured object
+        function getDocumentContent() {
+            const blocks = {};
+            document.querySelectorAll('[data-block]').forEach(block => {
+                blocks[block.dataset.block] = block.innerHTML;
+            });
+            return blocks;
+        }
+
+        // Initialize toolbar buttons
+        function initializeToolbar() {
+            // Text formatting buttons
+            document.querySelectorAll('.toolbar-btn[data-command]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const command = btn.dataset.command;
+                    document.execCommand(command, false, null);
+                    updateToolbarState();
+                    markAsModified();
+                });
+            });
+
+            // Font size select
+            document.getElementById('fontSizeSelect').addEventListener('change', (e) => {
+                document.execCommand('fontSize', false, e.target.value);
+                markAsModified();
+            });
+
+            // Line height select
+            document.getElementById('lineHeightSelect').addEventListener('change', (e) => {
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    let container = range.commonAncestorContainer;
+
+                    // Find the closest element
+                    if (container.nodeType === 3) {
+                        container = container.parentElement;
+                    }
+
+                    // Apply line height
+                    container.style.lineHeight = e.target.value;
+                }
+                markAsModified();
+            });
+
+            // Export button
+            document.getElementById('exportBtn').addEventListener('click', () => {
+                exportContent();
+            });
+        }
+
+        // Initialize editable blocks
+        function initializeEditableBlocks() {
+            document.querySelectorAll('[contenteditable="true"]').forEach(block => {
+                // Store initial content
+                if (block.dataset.block) {
+                    editorState.blockContents[block.dataset.block] = block.innerHTML;
+                }
+
+                // Track changes
+                block.addEventListener('input', () => {
+                    markAsModified();
+                });
+
+                // Handle paste - strip formatting
+                block.addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    const text = e.clipboardData.getData('text/plain');
+                    document.execCommand('insertText', false, text);
+                });
+            });
+
+            // Auto-field tooltips
+            document.querySelectorAll('.auto-field[data-field]').forEach(field => {
+                field.title = 'Автоматично згенероване поле (редагується через форму)';
+                field.style.cursor = 'help';
+            });
+        }
+
+        // Setup keyboard shortcuts
+        function setupKeyboardShortcuts() {
+            document.addEventListener('keydown', (e) => {
+                // Ctrl/Cmd + S = Save
+                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                    e.preventDefault();
+                    exportContent();
+                }
+
+                // Ctrl/Cmd + B = Bold
+                if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                    e.preventDefault();
+                    document.execCommand('bold', false, null);
+                }
+
+                // Ctrl/Cmd + I = Italic
+                if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+                    e.preventDefault();
+                    document.execCommand('italic', false, null);
+                }
+
+                // Ctrl/Cmd + U = Underline
+                if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
+                    e.preventDefault();
+                    document.execCommand('underline', false, null);
+                }
+            });
+        }
+
+        // Update toolbar button states
+        function updateToolbarState() {
+            document.querySelectorAll('.toolbar-btn[data-command]').forEach(btn => {
+                const command = btn.dataset.command;
+                if (document.queryCommandState(command)) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        // Mark document as modified
+        function markAsModified() {
+            editorState.isModified = true;
+            updateStatusDisplay();
+        }
+
+        // Update status display
+        function updateStatusDisplay() {
+            const statusEl = document.getElementById('status');
+            if (editorState.isModified) {
+                statusEl.textContent = 'ЧЕРНЕТКА *';
+            } else {
+                statusEl.textContent = 'ЧЕРНЕТКА';
+            }
+        }
+
+        // Export content to Python backend
+        function exportContent() {
+            const content = getDocumentContent();
+
+            // Check for changes
+            const hasChanges = JSON.stringify(content) !== JSON.stringify(editorState.originalContent);
+
+            // Send to Python
+            if (window.pybridge) {
+                window.pybridge.on_content_changed(JSON.stringify(content), hasChanges);
+            }
+
+            // Update status
+            editorState.isModified = false;
+            editorState.originalContent = content;
+            updateStatusDisplay();
+
+            // Visual feedback
+            const btn = document.getElementById('exportBtn');
+            const originalText = btn.textContent;
+            btn.textContent = '✓ Збережено!';
+            btn.style.background = '#059669';
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.background = '#10B981';
+            }, 2000);
+        }
+
+        // Update auto-field values (called from Python)
+        function updateAutoField(fieldName, value) {
+            const field = document.querySelector(`[data-field="${fieldName}"]`);
+            if (field) {
+                field.textContent = value;
+            }
+        }
+
+        // Update entire block (called from Python)
+        function updateBlock(blockName, html) {
+            const block = document.querySelector(`[data-block="${blockName}"]`);
+            if (block) {
+                block.innerHTML = html;
+            }
+        }
+
+        // Get content for specific block
+        function getBlockContent(blockName) {
+            const block = document.querySelector(`[data-block="${blockName}"]`);
+            return block ? block.innerHTML : null;
+        }
+
+        // Reset to original content
+        function resetToOriginal() {
+            Object.entries(editorState.blockContents).forEach(([blockName, content]) => {
+                updateBlock(blockName, content);
+            });
+            editorState.isModified = false;
+            updateStatusDisplay();
+        }
+
+        // Set document status (for display)
+        function setDocumentStatus(status, statusText) {
+            const statusEl = document.getElementById('status');
+            if (!statusEl) {
+                console.warn('Status element not found');
+                return;
+            }
+            statusEl.className = 'status ' + status;
+
+            // Update status text mapping
+            const statusMap = {
+                'draft': 'ЧЕРНЕТКА',
+                'on_signature': 'НА ПІДПИСІ',
+                'signed': 'ПІДПИСАНО',
+                'processed': 'В ТАБЕЛІ'
+            };
+
+            statusEl.textContent = statusMap[status] || statusText || status.toUpperCase();
+
+            // Disable editing if not draft
+            const isEditable = status === 'draft';
+            document.querySelectorAll('[contenteditable="true"]').forEach(block => {
+                block.contentEditable = isEditable;
+            });
+
+            // Hide toolbar if not editable
+            const toolbar = document.querySelector('.toolbar');
+            if (toolbar) {
+                toolbar.style.display = isEditable ? 'flex' : 'none';
+            }
+        }
+
+        // ========== Signatories Management ==========
+
+        let signatoryCounter = 0;
+
+        // Add signatory button handler
+        document.addEventListener('DOMContentLoaded', () => {
+            const addBtn = document.getElementById('addSignatoryBtn');
+            const removeBtn = document.getElementById('removeSignatoryBtn');
+
+            if (addBtn) {
+                addBtn.addEventListener('click', addSignatory);
+            }
+            if (removeBtn) {
+                removeBtn.addEventListener('click', removeSignatory);
+            }
+        });
+
+        // Add new signatory
+        function addSignatory() {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            signatoryCounter++;
+            const newId = signatoryCounter;
+
+            const newRow = document.createElement('div');
+            newRow.className = 'signatory-row';
+            newRow.dataset.signatoryId = newId;
+            newRow.style.marginTop = '30px';
+            newRow.innerHTML = `
+                <span contenteditable="true" data-field="signatory_${newId}_position">[Посада]</span>
+                <span style="display: inline-block; min-width: 150px; text-align: center;">                                            </span>
+                <span contenteditable="true" data-field="signatory_${newId}_name">[ПІБ]</span>
+            `;
+
+            signatoriesList.appendChild(newRow);
+            markAsModified();
+
+            // Notify Python about the change
+            notifySignatoriesChanged();
+        }
+
+        // Remove last signatory
+        function removeSignatory() {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            const rows = signatoriesList.querySelectorAll('.signatory-row');
+            if (rows.length === 0) return;
+
+            const lastRow = rows[rows.length - 1];
+            lastRow.remove();
+            markAsModified();
+
+            // Notify Python about the change
+            notifySignatoriesChanged();
+        }
+
+        // Get current signatories data
+        function getSignatoriesData() {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return [];
+
+            const rows = signatoriesList.querySelectorAll('.signatory-row');
+            const signatories = [];
+
+            rows.forEach(row => {
+                const id = row.dataset.signatoryId;
+                const positionEl = row.querySelector(`[data-field="signatory_${id}_position"]`);
+                const nameEl = row.querySelector(`[data-field="signatory_${id}_name"]`);
+
+                if (positionEl && nameEl) {
+                    signatories.push({
+                        id: id,
+                        position: positionEl.textContent.trim(),
+                        name: nameEl.textContent.trim()
+                    });
+                }
+            });
+
+            return signatories;
+        }
+
+        // Notify Python backend about signatories change
+        function notifySignatoriesChanged() {
+            const signatories = getSignatoriesData();
+
+            if (window.pybridge) {
+                window.pybridge.on_signatories_changed(JSON.stringify(signatories));
+            }
+        }
+
+        // Update signatories from Python
+        function updateSignatories(signatoriesData) {
+            const signatoriesList = document.getElementById('signatories-list');
+            if (!signatoriesList) return;
+
+            // Clear existing
+            signatoriesList.innerHTML = '';
+
+            // Add new signatories
+            signatoriesData.forEach((signatory, index) => {
+                const id = index + 1;
+                const newRow = document.createElement('div');
+                newRow.className = 'signatory-row';
+                newRow.dataset.signatoryId = id;
+                newRow.style.marginTop = '30px';
+
+                let html = `<span contenteditable="true" data-field="signatory_${id}_position">${signatory.position || '[Посада]'}</span>`;
+                if (signatory.position_multiline) {
+                    html += `<br>${signatory.position_multiline}`;
+                }
+                html += `<span style="display: inline-block; min-width: 150px; text-align: center;">                                            </span>`;
+                html += `<span contenteditable="true" data-field="signatory_${id}_name">${signatory.name || '[ПІБ]'}</span>`;
+
+                newRow.innerHTML = html;
+                signatoriesList.appendChild(newRow);
+
+                // Update counter
+                signatoryCounter = Math.max(signatoryCounter, id);
+            });
+        }
+
+        // Log for debugging
+        console.log('WYSIWYG Editor initialized');
+    </script>
+</body>
+</html>

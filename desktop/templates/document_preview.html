@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Попередній перегляд документа</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Times New Roman', serif;
+            font-size: 14pt;
+            line-height: 1.5;
+            padding: 40px;
+            background-color: #f5f5f5;
+        }
+
+        .document {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 40px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            text-align: right;
+            margin-bottom: 30px;
+        }
+
+        .title {
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+        }
+
+        .content {
+            text-align: justify;
+            text-indent: 1.5cm;
+            margin-bottom: 20px;
+        }
+
+        .signature-block {
+            margin-top: 50px;
+        }
+
+        .signature-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+        }
+
+        .signature-left,
+        .signature-right {
+            width: 45%;
+        }
+
+        .signature-label {
+            text-align: center;
+            margin-top: 40px;
+            font-size: 12pt;
+        }
+
+        .status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            background-color: #3B82F6;
+            color: white;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="status">DRAFT - Попередній перегляд</div>
+
+    <div class="document">
+        {% if doc_type == 'VACATION_PAID' or doc_type == 'VACATION_UNPAID' %}
+            {% call vacancy_template(staff_name, staff_position, date_start, date_end, days_count, payment_period, doc_type, custom_text) %}
+            {% endcall %}
+        {% elif doc_type == 'TERM_EXTENSION' %}
+            {% call extension_template(staff_name, staff_position, date_start, date_end, custom_text) %}
+            {% endcall %}
+        {% endif %}
+    </div>
+
+    {% macro vacancy_template(name, position, start, end, days, payment, doc_type, custom_text) %}
+        <div class="header">
+            <p>Ректору Полтавського державного<br>аграрного університету<br><br>
+            Ганні ОЛІЙНИК</p>
+        </div>
+
+        <div class="title">
+            Заява
+        </div>
+
+        <div class="content">
+            Прошу Вас звільнити мене від виконання посадових обов'язків
+            у період з <strong>{{ start }}</strong> по <strong>{{ end }}</strong>
+            включно ({{ days }}) та надати мені відпустку
+            {% if doc_type == 'VACATION_PAID' %}
+            з наступною оплатою {{ payment }}.
+            {% else %}
+            без збереження заробітної плати.
+            {% endif %}
+        </div>
+
+        {% if custom_text %}
+        <div class="content">
+            {{ custom_text }}
+        </div>
+        {% endif %}
+
+        <div class="signature-block">
+            <div class="content" style="text-indent: 0; margin-top: 40px;">
+                «____» ____________ 202__ р.
+            </div>
+
+            <div class="signature-row">
+                <div class="signature-left">
+                    <div class="signature-label">{{ position }}</div>
+                    <div class="signature-label">_____________________ / {{ name }} /</div>
+                </div>
+            </div>
+        </div>
+    {% endmacro %}
+
+    {% macro extension_template(name, position, start, end, custom_text) %}
+        <div class="header">
+            <p>Ректору Полтавського державного<br>аграрного університету<br><br>
+            Ганні ОЛІЙНИК</p>
+        </div>
+
+        <div class="title">
+            Заява
+        </div>
+
+        <div class="content">
+            Прошу Вас продовжити мені термін дії контракту
+            з <strong>{{ start }}</strong> по <strong>{{ end }}</strong>
+            у зв'язку з необхідністю завершення науково-дослідної роботи.
+        </div>
+
+        {% if custom_text %}
+        <div class="content">
+            {{ custom_text }}
+        </div>
+        {% endif %}
+
+        <div class="signature-block">
+            <div class="content" style="text-indent: 0; margin-top: 40px;">
+                «____» ____________ 202__ р.
+            </div>
+
+            <div class="signature-row">
+                <div class="signature-left">
+                    <div class="signature-label">{{ position }}</div>
+                    <div class="signature-label">_____________________ / {{ name }} /</div>
+                </div>
+            </div>
+        </div>
+    {% endmacro %}
+</body>
+</html>

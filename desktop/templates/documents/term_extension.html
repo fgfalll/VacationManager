@@ -1,0 +1,38 @@
+<!-- Шаблон для продовження контракту -->
+<!-- Header block - editable -->
+<div class="header" contenteditable="true" data-block="header">
+    <p>Ректору<br>
+    {{ university or '[НАЗВА УНІВЕРСИТЕТУ]' }}<br>
+    {{ rector or '[ПІБ РЕКТОРА]' }}</p>
+</div>
+
+<!-- Applicant info block - editable -->
+<div class="content" contenteditable="true" data-block="applicant_info" style="text-indent: 0;">
+    {{ position or '[ПОСАДА]' }}<br>
+    {{ name or '[ПІБ ЗАЙМАЛЬНИКА]' }}
+</div>
+
+<!-- Title block - editable -->
+<div class="title" contenteditable="true" data-block="title">
+    Заява
+</div>
+
+<!-- Main content block - editable -->
+<div class="content" contenteditable="true" data-block="content">
+    Прошу Вас продовжити мені термін дії контракту
+    з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
+    по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>
+    у зв'язку з необхідністю завершення науково-дослідної роботи.
+</div>
+
+{% if custom_text %}
+<!-- Custom text block - editable -->
+<div class="content" contenteditable="true" data-block="custom_text">
+    {{ custom_text }}
+</div>
+{% endif %}
+
+<!-- Applicant signature block - editable -->
+<div class="content" contenteditable="true" data-block="applicant_signature" style="text-indent: 0; margin-top: 30px;">
+    {{ position or '[Посада]' }}                    <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span>
+</div>

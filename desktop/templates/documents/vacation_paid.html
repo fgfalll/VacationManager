@@ -1,0 +1,55 @@
+<!-- Шаблон для оплачуваної відпустки -->
+<!-- Header block - editable -->
+<div class="header" contenteditable="true" data-block="header">
+    <p>Ректору<br>
+    {{ university or '[НАЗВА УНІВЕРСИТЕТУ]' }}<br>
+    {{ rector or '[ПІБ РЕКТОРА]' }}</p>
+</div>
+
+<!-- Applicant info block - editable -->
+<div class="content" contenteditable="true" data-block="applicant_info" style="text-indent: 0;">
+    {{ position or '[ПОСАДА]' }}<br>
+    {{ name or '[ПІБ ЗАЙМАЛЬНИКА]' }}
+</div>
+
+<!-- Title block - editable -->
+<div class="title" contenteditable="true" data-block="title">
+    Заява
+</div>
+
+<!-- Main content block - editable -->
+<div class="content" contenteditable="true" data-block="content">
+    Прошу надати мені частину щорічної відпустки, тривалістю <span class="auto-field" contenteditable="false" data-field="days_count">{{ days or '0' }}</span>,
+    з <span class="auto-field" contenteditable="false" data-field="date_start">{{ start or '[ДД.ММ.РРРР]' }}</span>
+    по <span class="auto-field" contenteditable="false" data-field="date_end">{{ end or '[ДД.ММ.РРРР]' }}</span>.
+    Заробітну плату за час щорічної відпустки прошу виплатити <span class="auto-field" contenteditable="false" data-field="payment_period">{{ payment or '[період виплати]' }}</span>.
+</div>
+
+{% if custom_text %}
+<!-- Custom text block - editable -->
+<div class="content" contenteditable="true" data-block="custom_text">
+    {{ custom_text }}
+</div>
+{% endif %}
+
+<!-- Applicant signature block - editable -->
+<div class="content" contenteditable="true" data-block="applicant_signature" style="text-indent: 0; margin-top: 30px;">
+    {{ position or '[Посада]' }}                    <span data-field="applicant_name">{{ name or '[ПІБ]' }}</span>
+</div>
+
+<!-- Погоджено section - editable -->
+<div class="approvals-section" contenteditable="true" data-block="approvals" style="margin-top: 50px;">
+    <p style="font-weight: bold; margin-bottom: 20px;">Погоджено:</p>
+    <div id="signatories-list">
+        {% for signatory in signatories %}
+        <div class="signatory-row" data-signatory-id="{{ loop.index }}" style="margin-top: 30px;">
+            <span data-field="signatory_{{ loop.index }}_position">{{ signatory.position or '[Посада]' }}</span>
+            {% if signatory.position_multiline %}
+            <br>{{ signatory.position_multiline or '' }}
+            {% endif %}
+            <span style="display: inline-block; min-width: 250px; text-align: left;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+            <span data-field="signatory_{{ loop.index }}_name">{{ signatory.name or '[ПІБ]' }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
