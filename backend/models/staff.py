@@ -48,6 +48,11 @@ class Staff(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     pib_nom: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    pib_dav: Mapped[str | None] = mapped_column(
+        String(200),
+        nullable=True,
+        comment="ПІБ у давальному відмінку (для документів)",
+    )
     degree: Mapped[str | None] = mapped_column(String(50))
     rate: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
     position: Mapped[str] = mapped_column(String(100), nullable=False)

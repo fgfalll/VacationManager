@@ -87,6 +87,10 @@ class SettingsDialog(QDialog):
         vacation_tab = self._create_vacation_tab()
         self.tabs.addTab(vacation_tab, "Відпустки")
 
+        # Вкладка "Табель"
+        tabel_tab = self._create_tabel_tab()
+        self.tabs.addTab(tabel_tab, "Табель")
+
         # Кнопки збереження
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save |
@@ -111,6 +115,7 @@ class SettingsDialog(QDialog):
             "approvers": 2,
             "formatting": 3,
             "vacation": 4,
+            "tabel": 5,
         }
         if tab in tab_map:
             self.tabs.setCurrentIndex(tab_map[tab])
@@ -157,7 +162,22 @@ class SettingsDialog(QDialog):
             "Повна назва університету\n"
             "Наприклад: Полтавський державний аграрний університет"
         )
-        university_layout.addRow("Назва:", self.university_name_input)
+        university_layout.addRow("Назва (називний):", self.university_name_input)
+
+        self.university_name_dav_input = QLineEdit()
+        self.university_name_dav_input.setPlaceholderText(
+            "Назва установи у давальному відмінку\n"
+            "Наприклад: Полтавському державному аграрному університету"
+        )
+        university_layout.addRow("Назва (давальний):", self.university_name_dav_input)
+
+        self.edrpou_code_input = QLineEdit()
+        self.edrpou_code_input.setPlaceholderText(
+            "Код ЄДРПОУ\n"
+            "Наприклад: 00493014"
+        )
+        self.edrpou_code_input.setMaxLength(8)
+        university_layout.addRow("Код ЄДРПОУ:", self.edrpou_code_input)
 
         university_group.setLayout(university_layout)
         layout.addWidget(university_group)
@@ -221,17 +241,6 @@ class SettingsDialog(QDialog):
 
         specialist_group.setLayout(specialist_layout)
         layout.addWidget(specialist_group)
-
-        # Група "HR (Кадри)"
-        hr_group = QGroupBox("Працівник кадрової служби")
-        hr_layout = QFormLayout()
-
-        self.hr_employee_input = QComboBox()
-        self.hr_employee_input.setEditable(True)
-        hr_layout.addRow("Працівник HR:", self.hr_employee_input)
-
-        hr_group.setLayout(hr_layout)
-        layout.addWidget(hr_group)
 
         # Підказка
         help_label = QLabel(
@@ -471,6 +480,122 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return widget
 
+    def _create_tabel_tab(self) -> QWidget:
+        """Створює вкладку налаштувань табеля."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Група "Підсумки"
+        totals_group = QGroupBox("📊 Підсумки табеля")
+        totals_layout = QVBoxLayout()
+
+        self.show_monthly_totals_checkbox = QCheckBox(
+            "Показувати підсумки за місяць\n"
+            "(рядок 'Всього' з підрахованими днями та годинами)"
+        )
+        totals_layout.addWidget(self.show_monthly_totals_checkbox)
+
+        self.limit_hours_calc_checkbox = QCheckBox(
+            "Обмежити розрахунок годин лише обраними посадами\n"
+            "(години за півмісяця рахувати тільки для працівників у списку нижче)"
+        )
+        totals_layout.addWidget(self.limit_hours_calc_checkbox)
+
+        totals_group.setLayout(totals_layout)
+        layout.addWidget(totals_group)
+
+        # Група "Години для коду 'Р'"
+        work_hours_group = QGroupBox("⏱️ Години для коду 'Р' (робочий день)")
+        work_hours_layout = QFormLayout()
+
+        self.work_hours_per_day_spin = QSpinBox()
+        self.work_hours_per_day_spin.setRange(1, 12)
+        self.work_hours_per_day_spin.setValue(8)
+        self.work_hours_per_day_spin.setSuffix(" год.")
+        self.work_hours_per_day_spin.setToolTip(
+            "Кількість годин роботи за один робочий день (код 'Р')"
+        )
+        work_hours_layout.addRow("Годин на день:", self.work_hours_per_day_spin)
+
+        work_hours_group.setLayout(work_hours_layout)
+        layout.addWidget(work_hours_group)
+
+        # Група "Працівники для підрахунку годин"
+        hours_calc_group = QGroupBox("👥 Працівники, для яких рахувати години")
+        hours_calc_layout = QVBoxLayout()
+
+        # Підказка
+        hint_label = QLabel(
+            "Оберіть посади, для яких у табелі буде відображатися підрахунок годин:"
+        )
+        hint_label.setWordWrap(True)
+        hours_calc_layout.addWidget(hint_label)
+
+        # Список обраних посад
+        self.hours_calc_positions_list = QListWidget()
+        self.hours_calc_positions_list.setSelectionMode(
+            QListWidget.SelectionMode.SingleSelection
+        )
+        hours_calc_layout.addWidget(self.hours_calc_positions_list)
+
+        # Кнопки Add/Remove
+        buttons_layout = QHBoxLayout()
+        add_position_btn = QPushButton("➕ Додати")
+        add_position_btn.clicked.connect(self._add_position)
+        buttons_layout.addWidget(add_position_btn)
+
+        remove_position_btn = QPushButton("🗑 Видалити")
+        remove_position_btn.clicked.connect(self._remove_position)
+        buttons_layout.addWidget(remove_position_btn)
+        hours_calc_layout.addLayout(buttons_layout)
+
+        hours_calc_group.setLayout(hours_calc_layout)
+        layout.addWidget(hours_calc_group)
+
+        # Група "HR (Кадри)"
+        hr_group = QGroupBox("👤 Підписант табеля")
+        hr_layout = QFormLayout()
+
+        self.hr_employee_input = QComboBox()
+        self.hr_employee_input.setEditable(True)
+        hr_layout.addRow("Працівник кадрової служби:", self.hr_employee_input)
+
+        hr_group.setLayout(hr_layout)
+        layout.addWidget(hr_group)
+
+        # Підказка
+        help_label = QLabel(
+            "💡 Години підраховуються лише для обраних посад. "
+            "Для інших працівників у табелі відображатимуться лише коди днів ('Р', 'В', тощо)."
+        )
+        help_label.setWordWrap(True)
+        help_label.setStyleSheet("color: #666; font-style: italic; padding: 10px;")
+        layout.addWidget(help_label)
+
+        layout.addStretch()
+        return widget
+
+    def _add_position(self):
+        """Відкриває діалог для додавання посади."""
+        dialog = PositionSelectionDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_position = dialog.selected_position()
+            if selected_position:
+                # Перевіряємо, чи посада вже є в списку
+                existing_items = [
+                    self.hours_calc_positions_list.item(i).text()
+                    for i in range(self.hours_calc_positions_list.count())
+                ]
+                if selected_position not in existing_items:
+                    self.hours_calc_positions_list.addItem(selected_position)
+
+    def _remove_position(self):
+        """Видаляє обрану посаду зі списку."""
+        current_item = self.hours_calc_positions_list.currentItem()
+        if current_item:
+            row = self.hours_calc_positions_list.row(current_item)
+            self.hours_calc_positions_list.takeItem(row)
+
     def _on_martial_law_toggled(self, checked: bool):
         """Обробляє зміну прапорця воєнного стану."""
         if checked:
@@ -493,6 +618,12 @@ class SettingsDialog(QDialog):
             )
             self.university_name_input.setText(
                 SystemSettings.get_value(db, "university_name", "")
+            )
+            self.university_name_dav_input.setText(
+                SystemSettings.get_value(db, "university_name_dative", "")
+            )
+            self.edrpou_code_input.setText(
+                SystemSettings.get_value(db, "edrpou_code", "")
             )
 
             # Підрозділ
@@ -519,13 +650,6 @@ class SettingsDialog(QDialog):
                 index = self.dept_specialist_input.findData(specialist_id)
                 if index >= 0:
                     self.dept_specialist_input.setCurrentIndex(index)
-
-            # Встановлюємо HR
-            hr_employee_id = SystemSettings.get_value(db, "hr_signature_id", None)
-            if hr_employee_id:
-                index = self.hr_employee_input.findData(hr_employee_id)
-                if index >= 0:
-                    self.hr_employee_input.setCurrentIndex(index)
 
             # Погогоджувачі
             self._load_approvers(db)
@@ -564,6 +688,21 @@ class SettingsDialog(QDialog):
                 SystemSettings.get_value(db, SETTING_VACATION_DAYS_ADMINISTRATIVE, DEFAULT_VACATION_DAYS["administrative"])
             )
 
+            # Налаштування табеля
+            tabel_show_totals_raw = SystemSettings.get_value(db, "tabel_show_monthly_totals", True)
+            tabel_show_totals = str(tabel_show_totals_raw).lower() in ("true", "1", "yes") if isinstance(tabel_show_totals_raw, str) else tabel_show_totals_raw
+            self.show_monthly_totals_checkbox.setChecked(tabel_show_totals)
+
+            limit_hours_raw = SystemSettings.get_value(db, "tabel_limit_hours_calc", False)
+            limit_hours = str(limit_hours_raw).lower() in ("true", "1", "yes") if isinstance(limit_hours_raw, str) else limit_hours_raw
+            self.limit_hours_calc_checkbox.setChecked(limit_hours)
+
+            work_hours_raw = SystemSettings.get_value(db, "tabel_work_hours_per_day", 8)
+            self.work_hours_per_day_spin.setValue(int(work_hours_raw) if work_hours_raw else 8)
+
+            # Завантажуємо унікальні посади для вибору
+            self._load_positions_for_hours_calc(db)
+
     def _load_staff_for_combos(self, db):
         """Завантажує співробітників у випадаючі списки."""
         # Тільки завідувачі для завідувача кафедри
@@ -599,31 +738,6 @@ class SettingsDialog(QDialog):
             # Додаємо з ID як data
             self.dept_specialist_input.addItem(staff.pib_nom, staff.id)
 
-        # Тільки HR для працівника кадрової служби
-        # Шукаємо тих, у кого в посаді є "кадрів", "персонал", "hr" або це просто "інспектор"
-        # Для простоти поки беремо всіх, або фільтруємо по ключевим словам
-        hr_list = (
-            db.query(Staff)
-            .filter(Staff.is_active == True)
-            .all()
-        )
-        # Client-side filtering for flexible matching
-        hr_filtered = [
-            s for s in hr_list 
-            if any(k in s.position.lower() for k in ['кадр', 'персонал', 'інспектор', 'hr'])
-        ]
-        
-        self.hr_employee_input.clear()
-        for staff in hr_filtered:
-            self.hr_employee_input.addItem(staff.pib_nom, staff.id)
-
-        # Відновлюємо значення, якщо є
-        current_hr = self.hr_employee_input.currentText()
-        if current_hr:
-            index = self.hr_employee_input.findText(current_hr)
-            if index >= 0:
-                self.hr_employee_input.setCurrentIndex(index)
-
         # Відновлюємо значення, якщо є
         if current_head:
             index = self.dept_head_input.findText(current_head)
@@ -634,6 +748,60 @@ class SettingsDialog(QDialog):
             index = self.dept_specialist_input.findText(current_specialist)
             if index >= 0:
                 self.dept_specialist_input.setCurrentIndex(index)
+
+    def _load_positions_for_hours_calc(self, db):
+        """Завантажує збережені посади для підрахунку годин."""
+        # Отримуємо збережений вибір з налаштувань
+        saved_positions_raw = SystemSettings.get_value(db, "tabel_hours_calc_positions", [])
+        # Handle case where value might be stored as JSON string
+        if isinstance(saved_positions_raw, str):
+            import json
+            try:
+                saved_positions = json.loads(saved_positions_raw)
+            except (json.JSONDecodeError, TypeError):
+                saved_positions = []
+        else:
+            saved_positions = saved_positions_raw or []
+
+        # Очищаємо та заповнюємо список
+        self.hours_calc_positions_list.clear()
+        for position in saved_positions:
+            self.hours_calc_positions_list.addItem(position)
+
+        # If nothing selected, add "фахівець" as default
+        if self.hours_calc_positions_list.count() == 0:
+            self.hours_calc_positions_list.addItem("фахівець")
+
+        # Load HR employees for the combo box
+        hr_list = (
+            db.query(Staff)
+            .filter(Staff.is_active == True)
+            .all()
+        )
+        hr_filtered = [
+            s for s in hr_list
+            if any(k in s.position.lower() for k in ['кадр', 'персонал', 'інспектор', 'hr'])
+        ]
+
+        current_hr = self.hr_employee_input.currentText()
+        self.hr_employee_input.clear()
+        for staff in hr_filtered:
+            self.hr_employee_input.addItem(staff.pib_nom, staff.id)
+
+        if current_hr:
+            index = self.hr_employee_input.findText(current_hr)
+            if index >= 0:
+                self.hr_employee_input.setCurrentIndex(index)
+
+        # Зберігаємо всі доступні посади для діалогу вибору
+        self._all_positions = [
+            position[0] for position in
+            db.query(Staff.position)
+            .filter(Staff.position != None, Staff.position != "")
+            .distinct()
+            .order_by(Staff.position)
+            .all()
+        ]
 
     def _load_approvers(self, db):
         """Завантажує список погоджувачів."""
@@ -736,6 +904,14 @@ class SettingsDialog(QDialog):
                 db, "university_name",
                 self.university_name_input.text().strip()
             )
+            SystemSettings.set_value(
+                db, "university_name_dative",
+                self.university_name_dav_input.text().strip()
+            )
+            SystemSettings.set_value(
+                db, "edrpou_code",
+                self.edrpou_code_input.text().strip()
+            )
 
             # Підрозділ
             SystemSettings.set_value(
@@ -752,9 +928,6 @@ class SettingsDialog(QDialog):
 
             specialist_id = self.dept_specialist_input.currentData()
             SystemSettings.set_value(db, "dept_specialist_id", specialist_id)
-
-            hr_employee_id = self.hr_employee_input.currentData()
-            SystemSettings.set_value(db, "hr_signature_id", hr_employee_id)
 
             # Форматування
             name_order = "first_last" if self.name_order_input.currentIndex() == 0 else "last_first"
@@ -795,6 +968,31 @@ class SettingsDialog(QDialog):
                 db, SETTING_VACATION_DAYS_ADMINISTRATIVE,
                 self.admin_days_input.value()
             )
+
+            # Налаштування табеля
+            SystemSettings.set_value(
+                db, "tabel_show_monthly_totals",
+                self.show_monthly_totals_checkbox.isChecked()
+            )
+            SystemSettings.set_value(
+                db, "tabel_limit_hours_calc",
+                self.limit_hours_calc_checkbox.isChecked()
+            )
+            SystemSettings.set_value(
+                db, "tabel_work_hours_per_day",
+                self.work_hours_per_day_spin.value()
+            )
+
+            # Зберігаємо обрані посади для підрахунку годин
+            selected_positions = []
+            for i in range(self.hours_calc_positions_list.count()):
+                item = self.hours_calc_positions_list.item(i)
+                selected_positions.append(item.text())
+            SystemSettings.set_value(db, "tabel_hours_calc_positions", selected_positions)
+
+            # Працівник кадрової служби
+            hr_employee_id = self.hr_employee_input.currentData()
+            SystemSettings.set_value(db, "hr_signature_id", hr_employee_id)
 
         # Показуємо повідомлення і закриваємо діалог
         QMessageBox.information(
@@ -909,3 +1107,53 @@ class ApproverDialog(QDialog):
                 f"Не вдалося перетворити ім'я: {e}\n\n"
                 "Будь ласка, введіть давальний відмінок вручну."
             )
+
+
+class PositionSelectionDialog(QDialog):
+    """Діалог для вибору посади зі списку."""
+
+    def __init__(self, parent):
+        """
+        Ініціалізує діалог вибору посади.
+
+        Args:
+            parent: Батьківський віджет
+        """
+        super().__init__(parent)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        """Налаштовує інтерфейс."""
+        self.setWindowTitle("Оберіть посаду")
+        self.setMinimumWidth(400)
+
+        layout = QVBoxLayout(self)
+
+        # Список посад
+        layout.addWidget(QLabel("Оберіть посаду зі списку:"))
+
+        self.positions_list = QListWidget()
+        self.positions_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        layout.addWidget(self.positions_list)
+
+        # Заповнюємо список
+        parent = self.parent()
+        if hasattr(parent, '_all_positions'):
+            for position in parent._all_positions:
+                self.positions_list.addItem(position)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_position(self) -> str | None:
+        """Повертає обрану посаду."""
+        current_item = self.positions_list.currentItem()
+        if current_item:
+            return current_item.text()
+        return None

@@ -164,6 +164,21 @@ table.waffle td.s2 {
     vertical-align: middle;
 }
 
+/* Employee name+position cell - enable word wrap */
+td.employee-cell {
+    text-align: center;
+    font-size: 14pt;
+    line-height: 1.2;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    padding: 2px 4px;
+}
+/* Employee header cell */
+td.employee-header-cell {
+    font-size: 14pt;
+}
+
 .s7 {
     border-bottom: 1px solid #000;
     border-right: 1px solid #000;
@@ -339,33 +354,92 @@ tr[style*="height: 19px"] .row-header-wrapper { line-height: 19px; }
     -webkit-text-decoration-skip: none;
 }
 
-/* Page break for pagination */
+/* Strikethrough for days outside contract period - solid line on top layer */
+td.disabled-cell {
+    position: relative;
+    background: #fff !important;
+}
+
+/* Horizontal line through disabled cells - on top layer */
+td.disabled-cell::before {
+    content: "";
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    top: calc(50% - 1px);
+    height: 2px;
+    background: #000;
+    z-index: 100;
+}
+
+/* First row disabled cells - line extends down to connect to second row */
+tr.disabled-row-first td.disabled-cell::after {
+    content: "";
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    bottom: -1px;
+    height: 3px;
+    background: #000;
+    z-index: 100;
+}
+
+/* Second row disabled cells - line extends up to connect to first row */
+tr.disabled-row-second td.disabled-cell::after {
+    content: "";
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    top: -1px;
+    height: 3px;
+    background: #000;
+    z-index: 100;
+}
+
+/* Page break for pagination - use before for WeasyPrint */
 .page-break {
     page-break-before: always;
     break-before: page;
+    -webkit-column-break-before: always;
+    page-break-after: avoid;
+    break-after: avoid;
 }
 .page-break-after {
     page-break-after: always;
     break-after: page;
+    -webkit-column-break-after: always;
 }
-/* Visible page separator for preview */
-.page-separator {
-    border-top: 3px dashed #ff0000;
-    margin: 20px 0;
-    padding-top: 20px;
-    position: relative;
-}
-.page-separator::before {
-    content: "--- Нова сторінка ---";
-    position: absolute;
-    top: -12px;
-    left: 50%;
-    transform: translateX(-50%);
+/* Each page container for multi-page PDF output */
+.page-container {
+    width: 297mm;
+    min-height: 210mm;
     background: #fff;
-    padding: 0 10px;
-    color: #ff0000;
-    font-weight: bold;
-    font-size: 12px;
+    margin: 0 auto 30px auto;
+    padding: 5mm;
+    box-sizing: border-box;
+    /* Visible border for clear page separation in preview */
+    border: 2px solid #333;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+/* Each page grid-container within container */
+.page-container .ritz.grid-container {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+}
+/* Page separator - clear visual break between pages */
+.page-separator {
+    height: 20px;
+    background: repeating-linear-gradient(
+        45deg,
+        #666,
+        #666 10px,
+        #fff 10px,
+        #fff 20px
+    );
+    margin: 10px 0;
+    border-top: 2px solid #333;
+    border-bottom: 2px solid #333;
 }
 @media print {
     .page-break {
@@ -375,6 +449,13 @@ tr[style*="height: 19px"] .row-header-wrapper { line-height: 19px; }
     .page-break-after {
         page-break-after: always;
         break-after: page;
+    }
+    .page-container {
+        width: auto !important;
+        min-height: auto !important;
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
     }
     .page-separator {
         display: none;

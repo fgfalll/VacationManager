@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 from backend.models.attendance import Attendance, WEEKEND_DAYS
 
 
+class AttendanceConflictError(Exception):
+    """Виключення при конфлікті дат у записах відвідуваності."""
+    pass
+
+
 class AttendanceService:
     """Сервіс для CRUD операцій з записами відвідуваності."""
 
@@ -42,19 +47,101 @@ class AttendanceService:
         Returns:
             Attendance: Створений запис
         """
-        # Перевіряємо чи вже існує запис на цю дату
-        existing = self.db.query(Attendance).filter(
-            Attendance.staff_id == staff_id,
-            Attendance.date == attendance_date,
-        ).first()
+    def check_conflicts(
+        self,
+        staff_id: int,
+        start_date: date,
+        end_date: Optional[date] = None,
+    ) -> list[Attendance]:
+        """
+        Перевіряє наявність конфліктуючих записів для вказаного періоду.
 
-        if existing:
-            # Оновлюємо існуючий запис
-            existing.code = code
-            existing.hours = hours
-            existing.notes = notes
-            self.db.commit()
-            return existing
+        Args:
+            staff_id: ID працівника
+            start_date: Початкова дата
+            end_date: Кінцева дата (якщо None, перевіряється лише start_date)
+
+        Returns:
+            list[Attendance]: Список конфліктуючих записів
+        """
+        target_date = end_date or start_date
+
+        # Знаходимо всі записи працівника
+        all_records = self.db.query(Attendance).filter(
+            Attendance.staff_id == staff_id,
+        ).all()
+
+        # Фільтруємо записи що перетинаються з вказаним періодом
+        result = []
+        for record in all_records:
+            record_end = record.date_end or record.date
+            # Перевіряємо чи є перетин періодів
+            # Два періоди перетинаються якщо: A.start <= B.end AND A.end >= B.start
+            if not (record_end < start_date or record.date > target_date):
+                result.append(record)
+
+        return result
+
+    def get_conflicting_records_info(self, staff_id: int, start_date: date, end_date: Optional[date] = None) -> list[dict]:
+        """
+        Повертає інформацію про конфліктуючі записи у зручному форматі.
+
+        Args:
+            staff_id: ID працівника
+            start_date: Початкова дата
+            end_date: Кінцева дата
+
+        Returns:
+            list[dict]: Список словників з інформацією про конфлікти
+        """
+        conflicts = self.check_conflicts(staff_id, start_date, end_date)
+        result = []
+        for record in conflicts:
+            if record.date_end:
+                date_range = f"{record.date.strftime('%d.%m.%Y')} - {record.date_end.strftime('%d.%m.%Y')}"
+            else:
+                date_range = record.date.strftime('%d.%m.%Y')
+            result.append({
+                "id": record.id,
+                "date_range": date_range,
+                "code": record.code,
+                "notes": record.notes,
+            })
+        return result
+
+    def create_attendance(
+        self,
+        staff_id: int,
+        attendance_date: date,
+        code: str,
+        hours: Decimal = Decimal("8.0"),
+        notes: Optional[str] = None,
+    ) -> Attendance:
+        """
+        Створює запис відвідуваності для одного дня.
+
+        Args:
+            staff_id: ID працівника
+            attendance_date: Дата
+            code: Літерний код відвідуваності
+            hours: Кількість годин
+            notes: Примечания
+
+        Returns:
+            Attendance: Створений запис
+
+        Raises:
+            AttendanceConflictError: Якщо є конфліктуючі записи
+        """
+        # Перевіряємо на конфлікти
+        conflicts = self.check_conflicts(staff_id, attendance_date)
+        if conflicts:
+            conflict_info = self.get_conflicting_records_info(staff_id, attendance_date)
+            conflict_str = ", ".join([c["date_range"] for c in conflict_info])
+            raise AttendanceConflictError(
+                f"На період {attendance_date.strftime('%d.%m.%Y')} вже є записи: {conflict_str}. "
+                f"Видаліть конфліктуючі записи перед додаванням нових."
+            )
 
         # Створюємо новий запис
         attendance = Attendance(
@@ -93,9 +180,19 @@ class AttendanceService:
 
         Returns:
             Attendance: Створений запис з діапазоном дат
+
+        Raises:
+            AttendanceConflictError: Якщо є конфліктуючі записи
         """
-        # Видаляємо існуючі записи для цього діапазону
-        self.delete_attendance_range(staff_id, start_date, end_date)
+        # Перевіряємо на конфлікти
+        conflicts = self.check_conflicts(staff_id, start_date, end_date)
+        if conflicts:
+            conflict_info = self.get_conflicting_records_info(staff_id, start_date, end_date)
+            conflict_str = ", ".join([c["date_range"] for c in conflict_info])
+            raise AttendanceConflictError(
+                f"На період {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')} вже є записи: {conflict_str}. "
+                f"Видаліть конфліктуючі записи перед додаванням нових."
+            )
 
         # Створюємо один запис з date_end
         attendance = Attendance(
@@ -193,12 +290,13 @@ class AttendanceService:
         self.db.refresh(attendance)
         return attendance
 
-    def delete_attendance(self, attendance_id: int) -> bool:
+    def delete_attendance(self, attendance_id: int, notes: str | None = None) -> bool:
         """
         Видаляє запис відвідуваності.
 
         Args:
             attendance_id: ID запису
+            notes: Коментар причини видалення
 
         Returns:
             bool: True якщо видалено, False якщо не знайдено
@@ -206,6 +304,10 @@ class AttendanceService:
         attendance = self.get_attendance_by_id(attendance_id)
         if not attendance:
             return False
+
+        # Зберігаємо коментар перед видаленням
+        if notes:
+            attendance.deletion_notes = notes
 
         self.db.delete(attendance)
         self.db.commit()

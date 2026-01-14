@@ -8,6 +8,27 @@
 </head>
 
 <body>
+    {% macro render_day(day) -%}
+        {% if day.strikethrough %}
+            <span class="strikethrough">{{ day.code }}</span>{% else %}{% if day.code == 'Р' and day.hours and day.hours != '' %}{{ day.hours }}{% else %}{{ day.code }}{% endif %}{% endif %}
+    {%- endmacro %}
+
+    {% macro day_class(day) -%}
+        {% if day.strikethrough %}disabled-cell {% endif %}s6
+    {%- endmacro %}
+
+    {% macro row_class(days, row_num) -%}
+        {% set has_disabled = false %}
+        {% for day in days %}
+            {% if day.strikethrough %}
+                {% set has_disabled = true %}
+            {% endif %}
+        {% endfor %}
+        {% if has_disabled %}
+            {% if row_num == 1 %}disabled-row-first{% else %}disabled-row-second{% endif %}
+        {% endif %}
+    {%- endmacro %}
+
     <div class="ritz grid-container" dir="ltr">
         <table class="waffle" cellspacing="0" cellpadding="0">
             </thead>
@@ -24,7 +45,7 @@
                 <!-- Row 3: First header row -->
                 <tr style="height: 38px">
                     <td class="s3" rowspan="3">№</td>
-                    <td class="s3" rowspan="3">Прізвище, ім'я, по-батькові, посада (кількість ставок)</td>
+                    <td class="s3 employee-header-cell" rowspan="3">Прізвище, ім'я, по-батькові, посада (кількість ставок)</td>
                     <td class="s4" colspan="16">Відтки про явки та неявки за числами місяця (годин)</td>
                     <td class="s3" colspan="6">Відпрацьовано за місяць</td>
                     <td class="s3" colspan="12">з причини за місяць (дн.)</td>
@@ -104,27 +125,27 @@
                 <!-- Employee rows -->
                 {% for emp in employees %}
                 <!-- First row: Days 1-15 -->
-                <tr style="height: 36px">
+                <tr style="height: 36px" class="{{ row_class(emp.days, 1) }}">
                     <td class="s6" rowspan="2">{{ loop.index }}</td>
-                    <td class="s6" rowspan="2">
+                    <td class="s6 employee-cell" rowspan="2">
                         {{ emp.pib }}<br>
                         {{ emp.position }}{% if emp.rate %}, {{ emp.rate }}{% endif %}
                     </td>
-                    <td class="s6">{{ emp.days[0].code }}</td>
-                    <td class="s6">{{ emp.days[1].code }}</td>
-                    <td class="s6">{{ emp.days[2].code }}</td>
-                    <td class="s6">{{ emp.days[3].code }}</td>
-                    <td class="s6">{{ emp.days[4].code }}</td>
-                    <td class="s6">{{ emp.days[5].code }}</td>
-                    <td class="s6">{{ emp.days[6].code }}</td>
-                    <td class="s6">{{ emp.days[7].code }}</td>
-                    <td class="s6">{{ emp.days[8].code }}</td>
-                    <td class="s6">{{ emp.days[9].code }}</td>
-                    <td class="s6">{{ emp.days[10].code }}</td>
-                    <td class="s6">{{ emp.days[11].code }}</td>
-                    <td class="s6">{{ emp.days[12].code }}</td>
-                    <td class="s6">{{ emp.days[13].code }}</td>
-                    <td class="s6">{{ emp.days[14].code }}</td>
+                    <td class="{{ day_class(emp.days[0]) }}">{{ render_day(emp.days[0]) }}</td>
+                    <td class="{{ day_class(emp.days[1]) }}">{{ render_day(emp.days[1]) }}</td>
+                    <td class="{{ day_class(emp.days[2]) }}">{{ render_day(emp.days[2]) }}</td>
+                    <td class="{{ day_class(emp.days[3]) }}">{{ render_day(emp.days[3]) }}</td>
+                    <td class="{{ day_class(emp.days[4]) }}">{{ render_day(emp.days[4]) }}</td>
+                    <td class="{{ day_class(emp.days[5]) }}">{{ render_day(emp.days[5]) }}</td>
+                    <td class="{{ day_class(emp.days[6]) }}">{{ render_day(emp.days[6]) }}</td>
+                    <td class="{{ day_class(emp.days[7]) }}">{{ render_day(emp.days[7]) }}</td>
+                    <td class="{{ day_class(emp.days[8]) }}">{{ render_day(emp.days[8]) }}</td>
+                    <td class="{{ day_class(emp.days[9]) }}">{{ render_day(emp.days[9]) }}</td>
+                    <td class="{{ day_class(emp.days[10]) }}">{{ render_day(emp.days[10]) }}</td>
+                    <td class="{{ day_class(emp.days[11]) }}">{{ render_day(emp.days[11]) }}</td>
+                    <td class="{{ day_class(emp.days[12]) }}">{{ render_day(emp.days[12]) }}</td>
+                    <td class="{{ day_class(emp.days[13]) }}">{{ render_day(emp.days[13]) }}</td>
+                    <td class="{{ day_class(emp.days[14]) }}">{{ render_day(emp.days[14]) }}</td>
                     <td class="s6"></td>
                     <!-- First half month: worked days and hours -->
                     <td class="s6">{{ emp.totals.first_half_work_days }}</td>
@@ -149,23 +170,23 @@
                     <td class="s8">{{ emp.absence.unexcused_1 or '' }}</td>
                 </tr>
                 <!-- Second row: Days 16-31 -->
-                <tr style="height: 36px">
-                    <td class="s6">{{ emp.days[15].code }}</td>
-                    <td class="s6">{{ emp.days[16].code }}</td>
-                    <td class="s6">{{ emp.days[17].code }}</td>
-                    <td class="s6">{{ emp.days[18].code }}</td>
-                    <td class="s6">{{ emp.days[19].code }}</td>
-                    <td class="s6">{{ emp.days[20].code }}</td>
-                    <td class="s6">{{ emp.days[21].code }}</td>
-                    <td class="s6">{{ emp.days[22].code }}</td>
-                    <td class="s6">{{ emp.days[23].code }}</td>
-                    <td class="s6">{{ emp.days[24].code }}</td>
-                    <td class="s6">{{ emp.days[25].code }}</td>
-                    <td class="s6">{{ emp.days[26].code }}</td>
-                    <td class="s6">{{ emp.days[27].code }}</td>
-                    <td class="s6">{{ emp.days[28].code }}</td>
-                    <td class="s6">{{ emp.days[29].code }}</td>
-                    <td class="s6">{{ emp.days[30].code }}</td>
+                <tr style="height: 36px" class="{{ row_class(emp.days, 2) }}">
+                    <td class="{{ day_class(emp.days[15]) }}">{{ render_day(emp.days[15]) }}</td>
+                    <td class="{{ day_class(emp.days[16]) }}">{{ render_day(emp.days[16]) }}</td>
+                    <td class="{{ day_class(emp.days[17]) }}">{{ render_day(emp.days[17]) }}</td>
+                    <td class="{{ day_class(emp.days[18]) }}">{{ render_day(emp.days[18]) }}</td>
+                    <td class="{{ day_class(emp.days[19]) }}">{{ render_day(emp.days[19]) }}</td>
+                    <td class="{{ day_class(emp.days[20]) }}">{{ render_day(emp.days[20]) }}</td>
+                    <td class="{{ day_class(emp.days[21]) }}">{{ render_day(emp.days[21]) }}</td>
+                    <td class="{{ day_class(emp.days[22]) }}">{{ render_day(emp.days[22]) }}</td>
+                    <td class="{{ day_class(emp.days[23]) }}">{{ render_day(emp.days[23]) }}</td>
+                    <td class="{{ day_class(emp.days[24]) }}">{{ render_day(emp.days[24]) }}</td>
+                    <td class="{{ day_class(emp.days[25]) }}">{{ render_day(emp.days[25]) }}</td>
+                    <td class="{{ day_class(emp.days[26]) }}">{{ render_day(emp.days[26]) }}</td>
+                    <td class="{{ day_class(emp.days[27]) }}">{{ render_day(emp.days[27]) }}</td>
+                    <td class="{{ day_class(emp.days[28]) }}">{{ render_day(emp.days[28]) }}</td>
+                    <td class="{{ day_class(emp.days[29]) }}">{{ render_day(emp.days[29]) }}</td>
+                    <td class="{{ day_class(emp.days[30]) }}">{{ render_day(emp.days[30]) }}</td>
                     <!-- Second half month: worked days and hours -->
                     <td class="s6">{{ emp.totals.second_half_work_days }}</td>
                     <td class="s6">{{ emp.totals.second_half_work_hours }}</td>
@@ -193,26 +214,26 @@
                 <!-- Totals row -->
                 <tr style="height: 17px">
                     <td class="s13" colspan="18">Всього</td>
-                    <td class="s14">{{ totals.work_days }}</td>
-                    <td class="s14">{{ totals.work_hours }}</td>
+                    <td class="s14">{{ totals.work_days if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.work_hours if show_monthly_totals else '' }}</td>
                     <!-- Monthly overtime totals -->
-                    <td class="s14">{{ totals.overtime or '' }}</td>
-                    <td class="s14">{{ totals.night or '' }}</td>
-                    <td class="s14">{{ totals.evening or '' }}</td>
-                    <td class="s14">{{ totals.weekend or '' }}</td>
+                    <td class="s14">{{ totals.overtime if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.night if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.evening if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.weekend if show_monthly_totals else '' }}</td>
                     <!-- Absence totals (monthly) -->
-                    <td class="s14">{{ totals.absence.vacation_8_10 or '' }}</td>
-                    <td class="s14">{{ totals.absence.vacation_11_15 or '' }}</td>
-                    <td class="s14">{{ totals.absence.vacation_18 or '' }}</td>
-                    <td class="s14">{{ totals.absence.vacation_19 or '' }}</td>
-                    <td class="s14">{{ totals.absence.business_trip or '' }}</td>
-                    <td class="s14">{{ totals.absence.part_time or '' }}</td>
-                    <td class="s14">{{ totals.absence.temp_transfer or '' }}</td>
-                    <td class="s14">{{ totals.absence.idle or '' }}</td>
-                    <td class="s14">{{ totals.absence.absenteeism or '' }}</td>
-                    <td class="s14">{{ totals.absence.strike or '' }}</td>
-                    <td class="s14">{{ totals.absence.temp_disability or '' }}</td>
-                    <td class="s14">{{ totals.absence.unexcused or '' }}</td>
+                    <td class="s14">{{ totals.absence.vacation_8_10 if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.vacation_11_15 if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.vacation_18 if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.vacation_19 if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.business_trip if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.part_time if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.temp_transfer if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.idle if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.absenteeism if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.strike if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.temp_disability if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.unexcused if show_monthly_totals else '' }}</td>
                 </tr>
 
                 <!-- Empty spacer row -->

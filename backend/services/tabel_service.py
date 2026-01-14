@@ -1,6 +1,7 @@
 """Сервіс для генерації табеля обліку робочого часу."""
 
 import calendar
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -42,6 +43,9 @@ MONTHS_UKR = [
     "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"
 ]
 
+# Logger for this module
+logger = logging.getLogger(__name__)
+
 # Month names in genitive case (for header)
 MONTHS_GENITIVE = [
     "січня", "лютого", "березня", "квітня", "травня", "червня",
@@ -62,7 +66,8 @@ class DayStatus:
     code: str  # Літерний код (Р, В, ДО, Л, тощо)
     hours: str = ""  # Кількість годин для відображення
     weekend: bool = False  # Чи вихідний день
-    disabled: bool = False  # Чи день не існує в місяці
+    disabled: bool = False  # Чи день за межами контракту (перед початком або після закінчення)
+    strikethrough: bool = False  # Чи день повинен бути закреслений (empty cells)
 
 
 @dataclass
@@ -239,6 +244,8 @@ def get_day_status(
     Визначає статус дня для працівника.
 
     Логіка:
+    - Дні перед початком контракту: закреслені, порожні
+    - Дні після закінчення контракту: закреслені, порожні
     - Вихідні дні (сб, нд): порожньо
     - Відпустки з processed документів: "В" (або інший код відпустки)
     - Відрядження та інші спеціальні коди: з таблиці attendance
@@ -254,6 +261,15 @@ def get_day_status(
     Returns:
         DayStatus: Статус дня
     """
+    # Check if date is outside contract period (before start or after end)
+    # For deactivated employees, term_end is still valid for marking days
+    if current_date < staff.term_start:
+        # Before contract started - strikethrough, empty
+        return DayStatus(code="", strikethrough=True, disabled=True)
+    if current_date > staff.term_end:
+        # After contract ended - strikethrough, empty
+        return DayStatus(code="", strikethrough=True, disabled=True)
+
     # Check for attendance record first (hand-entered special codes)
     for record in attendance_records:
         record_end = record.date_end or record.date
@@ -261,7 +277,7 @@ def get_day_status(
             # Include hours for overtime types, show blank if 0
             hours_val = float(record.hours) if record.hours else 0
             hours_str = str(hours_val) if hours_val > 0 else ""
-            
+
             return DayStatus(
                 code=record.code,
                 hours=hours_str,
@@ -387,6 +403,7 @@ def get_employee_data(
     year: int,
     attendance_records: list[Attendance],
     vacations: list[Document],
+    db=None,
 ) -> EmployeeData:
     """
     Збирає дані працівника для табеля.
@@ -397,6 +414,7 @@ def get_employee_data(
         year: Рік
         attendance_records: Список записів відвідуваності
         vacations: Список документів відпусток
+        db: Опціонально - база даних для отримання налаштувань
 
     Returns:
         EmployeeData: Дані працівника
@@ -405,8 +423,34 @@ def get_employee_data(
     month_start = date(year, month, 1)
     month_end = date(year, month, days_in_month)
 
-    # Check if employee is "фахівець" (hours only calculated for specialists)
-    is_fakhivets = 'фахівець' in staff.position.lower()
+    # Get settings for hours calculation
+    hours_calc_positions = []
+    work_hours_per_day = 8  # Default
+
+    if db:
+        # Get positions list (handle both JSON string and list)
+        positions_raw = SystemSettings.get_value(db, "tabel_hours_calc_positions", [])
+        try:
+            if isinstance(positions_raw, str):
+                import json
+                hours_calc_positions = json.loads(positions_raw)
+            elif isinstance(positions_raw, list):
+                hours_calc_positions = positions_raw
+            else:
+                hours_calc_positions = []
+        except Exception as e:
+            logger.warning(f"Error parsing positions list: {e}, raw value: {positions_raw}")
+            hours_calc_positions = []
+
+        # Get work hours per day (handle string conversion)
+        hours_raw = SystemSettings.get_value(db, "tabel_work_hours_per_day", 8)
+        try:
+            work_hours_per_day = int(hours_raw) if hours_raw else 8
+        except (ValueError, TypeError):
+            work_hours_per_day = 8
+
+    # Check if employee position is in the list for hours calculation
+    is_hours_calc = staff.position in hours_calc_positions if staff.position else False
 
     # Build day statuses
     days = []
@@ -431,6 +475,13 @@ def get_employee_data(
         days.append(day_status)
 
         if day_status.code == "Р":
+            # For employees in hours calculation list, show actual hours instead of "Р"
+            if is_hours_calc:
+                # Calculate hours based on rate (ставка)
+                staff_rate = float(staff.rate) if staff.rate else 1.0
+                hours_for_day = work_hours_per_day * staff_rate
+                day_status.hours = format_hours_decimal(hours_for_day)
+            # Count work days for totals (regardless of display)
             if day <= 15:
                 work_days_first_half += 1
             else:
@@ -469,10 +520,33 @@ def get_employee_data(
     # Calculate absence totals
     absence = calculate_absence_totals(attendance_records, vacations, month_start, month_end)
 
-    # Calculate total hours for each half for all employees
-    first_half_hours = format_hours_decimal(staff.daily_work_hours * work_days_first_half)
-    second_half_hours = format_hours_decimal(staff.daily_work_hours * work_days_second_half)
-    total_hours = format_hours_decimal(staff.daily_work_hours * (work_days_first_half + work_days_second_half))
+    # Check if we should limit hours calculation
+    limit_hours_calc = False
+    try:
+        if db:
+            limit_hours_raw = SystemSettings.get_value(db, "tabel_limit_hours_calc", False)
+            if isinstance(limit_hours_raw, str):
+                limit_hours_calc = limit_hours_raw.lower() in ("true", "1", "yes")
+            else:
+                limit_hours_calc = bool(limit_hours_raw)
+    except Exception as e:
+        logger.warning(f"Error reading limit_hours_calc setting: {e}")
+        limit_hours_calc = False
+
+    # Calculate total hours using settings value for configured positions
+    # If limit_hours_calc is ON, only calculate hours for employees in the positions list
+    calculate_hours = not limit_hours_calc or is_hours_calc
+
+    if calculate_hours:
+        hours_to_use = work_hours_per_day if is_hours_calc else (staff.daily_work_hours or 8)
+        first_half_hours = format_hours_decimal(hours_to_use * work_days_first_half)
+        second_half_hours = format_hours_decimal(hours_to_use * work_days_second_half)
+        total_hours = format_hours_decimal(hours_to_use * (work_days_first_half + work_days_second_half))
+    else:
+        # Leave hours blank for employees not in the positions list
+        first_half_hours = ''
+        second_half_hours = ''
+        total_hours = ''
 
     # Format data
     short_name = format_short_name(staff.pib_nom)
@@ -529,11 +603,13 @@ def get_tabel_totals(employees: list[EmployeeData], month_days: int) -> TabelTot
     for emp in employees:
         totals.work_days += emp.totals['work_days']
 
-        # Add to total hours (only for фахівець)
+        # Add to total hours (only for employees with hours calculated)
         try:
-            emp_hours = Decimal(str(emp.totals['work_hours']).replace(",", "."))
-            total_hours_decimal += emp_hours
-        except ValueError:
+            work_hours = str(emp.totals['work_hours']).strip()
+            if work_hours:  # Only parse if not empty
+                emp_hours = Decimal(work_hours.replace(",", "."))
+                total_hours_decimal += emp_hours
+        except (ValueError, decimal.InvalidOperation):
             pass
 
         # Sum day totals
@@ -636,9 +712,15 @@ def generate_tabel_html(
                     hr_person = format_initials(hr_staff.pib_nom)
 
             # Get active staff
-            # Get active staff
+            # Include deactivated employees if their contract ends within the current month
+            # Exclude them if we're in a month after their contract ended
+            month_start = date(year, month, 1)
+            month_end = date(year, month, month_days)
+
             staff_list = db.query(Staff).filter(
-                Staff.is_active == True
+                # Active employees OR employees whose contract ended this month
+                (Staff.is_active == True) |
+                (Staff.term_end >= month_start)
             ).order_by(Staff.pib_nom).all()
 
             # Find responsible person and department head
@@ -676,12 +758,14 @@ def generate_tabel_html(
                     Document.date_start <= month_end,
                 ).all()
 
-                emp_data = get_employee_data(staff, month, year, attendance, vacations)
+                emp_data = get_employee_data(staff, month, year, attendance, vacations, db)
                 employees.append(emp_data)
 
     except Exception as e:
-        # If database fails, return empty table
-        pass
+        # Log the error for debugging
+        logger.exception("Error generating tabel data")
+        # Re-raise to be handled by caller
+        raise
 
     # If no pagination needed, render single page
     if employees_per_page <= 0:
@@ -697,6 +781,19 @@ def generate_tabel_html(
         page_totals = get_tabel_totals(page_emp_data, month_days)
 
         # Prepare template data for this page
+        # Get show_monthly_totals setting
+        show_monthly_totals = True
+        try:
+            with get_db_context() as settings_db:
+                show_monthly_totals_raw = SystemSettings.get_value(settings_db, "tabel_show_monthly_totals", True)
+                # Convert to boolean
+                if isinstance(show_monthly_totals_raw, str):
+                    show_monthly_totals = show_monthly_totals_raw.lower() in ("true", "1", "yes")
+                else:
+                    show_monthly_totals = bool(show_monthly_totals_raw)
+        except Exception:
+            pass
+
         template_data = {
             'institution_name': institution_name,
             'edrpou_code': edrpou_code,
@@ -708,6 +805,7 @@ def generate_tabel_html(
             'employees': page_employees,
             'page_number': len(pages) + 1,
             'total_pages': (len(employee_dicts) + employees_per_page - 1) // employees_per_page,
+            'show_monthly_totals': show_monthly_totals,
             'totals': {
                 'work_days': page_totals.work_days,
                 'work_hours': page_totals.work_hours,
@@ -747,9 +845,16 @@ def generate_tabel_html(
         env = get_jinja_env()
         template = env.get_template('tabel_template.html')
         page_html = template.render(**template_data)
-        pages.append(page_html)
+        # Wrap in page container for proper preview separation
+        # Add page-break class to grid-container for PDF pagination (but not on first page)
+        page_break_class = " page-break" if len(pages) > 0 else ""
+        page_html = page_html.replace(
+            '<div class="ritz grid-container"',
+            f'<div class="ritz grid-container{page_break_class}"'
+        )
+        pages.append(f'<div class="page-container">{page_html}</div>')
 
-    # Join pages with page breaks
+    # Join pages with separator (hidden during print)
     html = f'\n<div class="page-separator"></div>\n'.join(pages)
 
     return html

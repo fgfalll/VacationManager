@@ -111,6 +111,11 @@ class Attendance(Base, TimestampMixin):
         comment="Кінцева дата для діапазону (якщо None - одна дата)",
     )
     notes: Mapped[str | None] = mapped_column(String(255))
+    deletion_notes: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Коментар при видаленні запису",
+    )
 
     # Relationships
     staff: Mapped["Staff"] = relationship(back_populates="attendance_records")

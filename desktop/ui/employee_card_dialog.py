@@ -1,5 +1,7 @@
 """Діалог картки працівника з повною історією змін."""
 
+from datetime import date
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
@@ -72,6 +74,7 @@ class EmployeeCardDialog(QDialog):
             self.staff_data = {
                 "id": staff.id,
                 "pib_nom": staff.pib_nom,
+                "pib_dav": staff.pib_dav,
                 "degree": staff.degree,
                 "rate": float(staff.rate),
                 "position": staff.position,
@@ -122,6 +125,7 @@ class EmployeeCardDialog(QDialog):
                     "code": record.code,
                     "hours": record.hours,
                     "notes": record.notes,
+                    "created_at": record.created_at,
                 })
 
     def _setup_ui(self):
@@ -130,6 +134,8 @@ class EmployeeCardDialog(QDialog):
         self.setMinimumSize(1000, 900)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
 
         # Інформація про співробітника
         layout.addWidget(self._create_info_section())
@@ -161,9 +167,11 @@ class EmployeeCardDialog(QDialog):
         """Створює секцію з поточною інформацією."""
         frame = QFrame()
         frame.setFrameStyle(QFrame.Shape.StyledPanel)
-        frame.setStyleSheet("QFrame { background-color: #f5f5f5; border-radius: 5px; padding: 10px; }")
+        frame.setStyleSheet("QFrame { background-color: #f5f5f5; border-radius: 5px; padding: 3px; }")
 
         layout = QVBoxLayout(frame)
+        layout.setContentsMargins(3, 3, 3, 3)
+        layout.setSpacing(3)
 
         # Заголовок
         title_layout = QHBoxLayout()
@@ -177,6 +185,36 @@ class EmployeeCardDialog(QDialog):
         title_layout.addStretch()
         title_layout.addWidget(status_label)
         layout.addLayout(title_layout)
+
+        # Секція ПІБ у давальному відмінку
+        dative_layout = QHBoxLayout()
+        dative_label = QLabel("ПІБ (давальний відмінок):")
+        dative_label.setFixedWidth(160)
+        self.pib_dav_edit = QLineEdit()
+        self.pib_dav_edit.setPlaceholderText("Наприклад: Олександру Петровичу")
+        self.pib_dav_edit.setText(self.staff_data.get('pib_dav') or "")
+        self.pib_dav_edit.setMinimumWidth(250)
+
+        generate_btn = QPushButton("🔄 Згенерувати")
+        generate_btn.setToolTip("Автоматично створити давальний відмінок")
+        generate_btn.clicked.connect(self._generate_dative)
+
+        save_btn = QPushButton("💾")
+        save_btn.setToolTip("Зберегти")
+        save_btn.clicked.connect(self._save_pib_dative)
+
+        dative_layout.addWidget(dative_label)
+        dative_layout.addWidget(self.pib_dav_edit)
+        dative_layout.addWidget(generate_btn)
+        dative_layout.addWidget(save_btn)
+        dative_layout.addStretch()
+
+        layout.addLayout(dative_layout)
+
+        # Роздільник
+        separator = QLabel("<hr>")
+        separator.setStyleSheet("color: #ccc;")
+        layout.addWidget(separator)
 
         # Деталі
         details_text = f"""
@@ -712,6 +750,59 @@ class EmployeeCardDialog(QDialog):
         dialog.accept()
         QMessageBox.information(self, "Успіх", "Всі етапи очищено")
 
+    def _generate_dative(self):
+        """Генерує ПІБ у давальному відмінку."""
+        from backend.services.grammar_service import GrammarService
+
+        pib_nom = self.staff_data.get('pib_nom', '')
+        if not pib_nom:
+            QMessageBox.warning(self, "Попередження", "ПІБ не знайдено")
+            return
+
+        try:
+            grammar = GrammarService()
+            pib_dav = grammar.to_dative(pib_nom)
+            self.pib_dav_edit.setText(pib_dav)
+
+            # Запитуємо чи користувач задоволений результатом
+            reply = QMessageBox.question(
+                self,
+                "Перевірка",
+                f"Згенеровано: <b>{pib_dav}</b>\n\n"
+                f"Це правильно? Якщо ні, ви можете відредагувати вручну.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                self._save_pib_dative()
+            else:
+                self.pib_dav_edit.setFocus()
+                self.pib_dav_edit.selectAll()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося згенерувати відмінок: {e}")
+
+    def _save_pib_dative(self):
+        """Зберігає ПІБ у давальному відмінку."""
+        from backend.core.database import get_db_context
+        from backend.models.staff import Staff
+
+        pib_dav = self.pib_dav_edit.text().strip() or None
+
+        try:
+            with get_db_context() as db:
+                staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
+                if staff:
+                    staff.pib_dav = pib_dav
+                    db.commit()
+                    self.staff_data['pib_dav'] = pib_dav
+                    QMessageBox.information(self, "Успіх", "ПІБ у давальному відмінку збережено")
+                else:
+                    QMessageBox.warning(self, "Помилка", "Працівника не знайдено")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося зберегти: {e}")
+
     def _format_employment_type(self, value: str) -> str:
         """Форматує тип працевлаштування для відображення."""
         type_map = {
@@ -940,7 +1031,7 @@ class EmployeeCardDialog(QDialog):
         table.setObjectName("absence_table")
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(
-            ["Дата", "Код", "Тип", "Години", "Дії"]
+            ["Дата", "Код", "Тип", "Створено", "Дії"]
         )
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -961,9 +1052,10 @@ class EmployeeCardDialog(QDialog):
             type_name = CODE_TO_ABSENCE_NAME.get(record['code'], record['code'])
             table.setItem(row, 2, QTableWidgetItem(type_name))
 
-            # Години
-            hours_str = f"{float(record['hours']):.1f}" if record['hours'] else ""
-            table.setItem(row, 3, QTableWidgetItem(hours_str))
+            # Дата створення запису
+            created_at = record.get('created_at')
+            created_str = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "—"
+            table.setItem(row, 3, QTableWidgetItem(created_str))
 
             # Кнопки дій
             button_container = QWidget()
@@ -971,10 +1063,18 @@ class EmployeeCardDialog(QDialog):
             button_layout.setContentsMargins(2, 2, 2, 2)
             button_layout.setSpacing(4)
 
+            # Перевіряємо чи запис минулого місяця
+            record_date = record['date']
+            today = date.today()
+            is_past_month = record_date.year < today.year or (
+                record_date.year == today.year and record_date.month < today.month
+            )
+
             # Редагування
             edit_btn = QPushButton("✏️")
             edit_btn.setFixedWidth(32)
             edit_btn.setToolTip("Редагувати")
+            edit_btn.setEnabled(not is_past_month)
             edit_btn.clicked.connect(lambda checked, r=record: self._on_edit_absence(r))
             button_layout.addWidget(edit_btn)
 
@@ -982,7 +1082,7 @@ class EmployeeCardDialog(QDialog):
             delete_btn = QPushButton("🗑️")
             delete_btn.setFixedWidth(32)
             delete_btn.setToolTip("Видалити")
-            delete_btn.clicked.connect(lambda checked, r=record: self._on_delete_absence(r['id']))
+            delete_btn.clicked.connect(lambda checked, r=record: self._on_delete_absence(r))
             button_layout.addWidget(delete_btn)
 
             table.setCellWidget(row, 4, button_container)
@@ -996,7 +1096,8 @@ class EmployeeCardDialog(QDialog):
         """Обробляє додавання нової відмітки."""
         from desktop.ui.absence_entry_dialog import AbsenceEntryDialog
         from backend.core.database import get_db_context
-        from backend.services.attendance_service import AttendanceService
+        from backend.services.attendance_service import AttendanceService, AttendanceConflictError
+        from backend.models.staff import Staff
 
         dialog = AbsenceEntryDialog(
             staff_id=self.staff_id,
@@ -1009,6 +1110,44 @@ class EmployeeCardDialog(QDialog):
 
         result = dialog.get_result()
 
+        # Get employee contract dates
+        with get_db_context() as db:
+            staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
+            if not staff:
+                QMessageBox.warning(self, "Помилка", "Працівника не знайдено")
+                return
+
+            term_start = staff.term_start
+            term_end = staff.term_end
+            work_basis = staff.work_basis
+
+        # Get proper term name based on work_basis
+        basis_labels = {
+            "contract": ("контракту", "контракт"),
+            "competitive": ("конкурсної основи", "конкурс"),
+            "statement": ("заяви", "заява"),
+        }
+        term_label, term_short = basis_labels.get(work_basis.value, ("терміну", "термін"))
+
+        # Validate dates are within contract period
+        if result['is_range']:
+            check_date = result['start_date']
+            check_end = result['end_date']
+        else:
+            check_date = result['date']
+            check_end = result['date']
+
+        if check_date < term_start or check_end > term_end:
+            QMessageBox.warning(
+                self,
+                f"Дата поза межами {term_label}",
+                f"Період {check_date.strftime('%d.%m.%Y')} - {check_end.strftime('%d.%m.%Y')} виходить за межі {term_label} працівника.\n"
+                f"{term_short.capitalize()}: {term_start.strftime('%d.%m.%Y')} - {term_end.strftime('%d.%m.%Y')}\n\n"
+                f"Відмітку можна додавати лише на період дії {term_label}.",
+                QMessageBox.StandardButton.Ok
+            )
+            return
+
         try:
             with get_db_context() as db:
                 service = AttendanceService(db)
@@ -1019,7 +1158,6 @@ class EmployeeCardDialog(QDialog):
                         start_date=result['start_date'],
                         end_date=result['end_date'],
                         code=result['code'],
-                        hours=result['hours'],
                         notes=result['notes'],
                     )
                 else:
@@ -1027,7 +1165,6 @@ class EmployeeCardDialog(QDialog):
                         staff_id=self.staff_id,
                         attendance_date=result['date'],
                         code=result['code'],
-                        hours=result['hours'],
                         notes=result['notes'],
                     )
 
@@ -1035,6 +1172,16 @@ class EmployeeCardDialog(QDialog):
             self._load_data()
             self._refresh_absence_table()
 
+        except AttendanceConflictError as e:
+            # Конфлікт дат - показуємо спеціальне повідомлення
+            conflict_msg = str(e)
+            QMessageBox.warning(
+                self,
+                "Конфлікт дат",
+                f"{conflict_msg}\n\n"
+                f"Будь ласка, видаліть конфліктуючі записи з таблиці нижче та спробуйте ще раз.",
+                QMessageBox.StandardButton.Ok
+            )
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося додати відмітку: {e}")
 
@@ -1043,6 +1190,39 @@ class EmployeeCardDialog(QDialog):
         from desktop.ui.absence_entry_dialog import AbsenceEntryDialog
         from backend.core.database import get_db_context
         from backend.services.attendance_service import AttendanceService
+        from backend.models.staff import Staff
+
+        # Get employee contract dates
+        with get_db_context() as db:
+            staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
+            if not staff:
+                QMessageBox.warning(self, "Помилка", "Працівника не знайдено")
+                return
+            term_start = staff.term_start
+            term_end = staff.term_end
+            work_basis = staff.work_basis
+
+        # Get proper term name based on work_basis
+        basis_labels = {
+            "contract": ("контракту", "контракт"),
+            "competitive": ("конкурсної основи", "конкурс"),
+            "statement": ("заяви", "заява"),
+        }
+        term_label, term_short = basis_labels.get(work_basis.value, ("терміну", "термін"))
+
+        # Check if record date is within contract period
+        record_date = record['date']
+        record_date_end = record.get('date_end') or record_date
+
+        if record_date > term_end:
+            QMessageBox.warning(
+                self,
+                "Редагування неможливе",
+                f"Ця відмітка виходить за межі {term_label} працівника.\n"
+                f"{term_short.capitalize()} закінчився: {term_end.strftime('%d.%m.%Y')}",
+                QMessageBox.StandardButton.Ok
+            )
+            return
 
         dialog = AbsenceEntryDialog(
             staff_id=self.staff_id,
@@ -1062,7 +1242,6 @@ class EmployeeCardDialog(QDialog):
                 service.update_attendance(
                     attendance_id=record['id'],
                     code=result['code'],
-                    hours=result['hours'],
                     notes=result['notes'],
                 )
 
@@ -1073,25 +1252,30 @@ class EmployeeCardDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося оновити відмітку: {e}")
 
-    def _on_delete_absence(self, attendance_id: int):
+    def _on_delete_absence(self, record: dict):
         """Обробляє видалення відмітки."""
         from backend.core.database import get_db_context
         from backend.services.attendance_service import AttendanceService
 
-        reply = QMessageBox.question(
+        # Показуємо діалог з полем для коментаря
+        from PyQt6.QtWidgets import QInputDialog, QLineEdit
+
+        comment, ok = QInputDialog.getText(
             self,
-            "Підтвердження",
-            "Ви впевнені, що хочете видалити цю відмітку?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            "Видалення відмітки",
+            "Введіть причину видалення:",
+            QLineEdit.EchoMode.Normal,
+            ""
         )
 
-        if reply != QMessageBox.StandardButton.Yes:
+        if not ok or not comment.strip():
             return
 
         try:
             with get_db_context() as db:
                 service = AttendanceService(db)
-                service.delete_attendance(attendance_id)
+                # Видаляємо з коментарем
+                service.delete_attendance(record['id'], notes=comment.strip())
 
             QMessageBox.information(self, "Успіх", "Відмітку видалено")
             self._load_data()

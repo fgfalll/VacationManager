@@ -139,6 +139,20 @@ table.waffle th, table.waffle td:not(.s2):not(.s15):not(.s16):not(.s17):not(.s18
     font-size: 8pt;
     vertical-align: middle;
 }
+/* Employee name+position cell - enable word wrap */
+td.employee-cell {
+    text-align: center;
+    font-size: 14pt;
+    line-height: 1.2;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    padding: 2px 4px;
+}
+/* Employee header cell */
+td.employee-header-cell {
+    font-size: 14pt;
+}
 .s7 {
     border-bottom: 1px solid #000;
     border-right: 1px solid #000;
@@ -212,6 +226,72 @@ tr[style*="height: 20px"] { height: 15px !important; }
 tr[style*="height: 25px"] { height: 18px !important; }
 tr[style*="height: 12px"] { height: 10px !important; }
 tr[style*="height: 35px"] { height: 25px !important; }
+
+/* Page break for pagination - use before for WeasyPrint */
+.page-break {
+    page-break-before: always;
+    break-before: page;
+    -webkit-column-break-before: always;
+    page-break-after: avoid;
+    break-after: avoid;
+}
+.page-break-after {
+    page-break-after: always;
+    break-after: page;
+    -webkit-column-break-after: always;
+}
+/* Each page container for multi-page PDF output */
+.page-container {
+    width: 297mm;
+    min-height: 210mm;
+    background: #fff;
+    margin: 0 auto 30px auto;
+    padding: 5mm;
+    box-sizing: border-box;
+    /* Visible border for clear page separation in preview */
+    border: 2px solid #333;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+/* Each page grid-container within container */
+.page-container .ritz.grid-container {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+}
+/* Page separator - clear visual break between pages */
+.page-separator {
+    height: 20px;
+    background: repeating-linear-gradient(
+        45deg,
+        #666,
+        #666 10px,
+        #fff 10px,
+        #fff 20px
+    );
+    margin: 10px 0;
+    border-top: 2px solid #333;
+    border-bottom: 2px solid #333;
+}
+@media print {
+    .page-break {
+        page-break-before: always;
+        break-before: page;
+    }
+    .page-break-after {
+        page-break-after: always;
+        break-after: page;
+    }
+    .page-container {
+        width: auto !important;
+        min-height: auto !important;
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+    .page-separator {
+        display: none;
+    }
+}
 """
 
 
@@ -526,10 +606,23 @@ class TabelTab(QWidget):
         template_dir = Path(__file__).parent.parent / "templates" / "tabel"
 
         try:
+            # Get institution settings
+            from backend.models.settings import SystemSettings
+            from backend.core.database import get_db_context
+
+            institution_name = ""
+            edrpou_code = ""
+
+            with get_db_context() as db:
+                institution_name = SystemSettings.get_value(db, "university_name", "")
+                edrpou_code = SystemSettings.get_value(db, "edrpou_code", "")
+
             # Generate HTML using Jinja2 template
             html = generate_tabel_html(
                 month=self._current_month,
                 year=self._current_year,
+                institution_name=institution_name,
+                edrpou_code=edrpou_code,
                 employees_per_page=self.EMPLOYEES_PER_PAGE if self.EMPLOYEES_PER_PAGE > 0 else 0,
             )
 
@@ -544,15 +637,19 @@ class TabelTab(QWidget):
             self.status_label.setText(f"Табель: {month_name} {self._current_year}")
 
         except Exception as e:
-            self.status_label.setText(f"Помилка формування табеля: {str(e)}")
+            import traceback
+            error_msg = str(e) if str(e) else repr(e)
+            tb = traceback.format_exc()
+            self.status_label.setText(f"Помилка формування табеля: {error_msg}")
             # Show error in web view for debugging
             error_html = f"""
             <html><head><style>body {{ font-family: Arial; padding: 20px; }}</style></head>
             <body>
                 <h2 style="color: red;">Помилка формування табеля</h2>
-                <p><b>Помилка:</b> {str(e)}</p>
+                <p><b>Тип помилки:</b> {type(e).__name__}</p>
+                <p><b>Помилка:</b> {error_msg}</p>
+                <pre style="background: #f5f5f5; padding: 10px; overflow: auto;">{tb}</pre>
                 <p><b>Шлях до шаблону:</b> {template_dir}</p>
-                <p>Перевірте, чи існує файл шаблону та чи правильно налаштовано базу даних.</p>
             </body></html>
             """
             self.web_view.setHtml(error_html)
@@ -646,7 +743,7 @@ class TabelTab(QWidget):
     # Configurable print scaling (per session)
     PRINT_ZOOM = 0.70
     PRINT_WIDTH_PERCENT = 97
-    EMPLOYEES_PER_PAGE = 0  # 0 = unlimited
+    EMPLOYEES_PER_PAGE = 10  # employees per page
 
     def _minimize_empty_columns_for_print(self) -> None:
         """Run JS to minimize empty columns, then print."""
@@ -733,9 +830,22 @@ class TabelTab(QWidget):
     def _archive_tabel(self) -> None:
         """Archive the current tabel."""
         try:
+            # Get institution settings
+            from backend.models.settings import SystemSettings
+            from backend.core.database import get_db_context
+
+            institution_name = ""
+            edrpou_code = ""
+
+            with get_db_context() as db:
+                institution_name = SystemSettings.get_value(db, "university_name", "")
+                edrpou_code = SystemSettings.get_value(db, "edrpou_code", "")
+
             html = generate_tabel_html(
                 month=self._current_month,
                 year=self._current_year,
+                institution_name=institution_name,
+                edrpou_code=edrpou_code,
             )
             save_tabel_to_file(
                 html=html,
