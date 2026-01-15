@@ -60,7 +60,7 @@ class StaffTab(QWidget):
         self.filter_active.currentIndexChanged.connect(self._load_data)
 
         self.refresh_btn = QPushButton("Оновити")
-        self.refresh_btn.clicked.connect(self._load_data)
+        self.refresh_btn.clicked.connect(self._on_refresh)
 
         search_layout.addWidget(QLabel("Пошук:"))
         search_layout.addWidget(self.search_input)
@@ -258,6 +258,29 @@ class StaffTab(QWidget):
             name = self.table.item(row, 0).text().lower()
             match = search_text in name
             self.table.setRowHidden(row, not match)
+
+    def _on_refresh(self):
+        """Оновлює дані та виконує авто-деактивацію прострочених контрактів."""
+        from backend.core.database import get_db_context
+        from backend.services.staff_service import StaffService
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Спочатку виконуємо авто-деактивацію
+        try:
+            with get_db_context() as db:
+                service = StaffService(db, changed_by="SYSTEM")
+                count = service.auto_deactivate_expired_contracts()
+                if count > 0:
+                    QMessageBox.information(
+                        self,
+                        "Авто-деактивація",
+                        f"Автоматично деактивовано {count} записів з простроченими контрактами."
+                    )
+        except Exception as e:
+            print(f"[ERROR] Помилка авто-деактивації: {e}")
+
+        # Потім оновлюємо таблицю
+        self._load_data()
 
     def _on_selection_changed(self):
         """Обробляє зміну виділення."""
@@ -1012,10 +1035,6 @@ class StaffDialog(QDialog):
         self.vacation_balance_input.setRange(0, 365)
         self.vacation_balance_input.setValue(0)
 
-        # Відділ/кафедра
-        self.department_input = QLineEdit()
-        self.department_input.setPlaceholderText("Назва відділу/кафедри")
-
         # Графік роботи
         self.work_schedule_input = QComboBox()
         self.work_schedule_items = {
@@ -1035,7 +1054,6 @@ class StaffDialog(QDialog):
         layout.addRow("Початок контракту:", self.term_start_input)
         layout.addRow("Кінець контракту:", self.term_end_input)
         layout.addRow("Кількість днів відпустки:", self.vacation_balance_input)
-        layout.addRow("Відділ/кафедра:", self.department_input)
         layout.addRow("Графік роботи:", self.work_schedule_input)
 
         # Кнопки
@@ -1084,8 +1102,6 @@ class StaffDialog(QDialog):
                 else:
                     self.vacation_balance_input.setValue(staff.vacation_balance)
 
-                # Load department and work_schedule
-                self.department_input.setText(staff.department or "")
                 # Find work schedule by enum value
                 for i in range(self.work_schedule_input.count()):
                     if self.work_schedule_input.itemData(i) == staff.work_schedule:
@@ -1135,6 +1151,11 @@ class StaffDialog(QDialog):
         employment_type = self.employment_type_input.currentData()
         work_basis = self.work_basis_input.currentData()
 
+        # Get department from settings
+        from backend.models.settings import SystemSettings
+        with get_db_context() as db:
+            department = SystemSettings.get_value(db, "department_name", "")
+
         # Prepare staff data
         staff_data = {
             "pib_nom": pib,
@@ -1147,7 +1168,7 @@ class StaffDialog(QDialog):
             "term_end": self.term_end_input.date().toPyDate(),
             "is_active": True,
             "vacation_balance": self.vacation_balance_input.value(),
-            "department": self.department_input.text() or "",
+            "department": department,
             "work_schedule": self.work_schedule_input.currentData(),
         }
 

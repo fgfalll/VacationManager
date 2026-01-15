@@ -195,7 +195,7 @@ class StaffService:
         # Знаходимо всі активні записи з простроченими контрактами
         expired_staff = self.db.query(Staff).filter(
             Staff.is_active == True,
-            Staff.term_end < today,
+            Staff.term_end <= today,
         ).all()
 
         count = 0

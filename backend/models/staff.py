@@ -119,9 +119,9 @@ class Staff(Base, TimestampMixin):
         Чи закінчився контракт.
 
         Returns:
-            bool: True якщо контракт вже закінчився
+            bool: True якщо контракт вже закінчився або закінчується сьогодні
         """
-        return self.days_until_term_end < 0
+        return self.days_until_term_end <= 0
 
     def __repr__(self) -> str:
         return f"<Staff {self.id}: {self.pib_nom} ({self.position})>"

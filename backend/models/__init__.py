@@ -16,6 +16,7 @@ from backend.models.document import Document, DocumentStatus, DocumentType
 from backend.models.schedule import AnnualSchedule
 from backend.models.settings import SystemSettings, Approvers
 from backend.models.staff_history import StaffHistory
+from backend.models.tabel_approval import TabelApproval
 
 __all__ = [
     "Base",
@@ -34,4 +35,5 @@ __all__ = [
     "SystemSettings",
     "Approvers",
     "StaffHistory",
+    "TabelApproval",
 ]

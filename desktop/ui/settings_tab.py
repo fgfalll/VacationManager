@@ -508,14 +508,13 @@ class SettingsDialog(QDialog):
         work_hours_group = QGroupBox("⏱️ Години для коду 'Р' (робочий день)")
         work_hours_layout = QFormLayout()
 
-        self.work_hours_per_day_spin = QSpinBox()
-        self.work_hours_per_day_spin.setRange(1, 12)
-        self.work_hours_per_day_spin.setValue(8)
-        self.work_hours_per_day_spin.setSuffix(" год.")
-        self.work_hours_per_day_spin.setToolTip(
-            "Кількість годин роботи за один робочий день (код 'Р')"
+        self.work_hours_per_day_edit = QLineEdit()
+        self.work_hours_per_day_edit.setPlaceholderText("Наприклад: 8 або 8:15")
+        self.work_hours_per_day_edit.setText("8")
+        self.work_hours_per_day_edit.setToolTip(
+            "Кількість годин роботи за один робочий день (код 'Р'). Формат: 8 або 8:15"
         )
-        work_hours_layout.addRow("Годин на день:", self.work_hours_per_day_spin)
+        work_hours_layout.addRow("Годин на день:", self.work_hours_per_day_edit)
 
         work_hours_group.setLayout(work_hours_layout)
         layout.addWidget(work_hours_group)
@@ -698,7 +697,7 @@ class SettingsDialog(QDialog):
             self.limit_hours_calc_checkbox.setChecked(limit_hours)
 
             work_hours_raw = SystemSettings.get_value(db, "tabel_work_hours_per_day", 8)
-            self.work_hours_per_day_spin.setValue(int(work_hours_raw) if work_hours_raw else 8)
+            self.work_hours_per_day_edit.setText(str(work_hours_raw) if work_hours_raw else "8")
 
             # Завантажуємо унікальні посади для вибору
             self._load_positions_for_hours_calc(db)
@@ -997,7 +996,7 @@ class SettingsDialog(QDialog):
             )
             SystemSettings.set_value(
                 db, "tabel_work_hours_per_day",
-                self.work_hours_per_day_spin.value()
+                self.work_hours_per_day_edit.text().strip()
             )
 
             # Зберігаємо обрані посади для підрахунку годин

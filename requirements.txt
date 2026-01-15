@@ -16,6 +16,10 @@ PyQt6-WebEngine>=6.6.0
 
 # Document Generation
 # weasyprint.exe (standalone) is used instead of pip package
+python-docx>=1.1.0  # For DOCX template population
+docxtpl>=0.16.0  # For Jinja2-based DOCX templates (handles merged cells properly)
+pypdf>=3.15.0  # For PDF merging
+docx2pdf>=0.1.8  # For DOCX to PDF conversion on Windows
 
 # Ukrainian Grammar
 pymorphy3

@@ -1148,6 +1148,25 @@ class EmployeeCardDialog(QDialog):
             )
             return
 
+        # Check if month is locked (approved by HR)
+        check_date = result['start_date'] if result['is_range'] else result['date']
+        from backend.services.tabel_approval_service import TabelApprovalService
+
+        with get_db_context() as db:
+            approval_service = TabelApprovalService(db)
+            can_edit, reason = approval_service.can_edit_attendance(self.staff_id, check_date)
+
+            if not can_edit:
+                reply = QMessageBox.question(
+                    self,
+                    "Місяць погоджено з кадрами",
+                    f"{reason}\n\n"
+                    "Бажаєте продовжити? Запис буде додано в корегуючий табель.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
         try:
             with get_db_context() as db:
                 service = AttendanceService(db)
@@ -1236,6 +1255,25 @@ class EmployeeCardDialog(QDialog):
 
         result = dialog.get_result()
 
+        # Check if month is locked (approved by HR)
+        check_date = result.get('start_date') or result.get('date') or record_date
+        from backend.services.tabel_approval_service import TabelApprovalService
+
+        with get_db_context() as db:
+            approval_service = TabelApprovalService(db)
+            can_edit, reason = approval_service.can_edit_attendance(self.staff_id, check_date)
+
+            if not can_edit:
+                reply = QMessageBox.question(
+                    self,
+                    "Місяць погоджено з кадрами",
+                    f"{reason}\n\n"
+                    "Бажаєте продовжити? Зміни буде внесено в корегуючий табель.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
         try:
             with get_db_context() as db:
                 service = AttendanceService(db)
@@ -1270,6 +1308,25 @@ class EmployeeCardDialog(QDialog):
 
         if not ok or not comment.strip():
             return
+
+        # Check if month is locked (approved by HR)
+        record_date = record['date']
+        from backend.services.tabel_approval_service import TabelApprovalService
+
+        with get_db_context() as db:
+            approval_service = TabelApprovalService(db)
+            can_edit, reason = approval_service.can_edit_attendance(self.staff_id, record_date)
+
+            if not can_edit:
+                reply = QMessageBox.question(
+                    self,
+                    "Місяць погоджено з кадрами",
+                    f"{reason}\n\n"
+                    "Бажаєте продовжити? Запис буде видалено в корегуючому табелі.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
 
         try:
             with get_db_context() as db:
