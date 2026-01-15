@@ -17,7 +17,12 @@
 
     {% macro render_day(day) -%}
         {% if day.strikethrough %}
-            <span class="strikethrough">{{ day.code }}</span>{% else %}{% if day.code == 'Р' and day.hours and day.hours != '' %}{{ day.hours }}{% else %}{{ day.code }}{% endif %}{% endif %}
+            {# Strikethrough for dates before contract start (retroactive employees) #}
+        {% elif day.code == 'Р' and day.hours and day.hours != '' %}
+            {{ day.hours }}
+        {% else %}
+            {{ day.code }}
+        {% endif %}
     {%- endmacro %}
 
     {% macro day_class(day) -%}
@@ -43,7 +48,7 @@
                 <!-- Row 1-2: Header with institution name and title -->
                 <tr style="height: 24px">
                     <td class="s0" colspan="4" rowspan="2">{{ institution_name }}</td>
-                    <td class="s1" colspan="27" rowspan="2">{% if is_correction %}Корегуючий табель{% else %}Табель обліку використання робочого часу{% endif %}</td>
+                    <td class="s1" colspan="27" rowspan="2">{% if is_correction %}Табель обліку робочого часу{% else %}Табель обліку використання робочого часу{% endif %}</td>
                     <td class="s0" colspan="4" rowspan="2">{{ edrpou_code }}</td>
                 </tr>
                 <tr style="height: 21px">
@@ -227,7 +232,7 @@
                     <td class="s14">{{ format_hours(totals.overtime) if show_monthly_totals else '' }}</td>
                     <td class="s14">{{ format_hours(totals.night) if show_monthly_totals else '' }}</td>
                     <td class="s14">{{ format_hours(totals.evening) if show_monthly_totals else '' }}</td>
-                    <td class="s14">{{ format_hours(totals.weekend) if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.weekend if show_monthly_totals else '' }}</td>
                     <!-- Absence totals (monthly) -->
                     <td class="s14">{{ totals.absence.vacation_8_10 if show_monthly_totals else '' }}</td>
                     <td class="s14">{{ totals.absence.vacation_11_15 if show_monthly_totals else '' }}</td>

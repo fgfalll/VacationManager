@@ -292,24 +292,6 @@ td.employee-header-cell {
 }
 
 .s16 {
-    background-color: #fff;
-    text-align: center;
-    color: #000;
-    font-family: "Times New Roman", Times, serif;
-    font-size: 12pt;
-    vertical-align: middle;
-}
-
-.s18 {
-    background-color: #fff;
-    text-align: center;
-    color: #000;
-    font-family: "Times New Roman", Times, serif;
-    font-size: 14pt;
-    vertical-align: middle;
-}
-
-.s16 {
     border-top: none !important;
     border-left: none !important;
     border-right: none !important;
@@ -317,6 +299,7 @@ td.employee-header-cell {
     background-color: #fff;
     text-align: center;
     color: #000;
+    font-family: "Times New Roman", Times, serif;
     font-size: 12pt;
     vertical-align: middle;
 }
@@ -329,6 +312,7 @@ td.employee-header-cell {
     background-color: #fff;
     text-align: center;
     color: #000;
+    font-family: "Times New Roman", Times, serif;
     font-size: 14pt;
     vertical-align: middle;
 }
@@ -455,6 +439,11 @@ tr.disabled-row-first td.disabled-cell {
 /* Second row disabled cells - border styling for merged appearance */
 tr.disabled-row-second td.disabled-cell {
     border-top-color: transparent !important;
+}
+
+/* Correction tabel: disabled cells are just empty (no strikethrough) */
+td.correction-disabled {
+    background-color: #fff !important;
 }
 
 /* Page break for pagination - use before for WeasyPrint */
