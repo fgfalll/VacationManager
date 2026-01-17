@@ -296,7 +296,8 @@ class ValidationService:
         """
         Перевіряє, що період відпустки не перетинається з записами відвідуваності.
 
-        Записи відвідуваності на роботу (код "Р") не повинні перетинатися з відпусткою.
+        Будь-який запис відвідуваності (крім "Р" - присутність на роботі) не повинен
+        перетинатися з відпусткою, оскільки такі записи вже замінюють робочі дні.
 
         Args:
             start: Початок відпустки
@@ -309,10 +310,10 @@ class ValidationService:
         """
         from backend.models.attendance import Attendance
 
-        # Шукаємо записи відвідуваності на роботу (код "Р") в цей період
+        # Шукаємо ВСІ записи відвідуваності (крім "Р" - присутність) в цей період
         existing = db.query(Attendance).filter(
             Attendance.staff_id == staff_id,
-            Attendance.code == "Р",  # Тільки записи на роботу
+            Attendance.code != "Р",  # Всі крім присутності на роботі
             # Перевіряємо перетин періодів
             Attendance.date <= end,
         ).all()
@@ -325,13 +326,13 @@ class ValidationService:
                 date_str = att.date.strftime('%d.%m.%Y')
                 raise ValidationError(
                     f"Період відпустки ({start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}) "
-                    f"перетинається з записом відвідуваності на роботу {date_str}"
+                    f"перетинається з записом відвідуваності '{att.code}' від {date_str}"
                 )
 
     @staticmethod
     def validate_no_vacation_overlap(attendance_date: date, staff_id: int, db: Session) -> None:
         """
-        Перевіряє, що дата відвідуваності не перетинається з відпустками.
+        Перевіряє, що дата відвідуваності не перетинається з відпустками працівника.
 
         Args:
             attendance_date: Дата відвідуваності
@@ -342,20 +343,12 @@ class ValidationService:
             ValidationError: Якщо знайдено перетин
         """
         from backend.models.document import Document
+        from backend.models.attendance import Attendance
         from shared.enums import DocumentStatus
 
-        # Шукаємо відпустки в цей період (всі стани окрім DRAFT та PROCESSED)
-        # PROCESSED відпустки вже додані до табелю, тому не повинні перетинатися з новими записами
+        # Перевіряємо відпустки (всі стани)
         existing = db.query(Document).filter(
             Document.staff_id == staff_id,
-            Document.status.in_([
-                DocumentStatus.DRAFT,
-                DocumentStatus.ON_SIGNATURE,
-                DocumentStatus.AGREED,
-                DocumentStatus.SIGNED,
-                DocumentStatus.SCANNED,
-                DocumentStatus.PROCESSED,
-            ]),
         ).all()
 
         for doc in existing:
@@ -363,7 +356,21 @@ class ValidationService:
                 raise ValidationError(
                     f"Дата {attendance_date.strftime('%d.%m.%Y')} "
                     f"перетинається з відпусткою {doc.date_start.strftime('%d.%m.%Y')} - "
-                    f"{doc.date_end.strftime('%d.%m.%Y')} (документ #{doc.id}, статус: {doc.status.value})"
+                    f"{doc.date_end.strftime('%d.%m.%Y')} (документ #{doc.id})"
+                )
+
+        # Перевіряємо інші записи відвідуваності (крім "Р" - присутність на роботі)
+        existing_att = db.query(Attendance).filter(
+            Attendance.staff_id == staff_id,
+            Attendance.code != "Р",
+        ).all()
+
+        for att in existing_att:
+            att_end = att.date_end or att.date
+            if not (attendance_date < att.date or attendance_date > att_end):
+                raise ValidationError(
+                    f"Дата {attendance_date.strftime('%d.%m.%Y')} "
+                    f"перетинається з записом '{att.code}' від {att.date.strftime('%d.%m.%Y')}"
                 )
 
     @staticmethod

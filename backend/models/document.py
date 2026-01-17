@@ -24,6 +24,8 @@ class Document(Base, TimestampMixin):
         status: Статус документа
         date_start: Початок відпустки
         date_end: Кінець відпустки
+        extension_start_date: Початок продовження (для документів продовження контракту)
+        old_contract_end_date: Дата закінчення попереднього контракту
         days_count: Кількість днів
         payment_period: Період оплати
         custom_text: Кастомний текст
@@ -76,6 +78,16 @@ class Document(Base, TimestampMixin):
 
     date_start: Mapped[date] = mapped_column(Date, nullable=False)
     date_end: Mapped[date] = mapped_column(Date, nullable=False)
+    extension_start_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+        comment="Початок продовження контракту (для документів продовження)",
+    )
+    old_contract_end_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+        comment="Дата закінчення попереднього контракту (для документів продовження)",
+    )
     days_count: Mapped[int] = mapped_column(Integer, nullable=False)
     payment_period: Mapped[str | None] = mapped_column(String(100))
     custom_text: Mapped[str | None] = mapped_column(Text)

@@ -10,6 +10,27 @@ TEMPLATE_FILES = {
     "vacation_paid": "vacation_paid.html",
     "vacation_unpaid": "vacation_unpaid.html",
     "term_extension": "term_extension.html",
+
+    # Оплачувані відпустки
+    "vacation_main": "vacation_main.html",
+    "vacation_additional": "vacation_additional.html",
+    "vacation_chornobyl": "vacation_chornobyl.html",
+    "vacation_creative": "vacation_creative.html",
+    "vacation_study": "vacation_study.html",
+    "vacation_children": "vacation_children.html",
+    "vacation_maternity": "vacation_maternity.html",
+    "vacation_childcare": "vacation_childcare.html",
+
+    # Відпустки без збереження зарплати
+    "vacation_unpaid_study": "vacation_unpaid_study.html",
+    "vacation_unpaid_mandatory": "vacation_unpaid_mandatory.html",
+    "vacation_unpaid_agreement": "vacation_unpaid_agreement.html",
+    "vacation_unpaid_other": "vacation_unpaid_other.html",
+
+    # Продовження контракту
+    "term_extension_contract": "term_extension_contract.html",
+    "term_extension_competition": "term_extension_competition.html",
+    "term_extension_pdf": "term_extension_pdf.html",
 }
 
 # Директорія для зберігання документів
@@ -51,6 +72,9 @@ SETTING_VACATION_DAYS_SCIENTIFIC_PEDAGOGICAL = "vacation_days_scientific_pedagog
 SETTING_VACATION_DAYS_PEDAGOGICAL = "vacation_days_pedagogical"
 SETTING_VACATION_DAYS_ADMINISTRATIVE = "vacation_days_administrative"
 SETTING_COUNT_HOLIDAYS_AS_VACATION = "count_holidays_as_vacation"
+
+# Налаштування PDF шаблонів
+SETTING_PDF_TERM_EXTENSION_TEMPLATE = "pdf_term_extension_template"  # Шлях до PDF шаблону продовження контракту
 
 # Значення за замовчуванням для відпусток (в календарних днях)
 DEFAULT_VACATION_DAYS = {

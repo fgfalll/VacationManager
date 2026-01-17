@@ -25,6 +25,27 @@ class DocumentType(str, Enum):
     VACATION_UNPAID = "vacation_unpaid"       # Відпустка без збереження зарплати
     TERM_EXTENSION = "term_extension"         # Продовження терміну контракту
 
+    # Оплачувані відпустки
+    VACATION_MAIN = "vacation_main"           # Основна щорічна відпустка (код В)
+    VACATION_ADDITIONAL = "vacation_additional"  # Додаткова щорічна відпустка (код Д)
+    VACATION_CHORNOBYL = "vacation_chornobyl"    # Додаткова відпустка чорнобильцям (код Ч)
+    VACATION_CREATIVE = "vacation_creative"      # Творча відпустка (код ТВ)
+    VACATION_STUDY = "vacation_study"            # Додаткова відпустка у зв'язку з навчанням (код Н)
+    VACATION_CHILDREN = "vacation_children"      # Додаткова оплачувана відпустка працівникам з дітьми (код ДО)
+    VACATION_MATERNITY = "vacation_maternity"    # Відпустка у зв'язку з вагітністю та пологами (код ВП)
+    VACATION_CHILDCARE = "vacation_childcare"    # Відпустка для догляду за дитиною до 6 років (код ДД)
+
+    # Відпустки без збереження зарплати
+    VACATION_UNPAID_STUDY = "vacation_unpaid_study"        # Відпустка без збереження у зв'язку з навчанням (код НБ)
+    VACATION_UNPAID_MANDATORY = "vacation_unpaid_mandatory"  # Відпустка без збереження в обов'язковому порядку (код ДБ)
+    VACATION_UNPAID_AGREEMENT = "vacation_unpaid_agreement"  # Відпустка без збереження за згодою сторін (код НА)
+    VACATION_UNPAID_OTHER = "vacation_unpaid_other"          # Інші відпустки без збереження зарплати (код БЗ)
+
+    # Продовження контракту
+    TERM_EXTENSION_CONTRACT = "term_extension_contract"     # Продовження контракту - контрактна основа
+    TERM_EXTENSION_COMPETITION = "term_extension_competition"  # Продовження контракту - конкурсна основа
+    TERM_EXTENSION_PDF = "term_extension_pdf"               # Продовження контракту - PDF (вручну)
+
 
 class DocumentStatus(str, Enum):
     """Статус документа"""

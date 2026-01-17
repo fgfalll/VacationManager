@@ -50,7 +50,7 @@ class AttendanceService:
             if correction_month is None or correction_year is None or correction_sequence is None:
                 # Should not happen for correction records, but safety check
                 return
-            
+
             if self.approval_service.is_correction_locked(correction_month, correction_year, correction_sequence):
                  raise AttendanceLockedError(
                     f"Коригуючий табель за {correction_month:02}.{correction_year} (версія {correction_sequence}) вже затверджено. Зміни заборонено."
@@ -63,27 +63,6 @@ class AttendanceService:
                     f"Для внесення змін створіть коригуючий табель."
                 )
 
-    def create_attendance(
-        self,
-        staff_id: int,
-        attendance_date: date,
-        code: str,
-        hours: Decimal = Decimal("8.0"),
-        notes: Optional[str] = None,
-    ) -> Attendance:
-        """
-        Створює запис відвідуваності для одного дня.
-
-        Args:
-            staff_id: ID працівника
-            attendance_date: Дата
-            code: Літерний код відвідуваності
-            hours: Кількість годин
-            notes: Примітки
-
-        Returns:
-            Attendance: Створений запис
-        """
     def check_conflicts(
         self,
         staff_id: int,
@@ -166,7 +145,7 @@ class AttendanceService:
             attendance_date: Дата
             code: Літерний код відвідуваності
             hours: Кількість годин
-            notes: Примітки
+            notes: Примечания
             is_correction: Чи є це записом корегуючого табеля
             correction_month: Місяць, що коригується
             correction_year: Рік, що коригується
@@ -181,14 +160,14 @@ class AttendanceService:
         """
         # Перевіряємо блокування
         self.check_locking(
-            attendance_date, 
-            is_correction, 
-            correction_month, 
-            correction_year, 
+            attendance_date,
+            is_correction,
+            correction_month,
+            correction_year,
             correction_sequence
         )
 
-        # Перевіряємо на конфлікти
+        # Перевіряємо конфлікти з існуючими записами відвідуваності
         conflicts = self.check_conflicts(staff_id, attendance_date)
         if conflicts:
             conflict_info = self.get_conflicting_records_info(staff_id, attendance_date)
@@ -197,6 +176,11 @@ class AttendanceService:
                 f"На період {attendance_date.strftime('%d.%m.%Y')} вже є записи: {conflict_str}. "
                 f"Видаліть конфліктуючі записи перед додаванням нових."
             )
+
+        # Перевіряємо конфлікти з документами відпусток
+        if code == "Р" and not is_correction:
+            from backend.services.validation_service import ValidationService
+            ValidationService.validate_no_vacation_overlap(attendance_date, staff_id, self.db)
 
         # Створюємо новий запис
         attendance = Attendance(
@@ -238,7 +222,7 @@ class AttendanceService:
             end_date: Кінцева дата
             code: Літерний код відвідуваності
             hours: Кількість годин за день
-            notes: Примітки
+            notes: Примечания
             skip_weekends: Чи пропускати вихідні дні (для візуалізації, не впливає на зберігання)
             is_correction: Чи є це записом корегуючого табеля
             correction_month: Місяць, що коригується
@@ -254,10 +238,10 @@ class AttendanceService:
         """
         # Перевіряємо блокування
         self.check_locking(
-            start_date, 
-            is_correction, 
-            correction_month, 
-            correction_year, 
+            start_date,
+            is_correction,
+            correction_month,
+            correction_year,
             correction_sequence
         )
 
@@ -270,6 +254,15 @@ class AttendanceService:
                 f"На період {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')} вже є записи: {conflict_str}. "
                 f"Видаліть конфліктуючі записи перед додаванням нових."
             )
+
+        # Перевіряємо конфлікти з документами відпусток
+        if code == "Р" and not is_correction:
+            from backend.services.validation_service import ValidationService
+            # Перевіряємо кожен день у діапазоні
+            current = start_date
+            while current <= end_date:
+                ValidationService.validate_no_vacation_overlap(current, staff_id, self.db)
+                current += timedelta(days=1)
 
         # Створюємо один запис з date_end
         attendance = Attendance(
@@ -351,11 +344,11 @@ class AttendanceService:
             attendance_id: ID запису
             code: Новий код (опціонально)
             hours: Нова кількість годин (опціонально)
-            notes: Нові примітки (опціонально)
+            notes: Нові примечания (опціонально)
 
         Returns:
             Attendance | None: Оновлений запис або None
-            
+
         Raises:
             AttendanceLockedError: Якщо запис заблоковано
         """
@@ -444,7 +437,7 @@ class AttendanceService:
             Attendance.date >= start_date,
             Attendance.date <= end_date,
         ).all()
-        
+
         for record in to_delete:
              self.check_locking(
                 record.date,

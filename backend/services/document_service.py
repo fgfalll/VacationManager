@@ -20,6 +20,7 @@ from backend.services.attendance_service import AttendanceConflictError, Attenda
 from backend.services.grammar_service import GrammarService
 from shared.enums import DocumentStatus, DocumentType
 from shared.exceptions import DocumentGenerationError
+from shared.constants import SETTING_PDF_TERM_EXTENSION_TEMPLATE
 
 
 settings = get_settings()
@@ -113,6 +114,29 @@ class DocumentService:
             DocumentGenerationError: Якщо не вдалося згенерувати документ
         """
         try:
+            # Для PDF типів документів - копіюємо завантажений шаблон
+            if document.doc_type == DocumentType.TERM_EXTENSION_PDF:
+                template_path = SystemSettings.get_value(
+                    self.db, SETTING_PDF_TERM_EXTENSION_TEMPLATE, ""
+                )
+                if not template_path or not Path(template_path).exists():
+                    raise DocumentGenerationError(
+                        "Не налаштовано PDF шаблон для цього типу документа. "
+                        "Зверніться до адміністратора."
+                    )
+
+                output_path = self._get_output_path(document)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Копіюємо PDF шаблон
+                import shutil
+                shutil.copy(template_path, output_path)
+
+                document.file_docx_path = str(output_path)
+                self.db.commit()
+
+                return output_path
+
             if not raw_html and not document.editor_content:
                 raise DocumentGenerationError(
                     "Відсутній контент. Спочатку створіть документ у редакторі."
@@ -229,12 +253,61 @@ class DocumentService:
         templates_dir = FilePath(__file__).parent.parent.parent / 'desktop' / 'templates' / 'documents'
 
         # Choose template based on doc type
-        if document.doc_type == DocumentType.TERM_EXTENSION:
-            template_name = 'term_extension.html'
+        if document.doc_type in (
+            DocumentType.TERM_EXTENSION,
+            DocumentType.TERM_EXTENSION_CONTRACT,
+            DocumentType.TERM_EXTENSION_COMPETITION,
+            DocumentType.TERM_EXTENSION_PDF,
+        ):
+            # Map to specific term extension template or use default
+            template_map = {
+                DocumentType.TERM_EXTENSION: 'term_extension.html',
+                DocumentType.TERM_EXTENSION_CONTRACT: 'term_extension_contract.html',
+                DocumentType.TERM_EXTENSION_COMPETITION: 'term_extension_competition.html',
+                DocumentType.TERM_EXTENSION_PDF: 'term_extension_pdf.html',
+            }
+            template_name = template_map.get(document.doc_type, 'term_extension.html')
         elif document.doc_type == DocumentType.VACATION_UNPAID:
             template_name = 'vacation_unpaid.html'
+        elif document.doc_type in (
+            DocumentType.VACATION_PAID,
+            DocumentType.VACATION_MAIN,
+            DocumentType.VACATION_ADDITIONAL,
+            DocumentType.VACATION_CHORNOBYL,
+            DocumentType.VACATION_CREATIVE,
+            DocumentType.VACATION_STUDY,
+            DocumentType.VACATION_CHILDREN,
+            DocumentType.VACATION_MATERNITY,
+            DocumentType.VACATION_CHILDCARE,
+        ):
+            # Map to specific template or use vacation_paid as default
+            template_map = {
+                DocumentType.VACATION_MAIN: 'vacation_main.html',
+                DocumentType.VACATION_ADDITIONAL: 'vacation_additional.html',
+                DocumentType.VACATION_CHORNOBYL: 'vacation_chornobyl.html',
+                DocumentType.VACATION_CREATIVE: 'vacation_creative.html',
+                DocumentType.VACATION_STUDY: 'vacation_study.html',
+                DocumentType.VACATION_CHILDREN: 'vacation_children.html',
+                DocumentType.VACATION_MATERNITY: 'vacation_maternity.html',
+                DocumentType.VACATION_CHILDCARE: 'vacation_childcare.html',
+            }
+            template_name = template_map.get(document.doc_type, 'vacation_paid.html')
+        elif document.doc_type in (
+            DocumentType.VACATION_UNPAID_STUDY,
+            DocumentType.VACATION_UNPAID_MANDATORY,
+            DocumentType.VACATION_UNPAID_AGREEMENT,
+            DocumentType.VACATION_UNPAID_OTHER,
+        ):
+            # Map to specific unpaid template or use vacation_unpaid as default
+            template_map = {
+                DocumentType.VACATION_UNPAID_STUDY: 'vacation_unpaid_study.html',
+                DocumentType.VACATION_UNPAID_MANDATORY: 'vacation_unpaid_mandatory.html',
+                DocumentType.VACATION_UNPAID_AGREEMENT: 'vacation_unpaid_agreement.html',
+                DocumentType.VACATION_UNPAID_OTHER: 'vacation_unpaid_other.html',
+            }
+            template_name = template_map.get(document.doc_type, 'vacation_unpaid.html')
         else:
-            template_name = 'vacation_paid.html'  # Default for paid vacation
+            template_name = 'vacation_paid.html'  # Default
 
         # Load template
         env = Environment(loader=FileSystemLoader(str(templates_dir)))
@@ -671,7 +744,7 @@ class DocumentService:
             document.tabel_added_comment = f"Місяць {doc_month}.{doc_year} вже затверджено. Додано до корегуючого табелю."
 
             # Отримуємо наступний номер послідовності корекції
-            correction_sequence = approval_service.get_next_correction_sequence(doc_month, doc_year)
+            correction_sequence = approval_service.get_or_create_correction_sequence(doc_month, doc_year)
 
             # Встановлюємо корекційні поля документа
             document.is_correction = True
@@ -700,6 +773,14 @@ class DocumentService:
             code = "В"
         elif document.doc_type == DocumentType.VACATION_UNPAID:
             code = "НА"
+        # Для продовження контракту - код "Р" (присутність на роботі)
+        elif document.doc_type in (
+            DocumentType.TERM_EXTENSION,
+            DocumentType.TERM_EXTENSION_CONTRACT,
+            DocumentType.TERM_EXTENSION_COMPETITION,
+            DocumentType.TERM_EXTENSION_PDF,
+        ):
+            code = "Р"
         else:
             return  # Не відпустка - нічого не робимо
 
