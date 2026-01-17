@@ -300,16 +300,14 @@ class _SimpleDateRangeDialog(QDialog):
         """Handle date click - single for date, shift for range."""
         py_date = qdate.toPyDate()
 
-        # Check if locked - still allow selection but warn
+        # Check if locked - prevent selection
         if py_date in self._locked_dates:
-            reply = QMessageBox.question(
+            QMessageBox.warning(
                 self,
-                "Підтвердження",
-                "Ця дата вже заброньована. Все одно обрати?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                "Заблокована дата",
+                f"Дата {py_date.strftime('%d.%m.%Y')} вже зайнята!\n\nОберіть іншу дату."
             )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+            return
 
         # Get keyboard modifiers
         modifiers = QApplication.keyboardModifiers()
@@ -324,6 +322,29 @@ class _SimpleDateRangeDialog(QDialog):
                     start, end = py_date, self._range_start
                 else:
                     start, end = self._range_start, py_date
+
+                # Check for locked dates in range
+                locked_in_range = []
+                current = start
+                while current <= end:
+                    if current in self._locked_dates:
+                        locked_in_range.append(current)
+                    current += timedelta(days=1)
+
+                if locked_in_range:
+                    dates_str = ", ".join([d.strftime('%d.%m') for d in locked_in_range[:5]])
+                    if len(locked_in_range) > 5:
+                        dates_str += f" (+{len(locked_in_range) - 5} more)"
+                    QMessageBox.warning(
+                        self,
+                        "Заблоковані дати в періоді",
+                        f"Обраний період містить {len(locked_in_range)} заблоковану(их) дату(и):\n\n"
+                        f"{dates_str}\n\n"
+                        f"Оберіть інший період."
+                    )
+                    self._range_start = None
+                    return
+
                 self._selected_ranges.append((start, end))
                 self._range_start = None
         else:
@@ -599,20 +620,36 @@ class BulkGeneratorDialog(QDialog):
 
             self._staff_data = []
             for staff in staff_list:
-                # Calculate locked dates
+                # Calculate locked dates from documents and attendance
                 locked_dates = set()
                 locked_docs_count = 0
+
+                # Load from documents (all statuses except DRAFT)
+                from backend.models.document import Document
                 for doc in staff.documents:
-                    if doc.status in ('on_signature', 'signed', 'processed'):
+                    if doc.doc_type.value.startswith('vacation') and doc.status.value != 'draft':
                         locked_docs_count += 1
                         current = doc.date_start
                         while current <= doc.date_end:
                             locked_dates.add(current)
                             current += timedelta(days=1)
 
+                # Load from attendance records (except "Р" - work)
+                from backend.models.attendance import Attendance
+                attendance_records = db.query(Attendance).filter(
+                    Attendance.staff_id == staff.id,
+                    Attendance.code != "Р"
+                ).all()
+                for att in attendance_records:
+                    current = att.date
+                    att_end = att.date_end or att.date
+                    while current <= att_end:
+                        locked_dates.add(current)
+                        current += timedelta(days=1)
+
                 # Debug output
                 if locked_dates:
-                    print(f"[DEBUG] {staff.pib_nom}: {len(locked_dates)} locked dates from {locked_docs_count} docs, e.g. {sorted(list(locked_dates))[:3]}")
+                    print(f"[DEBUG] {staff.pib_nom}: {len(locked_dates)} locked dates ({locked_docs_count} docs, {len(attendance_records)} att records)")
 
                 self._staff_data.append({
                     'id': staff.id,
@@ -894,12 +931,15 @@ class BulkGeneratorDialog(QDialog):
             QMessageBox.warning(self, "Попередження", "Спочатку оберіть співробітників!")
             return
 
-        # Ask for minimum vacation days (actual days will be adjusted per employee)
-        days_dialog = QDialog(self)
-        days_dialog.setWindowTitle("Автоматичний підбір дат")
-        days_dialog.setMinimumSize(350, 200)
-        days_layout = QVBoxLayout(days_dialog)
+        # Dialog for auto date selection options
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Автоматичний підбір дат")
+        dialog.setMinimumSize(400, 0)
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(8)
 
+        # Number of days
+        days_layout = QVBoxLayout()
         days_layout.addWidget(QLabel("<b>Мінімальна кількість днів відпустки:</b>"))
         days_layout.addWidget(QLabel("<small>Буде підібрано для кожного співробітника індивідуально (враховуючи баланс та контракт)</small>"))
 
@@ -908,37 +948,110 @@ class BulkGeneratorDialog(QDialog):
         days_spinbox.setMaximum(30)
         days_spinbox.setValue(14)
         days_layout.addWidget(days_spinbox)
+        layout.addLayout(days_layout)
+
+        # Mode selection
+        mode_layout = QVBoxLayout()
+        mode_layout.addWidget(QLabel("<b>Режим підбору дат:</b>"))
+
+        self.auto_mode_group = QButtonGroup(dialog)
+
+        self.auto_single_range = QRadioButton("Один безперервний діапазон")
+        self.auto_single_range.setChecked(True)
+        mode_layout.addWidget(self.auto_single_range)
+        self.auto_mode_group.addButton(self.auto_single_range, 1)
+
+        self.auto_multiple_ranges = QRadioButton("Кілька окремих діапазонів")
+        mode_layout.addWidget(self.auto_multiple_ranges)
+        self.auto_mode_group.addButton(self.auto_multiple_ranges, 2)
+
+        self.auto_single_dates = QRadioButton("Окремі дні (не підряд)")
+        mode_layout.addWidget(self.auto_single_dates)
+        self.auto_mode_group.addButton(self.auto_single_dates, 3)
+
+        self.auto_mixed = QRadioButton("Змішано (діапазони + окремі дні)")
+        self.auto_mixed.toggled.connect(self._toggle_auto_mixed_settings)
+        mode_layout.addWidget(self.auto_mixed)
+        self.auto_mode_group.addButton(self.auto_mixed, 4)
+
+        # Mixed mode settings
+        self.auto_mixed_settings = QWidget()
+        mixed_layout = QVBoxLayout(self.auto_mixed_settings)
+        mixed_layout.setContentsMargins(20, 5, 0, 0)
+        mixed_layout.setSpacing(5)
+
+        # Number of separate days
+        single_layout = QHBoxLayout()
+        single_layout.addWidget(QLabel("Кількість окремих днів:"))
+        self.auto_single_count = QSpinBox()
+        self.auto_single_count.setMinimum(0)
+        self.auto_single_count.setMaximum(30)
+        self.auto_single_count.setValue(0)
+        single_layout.addWidget(self.auto_single_count)
+        mixed_layout.addLayout(single_layout)
+
+        # Max days in range
+        max_range_layout = QHBoxLayout()
+        max_range_layout.addWidget(QLabel("Макс. днів у діапазоні:"))
+        self.auto_max_range = QSpinBox()
+        self.auto_max_range.setMinimum(2)
+        self.auto_max_range.setMaximum(10)
+        self.auto_max_range.setValue(5)
+        max_range_layout.addWidget(self.auto_max_range)
+        mixed_layout.addLayout(max_range_layout)
+
+        layout.addWidget(self.auto_mixed_settings)
+        self.auto_mixed_settings.setVisible(False)
+
+        layout.addLayout(mode_layout)
 
         # Admin override checkbox
         self.admin_override_check = QCheckBox("Admin override (ігнорувати баланс)")
         self.admin_override_check.setToolTip("Дозволити генерацію навіть якщо недостатньо днів відпустки")
-        days_layout.addWidget(self.admin_override_check)
+        layout.addWidget(self.admin_override_check)
 
         # Earliest start date
-        days_layout.addWidget(QLabel("Початок пошуку не раніше:"))
+        start_layout = QVBoxLayout()
+        start_layout.addWidget(QLabel("<b>Початок пошуку не раніше:</b>"))
         start_date_edit = QDateEdit()
         start_date_edit.setCalendarPopup(True)
         start_date_edit.setDate(QDate.currentDate().addDays(14))
-        days_layout.addWidget(start_date_edit)
+        start_layout.addWidget(start_date_edit)
+        layout.addLayout(start_layout)
 
+        # Buttons
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(days_dialog.accept)
-        buttons.rejected.connect(days_dialog.reject)
-        days_layout.addWidget(buttons)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
 
-        if days_dialog.exec() != QDialog.DialogCode.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         min_days = days_spinbox.value()
+        mode = self.auto_mode_group.checkedId()
         admin_override = self.admin_override_check.isChecked()
         min_start_date = start_date_edit.date().toPyDate()
 
         # Process each employee individually
-        self._auto_find_dates_for_all(min_days, admin_override, min_start_date)
+        self._auto_find_dates_for_all(min_days, mode, admin_override, min_start_date)
 
-    def _auto_find_dates_for_all(self, min_days: int, admin_override: bool, min_start_date: date):
+    def _toggle_auto_mixed_settings(self, visible: bool):
+        """Show/hide mixed mode settings."""
+        if hasattr(self, 'auto_mixed_settings'):
+            self.auto_mixed_settings.setVisible(visible)
+
+    def _toggle_regen_mixed_settings(self, settings_widget, single_spin, max_spin):
+        """Show/hide mixed mode settings in regeneration dialog."""
+        settings_widget.setVisible(single_spin.value() > 0 or max_spin.value() > 0)
+
+    def _toggle_regen_all_mixed_settings(self, settings_widget, single_spin, max_spin):
+        """Show/hide mixed mode settings in regenerate all dialog."""
+        settings_widget.setVisible(single_spin.value() > 0 or max_spin.value() > 0)
+
+    def _auto_find_dates_for_all(self, min_days: int, mode: int, admin_override: bool, min_start_date: date):
         """Automatically find dates for all selected employees."""
         # Debug: check for duplicates in _selected_staff
         print(f"[DEBUG] _selected_staff count: {len(self._selected_staff)}")
@@ -964,13 +1077,23 @@ class BulkGeneratorDialog(QDialog):
                 errors.append((staff_info, f"{staff_details}: недостатній баланс ({staff_info['balance']} дн.)"))
                 continue
 
-            # Find available dates
-            date_range = self._find_available_dates(staff_info, min_start_date, days_to_find)
+            # Get mixed mode settings
+            single_count = self.auto_single_count.value() if mode == 4 else 0
+            max_range = self.auto_max_range.value() if mode == 4 else 5
 
-            if date_range:
-                start, end = date_range
-                staff_info['_date_ranges'] = [date_range]
-                staff_info['_selected_dates'] = f"{start.strftime('%d.%m')}-{end.strftime('%d.%m')}"
+            # Find available dates based on mode
+            date_ranges = self._find_available_dates(staff_info, min_start_date, days_to_find, mode, single_count, max_range)
+
+            if date_ranges:
+                staff_info['_date_ranges'] = date_ranges
+                # Format dates for display
+                date_parts = []
+                for start, end in date_ranges:
+                    if start == end:
+                        date_parts.append(start.strftime('%d.%m'))
+                    else:
+                        date_parts.append(f"{start.strftime('%d.%m')}-{end.strftime('%d.%m')}")
+                staff_info['_selected_dates'] = ", ".join(date_parts)
                 print(f"[DEBUG AUTO] Found dates for {staff_info['pib_nom']}: {staff_info['_selected_dates']}")
 
                 # Sync to _staff_data so filters can see the updates
@@ -980,10 +1103,14 @@ class BulkGeneratorDialog(QDialog):
                         staff['_selected_dates'] = staff_info['_selected_dates']
                         break
 
+                # Calculate total days
+                total_days = sum((end - start).days + 1 for start, end in date_ranges)
+                start_display = date_ranges[0][0]
+                end_display = date_ranges[-1][1]
                 results.append({
                     'pib': staff_info['pib_nom'],
-                    'dates': f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}",
-                    'days': (end - start).days + 1
+                    'dates': f"{start_display.strftime('%d.%m.%Y')} - {end_display.strftime('%d.%m.%Y')}",
+                    'days': total_days
                 })
             else:
                 errors.append((staff_info, f"{staff_details}: немає доступних дат для {days_to_find} днів (баланс: {staff_info['balance']}, контракт: {staff_info['term_end'].strftime('%d.%m.%Y')})"))
@@ -995,58 +1122,56 @@ class BulkGeneratorDialog(QDialog):
         """Show summary of automatic date selection."""
         dialog = QDialog(self)
         dialog.setWindowTitle("Результат автоматичного підбору")
-        dialog.setMinimumSize(600, 500)
+        dialog.setMinimumSize(500, 0)  # Width 500, no minimum height (auto-size)
 
         layout = QVBoxLayout(dialog)
+        layout.setSpacing(5)
 
         # Success count
         success_count = len(results)
         if success_count > 0:
-            layout.addWidget(QLabel(f"<h3>Успішно підібрано: {success_count}</h3>"))
+            success_label = QLabel(f"Успішно підібрано: {success_count}")
+            success_label.setStyleSheet("color: #059669; font-weight: bold; font-size: 14px;")
+            layout.addWidget(success_label)
 
         # Results list with regenerate buttons
         if results:
-            results_group = QGroupBox("Підібрані дати:")
-            results_layout = QVBoxLayout(results_group)
-            results_layout.setSpacing(5)
-
             for r in results:
                 row_layout = QHBoxLayout()
+                row_layout.setSpacing(5)
 
                 text = f"{r['pib']}: {r['dates']} ({r['days']} дн.)"
                 result_label = QLabel(text)
                 result_label.setStyleSheet("color: #059669; font-size: 12px;")
                 row_layout.addWidget(result_label, stretch=1)
 
-                # Find staff_info by pib (use name that matches)
+                # Find staff_info by pib
                 staff_info = next((s for s in self._selected_staff if s['pib_nom'] == r['pib']), None)
 
-                # Always add regenerate button for results
                 regen_btn = QPushButton("🔄")
                 regen_btn.setFixedWidth(40)
                 regen_btn.setToolTip("Змінити параметри та перегенерувати")
                 if staff_info:
                     regen_btn.clicked.connect(lambda checked, s=staff_info: self._regenerate_for_staff(s, dialog))
                 else:
-                    # If staff not found, try to find by position/rate combo
                     regen_btn.clicked.connect(lambda checked, p=r['pib']: self._regenerate_by_name(p, dialog))
                 row_layout.addWidget(regen_btn)
 
-                results_layout.addLayout(row_layout)
-
-            layout.addWidget(results_group)
+                layout.addLayout(row_layout)
 
         # Errors with regenerate buttons
         if errors:
-            errors_group = QGroupBox("Помилки:")
-            errors_layout = QVBoxLayout(errors_group)
-            errors_layout.setSpacing(5)
+            error_label = QLabel(f"Помилки ({len(errors)}):")
+            error_label.setStyleSheet("color: #DC2626; font-weight: bold; font-size: 14px; margin-top: 10px;")
+            layout.addWidget(error_label)
 
             for staff_info, error_msg in errors:
                 error_row = QHBoxLayout()
+                error_row.setSpacing(5)
 
                 err_label = QLabel(error_msg)
                 err_label.setStyleSheet("color: #DC2626; font-size: 12px;")
+                err_label.setWordWrap(True)
                 error_row.addWidget(err_label, stretch=1)
 
                 regen_btn = QPushButton("🔄")
@@ -1055,20 +1180,22 @@ class BulkGeneratorDialog(QDialog):
                 regen_btn.clicked.connect(lambda checked, s=staff_info: self._regenerate_for_staff(s, dialog))
                 error_row.addWidget(regen_btn)
 
-                errors_layout.addLayout(error_row)
-
-            layout.addWidget(errors_group)
+                layout.addLayout(error_row)
 
         # If no results
         if not results and not errors:
             layout.addWidget(QLabel("Нічого не підібрано."))
 
+        # Spacer before buttons
+        layout.addStretch()
+
         # Buttons
         buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(5)
 
         # Regenerate All button (including successful)
         regenerate_all_btn = QPushButton("🔄 Перегенерувати всіх")
-        regenerate_all_btn.setStyleSheet("padding: 8px 16px;")
+        regenerate_all_btn.setFixedSize(150, 30)
         regenerate_all_btn.setToolTip("Перегенерувати для всіх обраних, включаючи успішні")
         regenerate_all_btn.clicked.connect(lambda: self._regenerate_all(dialog, include_successful=True))
         buttons_layout.addWidget(regenerate_all_btn)
@@ -1077,13 +1204,13 @@ class BulkGeneratorDialog(QDialog):
 
         # Apply button
         apply_btn = QPushButton("✅ Застосувати")
-        apply_btn.setStyleSheet("padding: 8px 16px; font-weight: bold;")
+        apply_btn.setFixedSize(100, 30)
         apply_btn.setEnabled(success_count > 0)  # Enable only if there are results
         apply_btn.clicked.connect(lambda: self._apply_auto_dates(dialog))
         buttons_layout.addWidget(apply_btn)
 
         close_btn = QPushButton("Скасувати")
-        close_btn.setStyleSheet("padding: 8px 16px;")
+        close_btn.setFixedSize(100, 30)
         close_btn.clicked.connect(dialog.reject)
         buttons_layout.addWidget(close_btn)
 
@@ -1147,8 +1274,36 @@ class BulkGeneratorDialog(QDialog):
         mode_btn_group.addButton(single_dates_radio, 3)
 
         mixed_radio = QRadioButton("Змішано (діапазони + окремі дні)")
+        mixed_radio.toggled.connect(lambda: self._toggle_regen_all_mixed_settings(regen_mixed_settings, regen_single_count, regen_max_range))
         mode_layout.addWidget(mixed_radio)
         mode_btn_group.addButton(mixed_radio, 4)
+
+        # Mixed mode settings
+        regen_mixed_settings = QWidget()
+        regen_mixed_sublayout = QVBoxLayout(regen_mixed_settings)
+        regen_mixed_sublayout.setContentsMargins(20, 5, 0, 0)
+        regen_mixed_sublayout.setSpacing(5)
+
+        regen_single_layout = QHBoxLayout()
+        regen_single_layout.addWidget(QLabel("Кількість окремих днів:"))
+        regen_single_count = QSpinBox()
+        regen_single_count.setMinimum(0)
+        regen_single_count.setMaximum(30)
+        regen_single_count.setValue(0)
+        regen_single_layout.addWidget(regen_single_count)
+        regen_mixed_sublayout.addLayout(regen_single_layout)
+
+        regen_max_range_layout = QHBoxLayout()
+        regen_max_range_layout.addWidget(QLabel("Макс. днів у діапазоні:"))
+        regen_max_range = QSpinBox()
+        regen_max_range.setMinimum(2)
+        regen_max_range.setMaximum(10)
+        regen_max_range.setValue(5)
+        regen_max_range_layout.addWidget(regen_max_range)
+        regen_mixed_sublayout.addLayout(regen_max_range_layout)
+
+        days_layout.addWidget(regen_mixed_settings)
+        regen_mixed_settings.setVisible(False)
 
         days_layout.addLayout(mode_layout)
 
@@ -1173,6 +1328,8 @@ class BulkGeneratorDialog(QDialog):
         admin_override = admin_override_check.isChecked()
         min_start_date = start_date_edit.date().toPyDate()
         mode = mode_btn_group.checkedId()
+        single_count = regen_single_count.value() if mode == 4 else 0
+        max_range = regen_max_range.value() if mode == 4 else 5
 
         # Process all staff
         results = []
@@ -1191,19 +1348,10 @@ class BulkGeneratorDialog(QDialog):
                 errors.append((staff_info, f"{staff_details}: недостатній баланс ({staff_info['balance']} дн.)"))
                 continue
 
-            # Find available dates based on mode
-            if mode == 1:  # Single range
-                date_range = self._find_available_dates(staff_info, min_start_date, days_to_find)
-                date_ranges = [date_range] if date_range else []
-            elif mode == 2:  # Multiple ranges
-                date_ranges = self._find_multiple_ranges(staff_info, min_start_date, days_to_find)
-            elif mode == 3:  # Single dates
-                date_ranges = self._find_single_dates(staff_info, min_start_date, days_to_find)
-            elif mode == 4:  # Mixed
-                date_ranges = self._find_mixed_dates(staff_info, min_start_date, days_to_find)
-            else:
-                date_range = self._find_available_dates(staff_info, min_start_date, days_to_find)
-                date_ranges = [date_range] if date_range else []
+            # Find available dates using unified method
+            date_ranges = self._find_available_dates(
+                staff_info, min_start_date, days_to_find, mode, single_count, max_range
+            )
 
             if date_ranges:
                 staff_info['_date_ranges'] = date_ranges
@@ -1371,8 +1519,36 @@ class BulkGeneratorDialog(QDialog):
         mode_btn_group.addButton(single_dates_radio, 3)
 
         mixed_radio = QRadioButton("Змішано (діапазони + окремі дні)")
+        mixed_radio.toggled.connect(lambda: self._toggle_regen_mixed_settings(mixed_settings, single_count_spin, max_range_spin))
         mode_layout.addWidget(mixed_radio)
         mode_btn_group.addButton(mixed_radio, 4)
+
+        # Mixed mode settings
+        mixed_settings = QWidget()
+        mixed_sublayout = QVBoxLayout(mixed_settings)
+        mixed_sublayout.setContentsMargins(20, 5, 0, 0)
+        mixed_sublayout.setSpacing(5)
+
+        single_count_layout = QHBoxLayout()
+        single_count_layout.addWidget(QLabel("Кількість окремих днів:"))
+        single_count_spin = QSpinBox()
+        single_count_spin.setMinimum(0)
+        single_count_spin.setMaximum(30)
+        single_count_spin.setValue(0)
+        single_count_layout.addWidget(single_count_spin)
+        mixed_sublayout.addLayout(single_count_layout)
+
+        max_range_layout = QHBoxLayout()
+        max_range_layout.addWidget(QLabel("Макс. днів у діапазоні:"))
+        max_range_spin = QSpinBox()
+        max_range_spin.setMinimum(2)
+        max_range_spin.setMaximum(10)
+        max_range_spin.setValue(5)
+        max_range_layout.addWidget(max_range_spin)
+        mixed_sublayout.addLayout(max_range_layout)
+
+        days_layout.addWidget(mixed_settings)
+        mixed_settings.setVisible(False)
 
         days_layout.addLayout(mode_layout)
 
@@ -1397,24 +1573,18 @@ class BulkGeneratorDialog(QDialog):
         admin_override = admin_override_check.isChecked()
         min_start_date = start_date_edit.date().toPyDate()
         mode = mode_btn_group.checkedId()
+        single_count = single_count_spin.value() if mode == 4 else 0
+        max_range = max_range_spin.value() if mode == 4 else 5
 
         # Adjust days based on balance if not admin override
         if not admin_override:
             days_count = min(days_count, staff_info['balance'])
 
         # Find dates based on mode
-        if mode == 1:  # Single range
-            date_range = self._find_available_dates(staff_info, min_start_date, days_count)
-            date_ranges = [date_range] if date_range else []
-        elif mode == 2:  # Multiple ranges
-            date_ranges = self._find_multiple_ranges(staff_info, min_start_date, days_count)
-        elif mode == 3:  # Single dates
-            date_ranges = self._find_single_dates(staff_info, min_start_date, days_count)
-        elif mode == 4:  # Mixed
-            date_ranges = self._find_mixed_dates(staff_info, min_start_date, days_count)
-        else:
-            date_range = self._find_available_dates(staff_info, min_start_date, days_count)
-            date_ranges = [date_range] if date_range else []
+        # Use unified method with all parameters
+        date_ranges = self._find_available_dates(
+            staff_info, min_start_date, days_count, mode, single_count, max_range
+        )
 
         if date_ranges:
             staff_info['_date_ranges'] = date_ranges
@@ -1744,8 +1914,20 @@ class BulkGeneratorDialog(QDialog):
             return combo.currentData(), True
         return DocumentType.VACATION_PAID, False
 
-    def _find_available_dates(self, staff_info: dict, start_from: date = None, days_needed: int = 14) -> tuple | None:
-        """Find available dates for a staff member."""
+    def _find_available_dates(self, staff_info: dict, start_from: date = None, days_needed: int = 14, mode: int = 1, single_count: int = 0, max_range: int = 5) -> list[tuple] | None:
+        """Find available dates for a staff member based on mode.
+
+        Args:
+            staff_info: Staff data dict
+            start_from: Starting date for search
+            days_needed: Number of days needed
+            mode: 1 = single range, 2 = multiple ranges, 3 = single dates, 4 = mixed
+            single_count: For mixed mode - number of single days
+            max_range: For mixed/multiple modes - max days in a range
+
+        Returns:
+            List of (start, end) tuples, or None if not found
+        """
         if start_from is None:
             start_from = date.today()
 
@@ -1753,38 +1935,163 @@ class BulkGeneratorDialog(QDialog):
         locked = staff_info['locked_dates']
 
         # Debug output
-        print(f"[DEBUG] _find_available_dates for {staff_info['pib_nom']}: start_from={start_from}, days_needed={days_needed}, locked_count={len(locked)}")
-        if locked:
-            print(f"[DEBUG] Locked dates: {sorted(list(locked))[:5]}...")
+        print(f"[DEBUG] _find_available_dates for {staff_info['pib_nom']}: mode={mode}, start_from={start_from}, days_needed={days_needed}, locked_count={len(locked)}")
 
-        # Look ahead up to 3 months or contract end
-        max_date = min(start_from + timedelta(days=90), contract_end - timedelta(days=days_needed))
+        if mode == 1:
+            # Single continuous range
+            # Look ahead up to 3 months or contract end
+            max_date = min(start_from + timedelta(days=90), contract_end - timedelta(days=days_needed))
 
-        current = start_from
-        while current <= max_date:
-            # Check if days_needed days are available from this date
-            all_available = True
-            for offset in range(days_needed):
-                check_date = current + timedelta(days=offset)
-                if check_date > contract_end:
-                    all_available = False
-                    break
-                if check_date.weekday() >= 5:  # Weekend
+            current = start_from
+            while current <= max_date:
+                # Check if days_needed days are available from this date
+                all_available = True
+                for offset in range(days_needed):
+                    check_date = current + timedelta(days=offset)
+                    if check_date > contract_end:
+                        all_available = False
+                        break
+                    if check_date.weekday() >= 5:  # Weekend
+                        continue
+                    if check_date in locked:
+                        all_available = False
+                        break
+
+                if all_available:
+                    result = [(current, current + timedelta(days=days_needed - 1))]
+                    print(f"[DEBUG] Found single range: {result[0][0]} - {result[0][1]}")
+                    return result
+
+                current += timedelta(days=1)
+
+        elif mode == 2:
+            # Multiple ranges (at least 3 calendar days each)
+            result = []
+            remaining = days_needed
+            current = start_from
+
+            while remaining >= 3 and current <= contract_end:
+                # Skip weekends and locked dates
+                if current.weekday() >= 5 or current in locked:
+                    current += timedelta(days=1)
                     continue
-                if check_date in locked:
-                    print(f"[DEBUG] Blocked at {check_date} (locked)")
-                    all_available = False
-                    break
 
-            if all_available:
-                result = (current, current + timedelta(days=days_needed - 1))
-                print(f"[DEBUG] Found range: {result[0]} - {result[1]}")
+                # Try to find a valid range of at least 3 days
+                range_end = current + timedelta(days=2)  # Start with 3 calendar days
+                while range_end <= contract_end and not self._is_weekend(range_end):
+                    # Check if all dates in range are available
+                    valid_range = True
+                    check = current
+                    while check <= range_end:
+                        if check in locked:
+                            valid_range = False
+                            break
+                        check += timedelta(days=1)
+
+                    if valid_range:
+                        # Found a valid range
+                        result.append((current, range_end))
+                        remaining -= (range_end - current).days + 1
+                        current = range_end + timedelta(days=1)
+                        break
+                    else:
+                        range_end += timedelta(days=1)
+                else:
+                    # No valid range found, move to next day
+                    current += timedelta(days=1)
+
+            if result:
+                print(f"[DEBUG] Found {len(result)} ranges, remaining={remaining}")
                 return result
 
-            current += timedelta(days=1)
+        elif mode == 3:
+            # Single dates (not consecutive)
+            working_dates = []
+            current = start_from
 
-        print(f"[DEBUG] No available dates found")
+            while len(working_dates) < days_needed and current <= contract_end:
+                if current.weekday() < 5 and current not in locked:
+                    working_dates.append(current)
+                current += timedelta(days=1)
+
+            if working_dates:
+                result = [(d, d) for d in working_dates]
+                print(f"[DEBUG] Found {len(result)} single dates")
+                return result
+
+        elif mode == 4:
+            # Mixed: ranges + single dates
+            result = []
+            remaining = days_needed
+            current = start_from
+
+            # First, find single dates (isolated days)
+            single_days = []
+            for _ in range(single_count):
+                found = False
+                while current <= contract_end:
+                    if current.weekday() < 5 and current not in locked:
+                        # Check if isolated (not adjacent to other singles or ranges)
+                        is_isolated = True
+                        prev_day = current - timedelta(days=1)
+                        next_day = current + timedelta(days=1)
+                        if prev_day in locked or next_day in locked:
+                            is_isolated = False
+                        # Check adjacency to already selected dates
+                        for s, e in result:
+                            if abs((s - current).days) <= 1 or abs((e - current).days) <= 1:
+                                is_isolated = False
+                                break
+                        if is_isolated:
+                            single_days.append(current)
+                            result.append((current, current))
+                            remaining -= 1
+                            current += timedelta(days=1)
+                            found = True
+                            break
+                    current += timedelta(days=1)
+                if not found:
+                    break
+
+            # Then, find ranges for remaining days
+            current = start_from
+            while remaining >= 3 and current <= contract_end:
+                if current.weekday() >= 5 or current in locked:
+                    current += timedelta(days=1)
+                    continue
+
+                # Try to find a valid range (max max_range days)
+                range_end = current + timedelta(days=min(max_range - 1, remaining - 1))
+                while range_end >= current + timedelta(days=2) and range_end <= contract_end and not self._is_weekend(range_end):
+                    # Check if all dates in range are available
+                    valid_range = True
+                    check = current
+                    while check <= range_end:
+                        if check in locked:
+                            valid_range = False
+                            break
+                        check += timedelta(days=1)
+
+                    if valid_range:
+                        result.append((current, range_end))
+                        remaining -= (range_end - current).days + 1
+                        current = range_end + timedelta(days=1)
+                        break
+                    else:
+                        range_end -= timedelta(days=1)
+                else:
+                    current += timedelta(days=1)
+
+            if result:
+                print(f"[DEBUG] Found mixed: {len(result)} items (singles={len(single_days)}, ranges={len(result) - len(single_days)}), remaining={remaining}")
+                return result
+
+        print(f"[DEBUG] No available dates found for mode {mode}")
         return None
+
+    def _is_weekend(self, d: date) -> bool:
+        """Check if date is a weekend."""
+        return d.weekday() >= 5
 
     def _get_payment_period(self, date_start: date, date_end: date) -> str:
         """Determine payment period."""

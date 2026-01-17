@@ -1,6 +1,6 @@
 """Діалог картки працівника з повною історією змін."""
 
-from datetime import date, datetime as dt
+from datetime import date, datetime as dt, timedelta
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
@@ -276,6 +276,24 @@ class EmployeeCardDialog(QDialog):
                 "vacation_paid": "Оплачувана відпустка",
                 "vacation_unpaid": "Відпустка без збереження",
                 "term_extension": "Продовження контракту",
+                # Оплачувані відпустки
+                "vacation_main": "Основна відпустка (В)",
+                "vacation_additional": "Додаткова відпустка (Д)",
+                "vacation_chornobyl": "Відпустка чорнобильцям (Ч)",
+                "vacation_creative": "Творча відпустка (ТВ)",
+                "vacation_study": "Навчальна відпустка (Н)",
+                "vacation_children": "Відпустка з дітьми (ДО)",
+                "vacation_maternity": "Вагітність/пологи (ВП)",
+                "vacation_childcare": "Догляд за дитиною (ДД)",
+                # Відпустки без збереження зарплати
+                "vacation_unpaid_study": "Навчальна без збереження (НБ)",
+                "vacation_unpaid_mandatory": "Обов'язкова без збереження (ДБ)",
+                "vacation_unpaid_agreement": "За згодою сторін (НА)",
+                "vacation_unpaid_other": "Інша без збереження (БЗ)",
+                # Продовження контракту
+                "term_extension_contract": "Продовження (контракт)",
+                "term_extension_competition": "Продовження (конкурс)",
+                "term_extension_pdf": "Продовження (сумісництво)",
             }
             doc_type = doc_type_labels.get(doc['doc_type'], doc['doc_type'])
             table.setItem(row, 1, QTableWidgetItem(doc_type))
@@ -864,7 +882,7 @@ class EmployeeCardDialog(QDialog):
                                 # If already exists or locked, ignore
                                 pass
 
-                        current += dt.timedelta(days=1)
+                        current += timedelta(days=1)
 
                 # Update fixed steps (applicant, approval, department_head)
                 # AND Rector (manually added to iteration list)
@@ -926,7 +944,7 @@ class EmployeeCardDialog(QDialog):
                                 doc.tabel_added_at = None
                                 doc.tabel_added_comment = f"Місяць {doc_month}.{doc_year} вже затверджено. Додано до корегуючого табелю."
                                 # Set correction fields (reuse approval_service from above)
-                                correction_sequence = approval_service.get_next_correction_sequence(doc_month, doc_year)
+                                correction_sequence = approval_service.get_or_create_correction_sequence(doc_month, doc_year)
                                 doc.is_correction = True
                                 doc.correction_month = doc_month
                                 doc.correction_year = doc_year

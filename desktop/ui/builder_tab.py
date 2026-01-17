@@ -492,6 +492,39 @@ class BuilderTab(QWidget):
         self.dates_info_label.setStyleSheet("color: #666; font-size: 12px; padding: 10px;")
         date_layout.addWidget(self.dates_info_label)
 
+        # Поля для продовження контракту
+        self.extension_dates_widget = QWidget()
+        extension_dates_layout = QVBoxLayout(self.extension_dates_widget)
+        extension_dates_layout.setContentsMargins(0, 10, 0, 10)
+
+        # Попередження про період продовження
+        self.extension_warning_label = QLabel()
+        self.extension_warning_label.setStyleSheet("""
+            background-color: #DBEAFE;
+            color: #1E40AF;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        """)
+        self.extension_warning_label.setWordWrap(True)
+        self.extension_warning_label.setVisible(False)
+        extension_dates_layout.addWidget(self.extension_warning_label)
+
+        # Поле для дати закінчення попереднього контракту
+        old_contract_layout = QHBoxLayout()
+        old_contract_label = QLabel("Дата закінчення попереднього контракту:")
+        old_contract_label.setFixedWidth(220)
+        self.old_contract_date_edit = QDateEdit()
+        self.old_contract_date_edit.setCalendarPopup(True)
+        self.old_contract_date_edit.setDate(QDate.currentDate())
+        self.old_contract_date_edit.dateChanged.connect(self._on_field_changed)
+        old_contract_layout.addWidget(old_contract_label)
+        old_contract_layout.addWidget(self.old_contract_date_edit)
+        extension_dates_layout.addLayout(old_contract_layout)
+
+        self.extension_dates_widget.setVisible(False)
+        date_layout.addWidget(self.extension_dates_widget)
+
         # Попередження про 2-тижневий термін подання заяви
         self.timing_warning_label = QLabel()
         self.timing_warning_label.setStyleSheet("""
@@ -1025,12 +1058,38 @@ class BuilderTab(QWidget):
             print(f"WARNING: Templates directory not found: {templates_dir}")
             return
 
+        # Get current staff rate to conditionally show templates
+        staff = self._get_selected_staff()
+        staff_rate = float(staff.rate) if staff and staff.rate else 0
+        is_external = staff_rate <= 1.0  # Internal совместитель has rate > 1.0
+
         # Template display name mappings
         template_names = {
             "vacation_paid": "Відпустка оплачувана",
             "vacation_unpaid": "Відпустка без збереження",
             "term_extension": "Продовження контракту",
+            # Оплачувані відпустки
+            "vacation_main": "Основна відпустка (В)",
+            "vacation_additional": "Додаткова відпустка (Д)",
+            "vacation_chornobyl": "Відпустка чорнобильцям (Ч)",
+            "vacation_creative": "Творча відпустка (ТВ)",
+            "vacation_study": "Навчальна відпустка (Н)",
+            "vacation_children": "Відпустка з дітьми (ДО)",
+            "vacation_maternity": "Вагітність/пологи (ВП)",
+            "vacation_childcare": "Догляд за дитиною (ДД)",
+            # Відпустки без збереження зарплати
+            "vacation_unpaid_study": "Навчальна без збереження (НБ)",
+            "vacation_unpaid_mandatory": "Обов'язкова без збереження (ДБ)",
+            "vacation_unpaid_agreement": "За згодою сторін (НА)",
+            "vacation_unpaid_other": "Інша без збереження (БЗ)",
+            # Продовження контракту
+            "term_extension_contract": "Продовження (контракт)",
+            "term_extension_competition": "Продовження (конкурс)",
+            "term_extension_pdf": "Продовження (сумісництво)",
         }
+
+        # Templates that require rate > 1.0 (external совместительство)
+        requires_external = {"term_extension_pdf"}
 
         # Find all HTML templates
         for template_file in sorted(templates_dir.glob("*.html")):
@@ -1038,6 +1097,10 @@ class BuilderTab(QWidget):
 
             # Skip non-document templates (like wysiwyg_editor.html)
             if template_name in ["wysiwyg_editor"]:
+                continue
+
+            # Skip templates that require rate > 1.0 for internal employees
+            if template_name in requires_external and not is_external:
                 continue
 
             # Get display name
@@ -1069,6 +1132,24 @@ class BuilderTab(QWidget):
             "vacation_paid": DocumentType.VACATION_PAID,
             "vacation_unpaid": DocumentType.VACATION_UNPAID,
             "term_extension": DocumentType.TERM_EXTENSION,
+            # Оплачувані відпустки
+            "vacation_main": DocumentType.VACATION_MAIN,
+            "vacation_additional": DocumentType.VACATION_ADDITIONAL,
+            "vacation_chornobyl": DocumentType.VACATION_CHORNOBYL,
+            "vacation_creative": DocumentType.VACATION_CREATIVE,
+            "vacation_study": DocumentType.VACATION_STUDY,
+            "vacation_children": DocumentType.VACATION_CHILDREN,
+            "vacation_maternity": DocumentType.VACATION_MATERNITY,
+            "vacation_childcare": DocumentType.VACATION_CHILDCARE,
+            # Відпустки без збереження зарплати
+            "vacation_unpaid_study": DocumentType.VACATION_UNPAID_STUDY,
+            "vacation_unpaid_mandatory": DocumentType.VACATION_UNPAID_MANDATORY,
+            "vacation_unpaid_agreement": DocumentType.VACATION_UNPAID_AGREEMENT,
+            "vacation_unpaid_other": DocumentType.VACATION_UNPAID_OTHER,
+            # Продовження контракту
+            "term_extension_contract": DocumentType.TERM_EXTENSION_CONTRACT,
+            "term_extension_competition": DocumentType.TERM_EXTENSION_COMPETITION,
+            "term_extension_pdf": DocumentType.TERM_EXTENSION_PDF,
         }
 
         return type_mapping.get(template_name, DocumentType.VACATION_PAID)
@@ -1555,6 +1636,13 @@ class BuilderTab(QWidget):
             "dept_name": dept_name,
             "signatories": signatories,
             "employment_type_note": employment_type_note,
+            # Для term_extension_contract
+            "rate": str(staff.rate) if staff and staff.rate else "",
+            "department": dept_name,
+            # Department in dative case for competition template
+            "department_dative": grammar.to_dative(dept_clean) if dept_clean else "",
+            # Для продовження контракту
+            "old_contract_end_date": self.old_contract_date_edit.date().toPyDate().strftime("%d.%m.%Y") if hasattr(self, 'old_contract_date_edit') else "",
         }
 
     def _get_status_label(self) -> str:
@@ -1691,7 +1779,13 @@ class BuilderTab(QWidget):
             days_count = len(self._parsed_dates)
 
             # For term extension, validate that new date is after current contract end
-            if doc_type == DocumentType.TERM_EXTENSION:
+            is_term_extension = doc_type in (
+                DocumentType.TERM_EXTENSION,
+                DocumentType.TERM_EXTENSION_CONTRACT,
+                DocumentType.TERM_EXTENSION_COMPETITION,
+                DocumentType.TERM_EXTENSION_PDF,
+            )
+            if is_term_extension:
                 if end <= staff.term_end:
                     QMessageBox.warning(
                         self,
@@ -1879,7 +1973,13 @@ class BuilderTab(QWidget):
             days_count = len(self._parsed_dates)
 
             # For term extension, validate that new date is after current contract end
-            if doc_type == DocumentType.TERM_EXTENSION:
+            is_term_extension = doc_type in (
+                DocumentType.TERM_EXTENSION,
+                DocumentType.TERM_EXTENSION_CONTRACT,
+                DocumentType.TERM_EXTENSION_COMPETITION,
+                DocumentType.TERM_EXTENSION_PDF,
+            )
+            if is_term_extension:
                 if end <= staff.term_end:
                     QMessageBox.warning(
                         self,
@@ -1971,6 +2071,10 @@ class BuilderTab(QWidget):
                         payment_period = "У другій половині місяця"
                     document.payment_period = payment_period
 
+                    # Зберігаємо old_contract_end_date для продовження контракту
+                    if is_term_extension:
+                        document.old_contract_end_date = self.old_contract_date_edit.date().toPyDate()
+
                     # Скидаємо етапи підписання при редагуванні
                     document.reset_workflow()
                 else:
@@ -1980,6 +2084,11 @@ class BuilderTab(QWidget):
                     if start.day > 15:
                         payment_period = "У другій половині місяця"
 
+                    # Зберігаємо old_contract_end_date для продовження контракту
+                    old_contract_end = None
+                    if is_term_extension:
+                        old_contract_end = self.old_contract_date_edit.date().toPyDate()
+
                     document = Document(
                         staff_id=staff.id,
                         doc_type=doc_type,
@@ -1987,6 +2096,7 @@ class BuilderTab(QWidget):
                         date_end=end,
                         days_count=days_count,
                         payment_period=payment_period,
+                        old_contract_end_date=old_contract_end,
                     )
                     db.add(document)
 
@@ -2300,13 +2410,23 @@ class BuilderTab(QWidget):
         """Відкриває popup для додавання діапазону дат."""
         # For term extension, only allow one range
         doc_type = self._get_doc_type()
-        if doc_type == DocumentType.TERM_EXTENSION:
+        is_term_extension = doc_type in (
+            DocumentType.TERM_EXTENSION,
+            DocumentType.TERM_EXTENSION_CONTRACT,
+            DocumentType.TERM_EXTENSION_COMPETITION,
+            DocumentType.TERM_EXTENSION_PDF,
+        )
+        if is_term_extension:
             self._date_ranges = []  # Clear existing ranges
             self._parsed_dates = []  # Clear parsed dates
             self._update_ranges_list()
             self._update_dates_info()  # Also update the info label
 
-        popup = DateRangePickerPopup(self)
+        # Get current staff for locked dates
+        staff = self._get_selected_staff()
+        staff_id = staff.id if staff else None
+
+        popup = DateRangePickerPopup(self, staff_id=staff_id)
         popup.selection_complete.connect(self._on_popup_selection_complete)
         popup.show_popup()
 
@@ -2321,7 +2441,13 @@ class BuilderTab(QWidget):
             return
 
         doc_type = self._get_doc_type()
-        if doc_type == DocumentType.TERM_EXTENSION:
+        is_term_extension = doc_type in (
+            DocumentType.TERM_EXTENSION,
+            DocumentType.TERM_EXTENSION_CONTRACT,
+            DocumentType.TERM_EXTENSION_COMPETITION,
+            DocumentType.TERM_EXTENSION_PDF,
+        )
+        if is_term_extension:
             QMessageBox.warning(
                 self,
                 "Попередження",
@@ -2365,6 +2491,12 @@ class BuilderTab(QWidget):
     def _on_popup_selection_complete(self, dates: list[date]):
         """Обробляє завершення вибору в popup."""
         doc_type = self._get_doc_type()
+        is_term_extension = doc_type in (
+            DocumentType.TERM_EXTENSION,
+            DocumentType.TERM_EXTENSION_CONTRACT,
+            DocumentType.TERM_EXTENSION_COMPETITION,
+            DocumentType.TERM_EXTENSION_PDF,
+        )
 
         if dates:
             start = dates[0]
@@ -2382,11 +2514,11 @@ class BuilderTab(QWidget):
                 return
 
             # For term extension, clear old ranges first (single range only)
-            if doc_type == DocumentType.TERM_EXTENSION:
+            if is_term_extension:
                 self._date_ranges = []
 
             # Check for overlaps with existing ranges (only for non-term-extension)
-            if doc_type != DocumentType.TERM_EXTENSION:
+            if not is_term_extension:
                 new_dates_ordinals = set(d.toordinal() for d in dates)
                 for existing_start, existing_end in self._date_ranges:
                     existing_dates_ordinals = set(
@@ -2409,7 +2541,7 @@ class BuilderTab(QWidget):
         else:
             # User cancelled - for term extension, dates are already cleared
             # Update UI to reflect empty state
-            if doc_type == DocumentType.TERM_EXTENSION:
+            if is_term_extension:
                 self._update_ranges_list()
                 self._update_dates_info()
         # Очищаємо посилання на popup
@@ -2419,7 +2551,13 @@ class BuilderTab(QWidget):
         """Очищає всі діапазони."""
         # For term extension, don't allow clearing all
         doc_type = self._get_doc_type()
-        if doc_type == DocumentType.TERM_EXTENSION:
+        is_term_extension = doc_type in (
+            DocumentType.TERM_EXTENSION,
+            DocumentType.TERM_EXTENSION_CONTRACT,
+            DocumentType.TERM_EXTENSION_COMPETITION,
+            DocumentType.TERM_EXTENSION_PDF,
+        )
+        if is_term_extension:
             return
 
         self._date_ranges = []
@@ -2431,7 +2569,13 @@ class BuilderTab(QWidget):
         """Видаляє діапазон за індексом."""
         # For term extension, don't allow removing
         doc_type = self._get_doc_type()
-        if doc_type == DocumentType.TERM_EXTENSION:
+        is_term_extension = doc_type in (
+            DocumentType.TERM_EXTENSION,
+            DocumentType.TERM_EXTENSION_CONTRACT,
+            DocumentType.TERM_EXTENSION_COMPETITION,
+            DocumentType.TERM_EXTENSION_PDF,
+        )
+        if is_term_extension:
             return
 
         if 0 <= index < len(self._date_ranges):
@@ -2494,10 +2638,23 @@ class BuilderTab(QWidget):
         """Оновлює інформацію про вибрані дати."""
         # Update group box title based on document type
         doc_type = self._get_doc_type()
-        if doc_type == DocumentType.TERM_EXTENSION:
+        is_term_extension = doc_type in (
+            DocumentType.TERM_EXTENSION,
+            DocumentType.TERM_EXTENSION_CONTRACT,
+            DocumentType.TERM_EXTENSION_COMPETITION,
+            DocumentType.TERM_EXTENSION_PDF,
+        )
+        if is_term_extension:
             self.date_group.setTitle("📅 Період продовження контракту")
+            self.extension_dates_widget.setVisible(True)
+            self.extension_warning_label.setText(
+                "Оберіть період нового контракту. Після підпису ректора дні продовження "
+                "будуть автоматично додані до табелю."
+            )
+            self.extension_warning_label.setVisible(True)
         else:
             self.date_group.setTitle("📅 Вибір дат відпустки")
+            self.extension_dates_widget.setVisible(False)
 
         if not self._date_ranges:
             self.dates_info_label.setText("Не вибрано")
@@ -2506,6 +2663,7 @@ class BuilderTab(QWidget):
             self.timing_warning_label.setVisible(False)
             self.locked_dates_warning_label.setVisible(False)
             self.additional_position_widget.setVisible(False)
+            self.extension_warning_label.setVisible(False)
             self._parsed_dates = []
             return
 
@@ -3319,10 +3477,11 @@ class DateRangePickerPopup(QWidget):
 
     selection_complete = pyqtSignal(list)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, staff_id: int = None):
         super().__init__(parent)
         self._selected_dates: list[date] = []
         self._picker = None
+        self._staff_id = staff_id
         self._setup_picker()
 
     def _setup_picker(self):
@@ -3341,7 +3500,7 @@ class DateRangePickerPopup(QWidget):
             max_date=max_date,
         )
 
-        self._picker = DateRangePicker(config=config, parent=self)
+        self._picker = DateRangePicker(config=config, staff_id=self._staff_id, parent=self)
 
         # Підключення сигналів
         self._picker.range_selected.connect(self._on_range_selected)
@@ -3461,6 +3620,31 @@ class AutoDateRangeDialog(QDialog):
                         'status_icon': status_icon,
                         'doc_id': doc.id
                     })
+
+            # Також додаємо дати з відвідуваності (крім "Р" - присутність на роботі)
+            from shared.absence_types import CODE_TO_ABSENCE_NAME
+            from backend.models.attendance import Attendance
+            atts = db.query(Attendance).filter(
+                Attendance.staff_id == self.staff_id,
+                Attendance.code != "Р"
+            ).all()
+            for att in atts:
+                att_end = att.date_end or att.date
+                current = att.date
+                while current <= att_end:
+                    if current not in booked_dates:  # Only add if not already booked
+                        booked_dates.add(current)
+                    current += timedelta(days=1)
+                # Get full name for the code
+                code_name = CODE_TO_ABSENCE_NAME.get(att.code, att.code)
+                # Add to locked_info
+                locked_info.append({
+                    'dates': f"{att.date.strftime('%d.%m')}" + (f" - {att_end.strftime('%d.%m')}" if att_end != att.date else ""),
+                    'status_text': f"{code_name}",
+                    'status_icon': "🏷️",
+                    'doc_id': att.id
+                })
+
             self.booked_dates = booked_dates
             self.locked_info = locked_info
 
@@ -3712,6 +3896,9 @@ class AutoDateRangeDialog(QDialog):
 
         self.warning_label.setText("")
 
+        # Clear previous result for regeneration
+        self._result = None
+
         # Починаємо з поточного місяця, пропускаємо порожні місяці
         valid_dates = self._get_valid_dates(max_months=1)
         result = None
@@ -3727,19 +3914,25 @@ class AutoDateRangeDialog(QDialog):
             self.preview_text.setText("Немає доступних дат.")
             return
 
-        if mode == 1:  # Один діапазон
-            # Пробуємо знайти діапазон
-            result = self._calculate_single_range(valid_dates, days_needed)
+        # Shuffle dates for regeneration - each click gives different results
+        import random
+        shuffled_dates = valid_dates.copy()
+        random.shuffle(shuffled_dates)
 
-            # Якщо не знайдено і є ще місяці - розширюємо
+        if mode == 1:  # Один діапазон
+            result = self._calculate_single_range(shuffled_dates, days_needed)
+
+            # Expand months if needed
             while not result and months_tried < 3:
                 months_tried += 1
                 self.warning_label.setText(f"Недостатньо днів. Розширюємо на наступний...")
                 valid_dates = self._get_valid_dates(max_months=months_tried)
                 if valid_dates:
-                    result = self._calculate_single_range(valid_dates, days_needed)
+                    shuffled_dates = valid_dates.copy()
+                    random.shuffle(shuffled_dates)
+                    result = self._calculate_single_range(shuffled_dates, days_needed)
 
-            # Якщо все ще не знайдено, пробуємо випадковий пошук
+            # Try random search if still not found
             if not result:
                 result = self._calculate_single_range_random(valid_dates, days_needed)
 
@@ -3757,7 +3950,7 @@ class AutoDateRangeDialog(QDialog):
                 self.preview_text.setText("Немає достатньо доступних дат.")
                 return
 
-            result = self._calculate_multiple_ranges(valid_dates, days_needed)
+            result = self._calculate_multiple_ranges(shuffled_dates, days_needed)
 
         elif mode == 4:  # Змішано (окремі дні + діапазони)
             # Автоматично розширюємо місяці якщо потрібно
@@ -3773,7 +3966,7 @@ class AutoDateRangeDialog(QDialog):
                 self.preview_text.setText("Немає достатньо доступних дат.")
                 return
 
-            result = self._calculate_mixed(valid_dates, days_needed)
+            result = self._calculate_mixed(shuffled_dates, days_needed)
 
         else:  # Окремі дні (mode == 3)
             # Автоматично розширюємо місяці якщо потрібно
@@ -3789,7 +3982,7 @@ class AutoDateRangeDialog(QDialog):
                 self.preview_text.setText("Немає достатньо доступних дат.")
                 return
 
-            result = self._calculate_single_dates(valid_dates, days_needed)
+            result = self._calculate_single_dates(shuffled_dates, days_needed)
 
         self._show_preview(result)
 
