@@ -1,6 +1,7 @@
 """Діалог картки працівника з повною історією змін."""
 
 from datetime import date, datetime as dt, timedelta
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
@@ -28,7 +29,7 @@ from PyQt6.QtWidgets import (
 )
 import os
 
-from shared.enums import StaffActionType
+from shared.enums import StaffActionType, DocumentType, DocumentStatus
 from shared.absence_types import CODE_TO_ABSENCE_NAME
 from backend.services.tabel_service import MONTHS_UKR
 
@@ -149,7 +150,17 @@ class EmployeeCardDialog(QDialog):
         layout.addWidget(self._create_info_section())
 
         # Історія відпусток
-        layout.addWidget(QLabel("<b>Історія відпусток</b>"))
+        vacation_header = QHBoxLayout()
+        vacation_header.addWidget(QLabel("<b>Історія відпусток</b>"))
+        vacation_header.addStretch()
+
+        upload_scan_btn = QPushButton("📎 Завантажити скан")
+        upload_scan_btn.setToolTip("Завантажити скан документа, створеного співробітником самостійно")
+        upload_scan_btn.clicked.connect(self._on_upload_scan)
+        vacation_header.addWidget(upload_scan_btn)
+
+        layout.addLayout(vacation_header)
+
         self._vacation_history_table = self._create_vacation_history_table()
         layout.addWidget(self._vacation_history_table)
 
@@ -264,6 +275,7 @@ class EmployeeCardDialog(QDialog):
             "on_signature": QColor("#FFE082"), # Жовтий - на підписі
             "signed": QColor("#C8E6C9"),       # Зелений - підписано
             "processed": QColor("#81D4FA"),    # Блакитний - оброблено
+            "not_confirmed": QColor("#FFCDD2"), # Червоний - не підтверджено
         }
 
         for row, doc in enumerate(self.vacation_documents):
@@ -307,10 +319,17 @@ class EmployeeCardDialog(QDialog):
                 "on_signature": "На підписі",
                 "signed": "Підписано",
                 "processed": "Оброблено",
+                "not_confirmed": "Не підтверджено",
             }
-            status = status_labels.get(doc['status'], doc['status'])
-            status_item = QTableWidgetItem(status)
-            status_item.setBackground(status_colors.get(doc['status'], QColor("white")))
+
+            # Перевіряємо чи є скан для підписаних/оброблених документів
+            status = doc['status']
+            if status in ('signed', 'processed') and not doc.get('file_scan_path'):
+                status = 'not_confirmed'
+
+            status_text = status_labels.get(status, doc['status'])
+            status_item = QTableWidgetItem(status_text)
+            status_item.setBackground(status_colors.get(status, QColor("white")))
             table.setItem(row, 3, status_item)
 
             # Дата створення
@@ -1624,6 +1643,112 @@ class EmployeeCardDialog(QDialog):
             )
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося додати відмітку: {e}")
+
+    def _on_upload_scan(self):
+        """Обробляє завантаження скану документа."""
+        from desktop.ui.scan_upload_dialog import ScanUploadDialog
+        from backend.models.document import Document
+        from backend.core.database import get_db_context
+        from backend.services.document_service import DocumentService
+        from backend.services.attendance_service import AttendanceService
+        from shared.exceptions import DocumentGenerationError
+        from datetime import date as date_today
+        from decimal import Decimal
+
+        dialog = ScanUploadDialog(self, staff_id=self.staff_id)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        data = dialog.get_data()
+
+        try:
+            with get_db_context() as db:
+                # Create document entry
+                doc = Document(
+                    staff_id=data["staff_id"],
+                    doc_type=DocumentType(data["doc_type"]),
+                    date_start=data["date_start"],
+                    date_end=data["date_end"],
+                    days_count=data["days_count"],
+                    payment_period="Скан завантажено вручну",
+                    status=DocumentStatus.SIGNED,  # Already signed by default
+                )
+
+                # Set workflow timestamps to indicate it's a scanned document
+                doc.tabel_added_comment = "Додано зі скану (документ створено співробітником самостійно)"
+
+                db.add(doc)
+                db.commit()
+                db.refresh(doc)
+
+                # Copy scan file
+                scan_path = Path(data["scan_path"])
+                if scan_path.exists():
+                    output_dir = Path(__file__).parent.parent.parent / "desktop" / "documents" / str(doc.id) / "scans"
+                    output_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Copy file with standardized name
+                    import shutil
+                    new_filename = f"scan_{doc.id}_{scan_path.name}"
+                    new_path = output_dir / new_filename
+                    shutil.copy2(str(scan_path), str(new_path))
+
+                    doc.file_scan_path = str(new_path)
+                    db.commit()
+
+                # Add to attendance if it's a vacation type
+                doc_type_value = data["doc_type"]
+                if doc_type_value in ["vacation_paid", "vacation_unpaid", "vacation_main", "vacation_additional",
+                                       "vacation_study", "vacation_children", "vacation_unpaid_study",
+                                       "vacation_unpaid_mandatory", "vacation_unpaid_agreement", "vacation_unpaid_other"]:
+                    # Determine code based on doc type
+                    paid_vacations = ["vacation_paid", "vacation_main", "vacation_additional", "vacation_children"]
+                    if doc_type_value in paid_vacations:
+                        code = "В"
+                    elif doc_type_value == "vacation_study":
+                        code = "Н"
+                    elif doc_type_value == "vacation_unpaid":
+                        code = "НА"
+                    elif doc_type_value == "vacation_unpaid_study":
+                        code = "НБ"
+                    elif doc_type_value == "vacation_unpaid_mandatory":
+                        code = "ДБ"
+                    elif doc_type_value in ["vacation_unpaid_agreement", "vacation_unpaid_other"]:
+                        code = "БЗ"
+                    else:
+                        code = "НА"  # Default
+
+                    # Create attendance records
+                    att_service = AttendanceService(db)
+                    current = data["date_start"]
+                    while current <= data["date_end"]:
+                        try:
+                            att_service.create_attendance(
+                                staff_id=data["staff_id"],
+                                attendance_date=current,
+                                code=code,
+                                hours=Decimal("8.0"),
+                                notes=f"Скан №{doc.id}",
+                            )
+                        except Exception:
+                            pass  # Skip if already exists
+                        current += timedelta(days=1)
+
+                QMessageBox.information(
+                    self,
+                    "Успіх",
+                    f"Скан документа завантажено та збережено.\n"
+                    f"ID документа: {doc.id}\n"
+                    f"Тип: {data['doc_type']}\n"
+                    f"Період: {data['date_start'].strftime('%d.%m.%Y')} - {data['date_end'].strftime('%d.%m.%Y')}"
+                )
+
+                # Refresh data
+                self._load_data()
+                self._refresh_tables()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося зберегти скан:\n{str(e)}")
 
     def _on_edit_absence(self, record: dict):
         """Обробляє редагування відмітки."""
