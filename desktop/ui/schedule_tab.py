@@ -230,21 +230,33 @@ class ScheduleTab(QWidget):
 
     def _create_document(self):
         """Створює заяву на основі запису графіку."""
+        from backend.core.database import get_db_context
+        from backend.models.schedule import AnnualSchedule
+
         item = self.table.currentItem()
         if not item:
             return
 
         entry_id = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
 
-        # Перемикаємось на вкладку конструктора
-        self.parent().parent().setCurrentIndex(2)  # Builder tab
+        # Get schedule entry data
+        with get_db_context() as db:
+            entry = db.query(AnnualSchedule).filter(AnnualSchedule.id == entry_id).first()
+            if not entry:
+                return
 
-        # TODO: Передати дані в конструктор
-        QMessageBox.information(
-            self,
-            "Інформація",
-            "Перейдіть на вкладку Конструктор для створення заяви",
-        )
+            staff_id = entry.staff_id
+            planned_start = entry.planned_start
+            planned_end = entry.planned_end
+
+        # Перемикаємось на вкладку конструктора
+        main_window = self.parent().parent()
+        main_window.setCurrentIndex(2)  # Builder tab
+
+        # Передаємо дані в конструктор
+        builder_tab = main_window.builder_tab
+        builder_tab.new_document(staff_id)
+        builder_tab.set_vacation_dates(planned_start, planned_end)
 
     def refresh(self):
         """Оновлює дані вкладки."""
