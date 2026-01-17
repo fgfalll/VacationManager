@@ -29,9 +29,11 @@ class DocumentType(str, Enum):
 class DocumentStatus(str, Enum):
     """Статус документа"""
     DRAFT = "draft"                    # Чернетка
-    ON_SIGNATURE = "on_signature"      # На підписі
-    SIGNED = "signed"                  # Підписано
-    PROCESSED = "processed"            # Оброблено (дні списано)
+    ON_SIGNATURE = "on_signature"      # На підписі (хоча б один підпис)
+    AGREED = "agreed"                  # Погоджено (всі проміжні підписи є)
+    SIGNED = "signed"                  # Підписано ректором
+    SCANNED = "scanned"                # Відскановано (є скан)
+    PROCESSED = "processed"            # Оброблено (додано в табель)
 
 
 class UserRole(str, Enum):

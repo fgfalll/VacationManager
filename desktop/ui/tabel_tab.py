@@ -385,10 +385,8 @@ class TabelTab(QWidget):
         self._warning_widget: QLabel | None = None
         self._setup_ui()
         self._connect_signals()
-        self._load_archive_list()
-        self._update_correction_tabs()
-        self._check_show_warning()
-        self._load_tabel()
+        # NOTE: Don't load data here - delay until tab is shown to avoid slow startup
+        self._data_loaded: bool = False
 
     def _setup_ui(self) -> None:
         """Set up the UI."""
@@ -1815,6 +1813,16 @@ Traceback:
         except Exception as e:
             logger.error(f"Error archiving tabel: {e}")
 
+    def _ensure_data_loaded(self) -> None:
+        """Load data on first access (lazy loading for faster startup)."""
+        if self._data_loaded:
+            return
+        self._load_archive_list()
+        self._update_correction_tabs()
+        self._check_show_warning()
+        self._load_tabel()
+        self._data_loaded = True
+
     def refresh(self, correction_info=None) -> None:
         """Refresh tabel data.
 
@@ -1822,8 +1830,11 @@ Traceback:
             correction_info: Dict with date, correction_month, correction_year
                 If provided and its month is locked, switch to correction tab
         """
-        self._load_archive_list()
-        self._update_correction_tabs()
+        if not self._data_loaded:
+            self._ensure_data_loaded()
+        else:
+            self._load_archive_list()
+            self._update_correction_tabs()
 
         # Check if we need to switch to correction tab
         if correction_info:

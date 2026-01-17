@@ -73,9 +73,19 @@ class DocumentResponse(DocumentBase):
     signed_at: datetime | None
     processed_at: datetime | None
 
+    # Tabel tracking
+    tabel_added_at: datetime | None = None
+    tabel_added_comment: str | None = None
+
     # Вкладений об'єкт співробітника
     staff_name: str | None = None
     staff_position: str | None = None
+
+    # Correction tracking fields
+    is_correction: bool = False
+    correction_month: int | None = None
+    correction_year: int | None = None
+    correction_sequence: int = 1
 
     # Прогрес документа
     progress: DocumentProgress | None = None

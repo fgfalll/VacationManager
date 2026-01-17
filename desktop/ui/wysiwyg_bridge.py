@@ -93,7 +93,6 @@ class WysiwygBridge(QObject):
             if (typeof updateAutoField === 'function') {{
                 updateAutoField('{field_name}', '{value}');
             }} else {{
-                console.warn("WysiwygBridge: updateAutoField not defined yet, retrying...");
                 setTimeout(() => {{
                     if (typeof updateAutoField === 'function') {{
                         updateAutoField('{field_name}', '{value}');
@@ -115,7 +114,13 @@ class WysiwygBridge(QObject):
         """
         # Екрануємо HTML для коректної передачі в JS
         escaped_html = json.dumps(html)
-        script = f"updateBlock('{block_name}', {escaped_html});"
+        script = f"""
+        (function() {{
+            if (typeof updateBlock === 'function') {{
+                updateBlock('{block_name}', {escaped_html});
+            }}
+        }})();
+        """
         web_view.page().runJavaScript(script)
 
     def set_document_status(self, web_view, status: str, status_text: str = "") -> None:
@@ -132,7 +137,6 @@ class WysiwygBridge(QObject):
             if (typeof setDocumentStatus === 'function') {{
                 setDocumentStatus('{status}', '{status_text}');
             }} else {{
-                console.warn("WysiwygBridge: setDocumentStatus not defined yet, retrying...");
                 setTimeout(() => {{
                     if (typeof setDocumentStatus === 'function') {{
                         setDocumentStatus('{status}', '{status_text}');
@@ -152,7 +156,13 @@ class WysiwygBridge(QObject):
             block_name: Назва блоку
             callback: Функція зворотного виклику з результатом
         """
-        script = f"getBlockContent('{block_name}');"
+        script = f"""
+        (function() {{
+            if (typeof getBlockContent === 'function') {{
+                getBlockContent('{block_name}');
+            }}
+        }})();
+        """
         web_view.page().runJavaScript(script, callback)
 
     def reset_to_original(self, web_view) -> None:
@@ -162,7 +172,13 @@ class WysiwygBridge(QObject):
         Args:
             web_view: QWebEngineView інстанс
         """
-        script = "resetToOriginal();"
+        script = """
+        (function() {
+            if (typeof resetToOriginal === 'function') {
+                resetToOriginal();
+            }
+        })();
+        """
         web_view.page().runJavaScript(script)
 
     def export_content(self, web_view) -> None:
@@ -172,7 +188,13 @@ class WysiwygBridge(QObject):
         Args:
             web_view: QWebEngineView інстанс
         """
-        script = "exportContent();"
+        script = """
+        (function() {
+            if (typeof exportContent === 'function') {
+                exportContent();
+            }
+        })();
+        """
         web_view.page().runJavaScript(script)
 
     def get_document_html_for_pdf(self, web_view, callback: Callable[[str], None]) -> None:
@@ -183,7 +205,13 @@ class WysiwygBridge(QObject):
             web_view: QWebEngineView інстанс
             callback: Функція зворотного виклику з результатом HTML
         """
-        script = "getDocumentHtmlForPdf();"
+        script = """
+        (function() {
+            if (typeof getDocumentHtmlForPdf === 'function') {
+                getDocumentHtmlForPdf();
+            }
+        })();
+        """
         web_view.page().runJavaScript(script, callback)
 
     def update_signatories(self, web_view, signatories: list[dict]) -> None:
@@ -201,7 +229,6 @@ class WysiwygBridge(QObject):
             if (typeof updateSignatories === 'function') {{
                 updateSignatories({signatories_json});
             }} else {{
-                console.warn("WysiwygBridge: updateSignatories not defined yet, retrying...");
                 setTimeout(() => {{
                     if (typeof updateSignatories === 'function') {{
                         updateSignatories({signatories_json});
@@ -226,7 +253,6 @@ class WysiwygBridge(QObject):
             if (typeof setPredefinedSignatories === 'function') {{
                 setPredefinedSignatories({signatories_json});
             }} else {{
-                console.warn("WysiwygBridge: setPredefinedSignatories not defined yet, retrying...");
                 setTimeout(() => {{
                      if (typeof setPredefinedSignatories === 'function') {{
                         setPredefinedSignatories({signatories_json});
@@ -244,7 +270,13 @@ class WysiwygBridge(QObject):
         Args:
             web_view: QWebEngineView інстанс
         """
-        script = "initializeSignatories();"
+        script = """
+        (function() {
+            if (typeof initializeSignatories === 'function') {
+                initializeSignatories();
+            }
+        })();
+        """
         web_view.page().runJavaScript(script)
 
     def get_current_signatories(self) -> list[dict]:

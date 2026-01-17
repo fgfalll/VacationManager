@@ -1,6 +1,6 @@
 """Діалог картки працівника з повною історією змін."""
 
-from datetime import date
+from datetime import date, datetime as dt
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
@@ -24,7 +24,9 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
     QWidget,
+    QFileDialog,
 )
+import os
 
 from shared.enums import StaffActionType
 from shared.absence_types import CODE_TO_ABSENCE_NAME
@@ -613,12 +615,32 @@ class EmployeeCardDialog(QDialog):
             # Add fixed steps
             for step_key, step_name, step_icon in fixed_steps:
                 step_layout = QHBoxLayout()
+                
+                # Checkbox
                 checkbox = QCheckBox(f"{step_icon} {step_name}")
                 step_data = progress.get(step_key, {})
-                checkbox.setChecked(step_data.get("completed", False))
+                is_completed = step_data.get("completed", False)
+                checkbox.setChecked(is_completed)
                 checkboxes[step_key] = checkbox
                 step_layout.addWidget(checkbox)
 
+                # Date label
+                date_str = ""
+                if is_completed and step_data.get("at"):
+                    date_val = step_data["at"]
+                    if isinstance(date_val, str):
+                        try:
+                            date_val = datetime.datetime.fromisoformat(date_val)
+                        except ValueError:
+                            pass
+                    if isinstance(date_val, datetime.datetime):
+                        date_str = date_val.strftime("%d.%m.%Y %H:%M")
+                
+                date_label = QLabel(date_str)
+                date_label.setStyleSheet("color: #666; font-size: 11px;")
+                step_layout.addWidget(date_label)
+
+                # Comment input
                 comment_edit = QLineEdit()
                 comment_edit.setPlaceholderText("Коментар")
                 comment_edit.setText(step_data.get("comment") or "")
@@ -635,12 +657,32 @@ class EmployeeCardDialog(QDialog):
 
             for step_key, approver_name, icon in approvers:
                 step_layout = QHBoxLayout()
+                
+                # Checkbox
                 checkbox = QCheckBox(f"{icon} {approver_name}")
                 is_completed = approver_name in completed_approvers
                 checkbox.setChecked(is_completed)
                 approver_checkboxes[step_key] = checkbox
                 step_layout.addWidget(checkbox)
 
+                # Date label (approvers typically store date in comment or separate field, but strictly we only have the order_at)
+                # For multiple approvers, we rely on approval_order_at if this box is checked, 
+                # OR we might not have individual timestamps for them easily without parsing comments differently.
+                # Simplification: Show "Signed" if checked, but no specific date unless we track it per-approver individually (which we don't effectively do yet).
+                # We'll use the generic approval_order_at if available for now if checked.
+                
+                date_str = ""
+                if is_completed and progress.get("approval_order", {}).get("at"):
+                     # Using general approval order date as a proxy/best effort
+                    date_val = progress["approval_order"]["at"]
+                    if isinstance(date_val, datetime.datetime):
+                        date_str = date_val.strftime("%d.%m.%Y") # Just date maybe?
+
+                date_label = QLabel(date_str)
+                date_label.setStyleSheet("color: #666; font-size: 11px;")
+                step_layout.addWidget(date_label)
+
+                # Comment input
                 comment_edit = QLineEdit()
                 comment_edit.setPlaceholderText("Коментар")
                 comment_edit.setMaximumWidth(200)
@@ -652,22 +694,105 @@ class EmployeeCardDialog(QDialog):
             # Add final steps
             dialog_layout.addWidget(QLabel("<b>Завершальні етапи</b>"))
 
-            for step_key, step_name, step_icon in final_steps:
-                step_layout = QHBoxLayout()
-                checkbox = QCheckBox(f"{step_icon} {step_name}")
-                step_data = progress.get(step_key, {})
-                checkbox.setChecked(step_data.get("completed", False))
-                checkboxes[step_key] = checkbox
-                step_layout.addWidget(checkbox)
+            # Rector Step (Checkbox)
+            step_key = "rector"
+            step_name = "Підпис ректора"
+            step_icon = "🏛️"
 
-                comment_edit = QLineEdit()
-                comment_edit.setPlaceholderText("Коментар")
-                comment_edit.setText(step_data.get("comment") or "")
-                comment_edit.setMaximumWidth(200)
-                comments[step_key] = comment_edit
-                step_layout.addWidget(comment_edit)
+            step_layout = QHBoxLayout()
+            checkbox = QCheckBox(f"{step_icon} {step_name}")
+            step_data = progress.get(step_key, {})
+            is_completed = step_data.get("completed", False)
+            checkbox.setChecked(is_completed)
+            checkboxes[step_key] = checkbox
+            step_layout.addWidget(checkbox)
 
-                dialog_layout.addLayout(step_layout)
+            date_str = ""
+            if is_completed and step_data.get("at"):
+                date_val = step_data["at"]
+                if isinstance(date_val, str):
+                     try:
+                        date_val = datetime.datetime.fromisoformat(date_val)
+                     except ValueError: pass
+                if isinstance(date_val, datetime.datetime):
+                    date_str = date_val.strftime("%d.%m.%Y %H:%M")
+
+            date_label = QLabel(date_str)
+            date_label.setStyleSheet("color: #666; font-size: 11px;")
+            step_layout.addWidget(date_label)
+
+            comment_edit = QLineEdit()
+            comment_edit.setPlaceholderText("Коментар")
+            comment_edit.setText(step_data.get("comment") or "")
+            comment_edit.setMaximumWidth(200)
+            comments[step_key] = comment_edit
+            step_layout.addWidget(comment_edit)
+            dialog_layout.addLayout(step_layout)
+
+
+            # Scanned Step (Upload Button)
+            step_key = "scanned"
+            step_name = "Відскановано"
+            step_icon = "📷"
+            step_data = progress.get(step_key, {})
+            is_scanned = step_data.get("completed", False)
+
+            step_layout = QHBoxLayout()
+            
+            lbl = QLabel(f"{step_icon} {step_name}:")
+            lbl.setFixedWidth(150)
+            step_layout.addWidget(lbl)
+
+            status_text = "Ні"
+            status_style = "color: red; font-weight: bold;"
+            if is_scanned:
+                status_text = "Так"
+                if doc.file_scan_path:
+                   status_text += f" ({os.path.basename(doc.file_scan_path)})"
+                status_style = "color: green; font-weight: bold;"
+
+            status_lbl = QLabel(status_text)
+            status_lbl.setStyleSheet(status_style)
+            step_layout.addWidget(status_lbl)
+
+            upload_btn = QPushButton("Завантажити скан")
+            upload_btn.clicked.connect(lambda: self._upload_scan(document_id, dialog))
+            step_layout.addWidget(upload_btn)
+
+            dialog_layout.addLayout(step_layout)
+            
+            # Warning
+            if progress["rector"]["completed"] and not is_scanned:
+                warn_lbl = QLabel("⚠️ Увага: Документ підписано ректором, але скан не завантажено!")
+                warn_lbl.setStyleSheet("color: red; font-weight: bold;")
+                dialog_layout.addWidget(warn_lbl)
+
+            # Tabel Step (Read-only)
+            step_key = "tabel"
+            step_name = "Додано до табелю"
+            step_icon = "✅"
+            step_data = progress.get(step_key, {})
+            is_in_tabel = step_data.get("completed", False)
+
+            step_layout = QHBoxLayout()
+            lbl = QLabel(f"{step_icon} {step_name}:")
+            lbl.setFixedWidth(150)
+            step_layout.addWidget(lbl)
+
+            tabel_status = "Так" if is_in_tabel else "Ні"
+            tabel_style = "color: green; font-weight: bold;" if is_in_tabel else "color: gray;"
+
+            # Adding date if available
+            if is_in_tabel and step_data.get("at"):
+                 date_val = step_data["at"]
+                 if isinstance(date_val, datetime.datetime):
+                    tabel_status += f" ({date_val.strftime('%d.%m.%Y')})"
+
+            t_lbl = QLabel(tabel_status)
+            t_lbl.setStyleSheet(tabel_style)
+            step_layout.addWidget(t_lbl)
+
+            dialog_layout.addLayout(step_layout)
 
             # Buttons
             btn_layout = QHBoxLayout()
@@ -687,31 +812,137 @@ class EmployeeCardDialog(QDialog):
             dialog_layout.addLayout(btn_layout)
 
             if dialog.exec() == QDialog.DialogCode.Accepted:
-                now = datetime.datetime.now()
+                now = dt.now()
 
-                # Update fixed steps
-                for step_key, _, _ in fixed_steps:
-                    checkbox = checkboxes[step_key]
-                    comment = comments[step_key].text().strip() or None
+                def _create_correction_attendance(db_session, document):
+                    """Create correction attendance record for approved months."""
+                    from backend.models import Attendance
+                    from backend.models.document import DocumentType
+                    from backend.services.attendance_service import (
+                        AttendanceService,
+                        AttendanceConflictError,
+                        AttendanceLockedError,
+                    )
 
+                    # Determine vacation code
+                    if document.doc_type == DocumentType.VACATION_PAID:
+                        code = "В"
+                    elif document.doc_type == DocumentType.VACATION_UNPAID:
+                        code = "НА"
+                    else:
+                        return  # Not a vacation
+
+                    # Use AttendanceService for consistency
+                    att_service = AttendanceService(db_session)
+
+                    # Create attendance record for each vacation day
+                    current = document.date_start
+                    while current <= document.date_end:
+                        existing = db_session.query(Attendance).filter(
+                            Attendance.staff_id == document.staff_id,
+                            Attendance.date == current,
+                            Attendance.is_correction == True,
+                            Attendance.correction_month == document.date_start.month,
+                            Attendance.correction_year == document.date_start.year,
+                            Attendance.correction_sequence == document.correction_sequence,
+                        ).first()
+
+                        if not existing:
+                            try:
+                                att_service.create_attendance(
+                                    staff_id=document.staff_id,
+                                    attendance_date=current,
+                                    code=code,
+                                    hours=8.0,
+                                    notes=f"Корекція: документ №{document.id}",
+                                    is_correction=True,
+                                    correction_month=document.date_start.month,
+                                    correction_year=document.date_start.year,
+                                    correction_sequence=document.correction_sequence,
+                                )
+                            except (AttendanceConflictError, AttendanceLockedError):
+                                # If already exists or locked, ignore
+                                pass
+
+                        current += dt.timedelta(days=1)
+
+                # Update fixed steps (applicant, approval, department_head)
+                # AND Rector (manually added to iteration list)
+                steps_to_save = fixed_steps + [("rector", "Підпис ректора", "🏛️")]
+                
+                for step_key, _, _ in steps_to_save:
+                    checkbox = checkboxes.get(step_key)
+                    # comments dict should contain all keys
+                    comment_widget = comments.get(step_key)
+                    comment = comment_widget.text().strip() or None if comment_widget else None
+                    
+                    if not checkbox:
+                        continue
+                        
+                    # Logic to preserve timestamps:
+                    # If checked and was already valid -> keep old time
+                    # If checked and was empty -> set now
+                    # If unchecked -> set None
+                    
+                    is_checked = checkbox.isChecked()
+                    
+                    # Helper to get current attribute value
+                    # Handle special naming for applicant
+                    current_at_attr = f"{step_key}_at" if step_key != "applicant" else "applicant_signed_at"
+                    current_at = getattr(doc, current_at_attr, None)
+                    
+                    if is_checked:
+                        new_at = current_at if current_at else now
+                    else:
+                        new_at = None
+                        
                     if step_key == "applicant":
-                        doc.applicant_signed_at = now if checkbox.isChecked() else None
+                        doc.applicant_signed_at = new_at
                         doc.applicant_signed_comment = comment
                     elif step_key == "approval":
-                        doc.approval_at = now if checkbox.isChecked() else None
+                        doc.approval_at = new_at
                         doc.approval_comment = comment
                     elif step_key == "department_head":
-                        doc.department_head_at = now if checkbox.isChecked() else None
+                        doc.department_head_at = new_at
                         doc.department_head_comment = comment
+                    
+                    # Final steps
                     elif step_key == "rector":
-                        doc.rector_at = now if checkbox.isChecked() else None
+                        doc.rector_at = new_at
                         doc.rector_comment = comment
-                    elif step_key == "scanned":
-                        doc.scanned_at = now if checkbox.isChecked() else None
-                        doc.scanned_comment = comment
-                    elif step_key == "tabel":
-                        doc.tabel_added_at = now if checkbox.isChecked() else None
-                        doc.tabel_added_comment = comment
+
+                        # Coupling: If Rector is signed, Tabel must be added
+                        # We enforce this automatically.
+                        if new_at and not doc.tabel_added_at:
+                            # Check if the document's month is already approved
+                            from backend.services.tabel_approval_service import TabelApprovalService
+                            approval_service = TabelApprovalService(db)
+                            doc_month = doc.date_start.month
+                            doc_year = doc.date_start.year
+                            is_month_locked = approval_service.is_month_locked(doc_month, doc_year)
+
+                            if is_month_locked:
+                                # Month is approved - create correction attendance record
+                                doc.tabel_added_at = None
+                                doc.tabel_added_comment = f"Місяць {doc_month}.{doc_year} вже затверджено. Додано до корегуючого табелю."
+                                # Set correction fields (reuse approval_service from above)
+                                correction_sequence = approval_service.get_next_correction_sequence(doc_month, doc_year)
+                                doc.is_correction = True
+                                doc.correction_month = doc_month
+                                doc.correction_year = doc_year
+                                doc.correction_sequence = correction_sequence
+                                _create_correction_attendance(db, doc)
+                            else:
+                                # Month not approved - add to main tabel
+                                doc.tabel_added_at = now
+                                doc.tabel_added_comment = "Автоматично додано після підпису ректора"
+                        elif not new_at:
+                            # Optional: if rector removed, remove from tabel?
+                            # Maybe safer not to automate REMOVAL to avoid data loss,
+                            # or follow the user's "automatic" wish.
+                            # Let's keep tabel if it was added, or maybe remove only if it was auto-added.
+                            # For now, strict coupling: No rector -> No tabel (unless manual? but tabel is read only now).
+                            pass
 
                 # Update approvers
                 completed_approvers_list = []
@@ -728,6 +959,42 @@ class EmployeeCardDialog(QDialog):
 
                 db.commit()
                 QMessageBox.information(self, "Успіх", "Етапи підписання оновлено")
+
+    def _upload_scan(self, document_id: int, parent_dialog: QDialog):
+        """Завантаження скану документа."""
+        from backend.core.database import get_db_context
+        from backend.models.document import Document
+        from backend.services.document_service import DocumentService
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            parent_dialog,
+            "Оберіть скан документа",
+            "",
+            "PDF Files (*.pdf);;Images (*.png *.jpg *.jpeg)"
+        )
+        
+        if not file_path:
+            return
+
+        try:
+            with get_db_context() as db:
+                doc = db.query(Document).filter(Document.id == document_id).first()
+                if not doc:
+                    return
+                
+                service = DocumentService(db)
+                service.set_scanned(doc, file_path=file_path, comment="Завантажено через UI")
+                QMessageBox.information(self, "Успіх", "Скан успішно завантажено")
+                
+                # Refresh parent dialog? usually needs closure and reopen or dynamic update.
+                # Simplest is to close and let user reopen or just show success.
+                # Ideally, we should update the label in parent_dialog dynamically.
+                # But parent_dialog is constructed in method local scope. 
+                # We can close it to force refresh.
+                parent_dialog.accept() 
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося завантажити скан: {e}")
 
     def _clear_all_workflow_steps(self, document_id: int, dialog: QDialog):
         """Очищає всі етапи підписання."""

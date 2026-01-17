@@ -436,13 +436,17 @@ def calculate_absence_totals(
         if vacation.status == DocumentStatus.PROCESSED:
             # Iterate through each day of the vacation
             vac_start = max(vacation.date_start, month_start)
-            vac_end = min(vacation.date_end, month_end)
+            vac_end = min(vacation.date_end or vacation.date_start, month_end)
             current = vac_start
-            while current <= vac_end:
+            max_days = 366  # Safety limit to prevent infinite loops
+            day_count = 0
+            while current <= vac_end and day_count < max_days:
                 if vacation.doc_type == DocumentType.VACATION_PAID:
                     add_to_half("vacation_8_10", current)
                 elif vacation.doc_type == DocumentType.VACATION_UNPAID:
                     add_to_half("vacation_19", current)
+                current += timedelta(days=1)
+                day_count += 1
     return totals
 
 
@@ -1914,6 +1918,11 @@ def get_employees_for_tabel(
             )
         ).order_by(Staff.pib_nom).all()
 
+        # Check if month is locked/approved by HR
+        from backend.services.tabel_approval_service import TabelApprovalService
+        approval_service = TabelApprovalService(db)
+        is_month_locked = approval_service.is_month_locked(month, year)
+
         # Find responsible person and department head
         for staff_member in staff_list:
             pos = staff_member.position.lower()
@@ -1936,16 +1945,22 @@ def get_employees_for_tabel(
             ).all()
 
             # Get vacation documents with processed status
-            vacations = db.query(Document).filter(
-                Document.staff_id == staff.id,
-                Document.doc_type.in_([
-                    DocumentType.VACATION_PAID,
-                    DocumentType.VACATION_UNPAID
-                ]),
-                Document.status == DocumentStatus.PROCESSED,
-                Document.date_end >= month_start,
-                Document.date_start <= month_end,
-            ).all()
+            # For locked/approved months, only show vacations that were created/approved BEFORE the lock
+            if is_month_locked:
+                # For approved months, don't show new vacation data
+                # (changes should come through correction mechanism)
+                vacations = []
+            else:
+                vacations = db.query(Document).filter(
+                    Document.staff_id == staff.id,
+                    Document.doc_type.in_([
+                        DocumentType.VACATION_PAID,
+                        DocumentType.VACATION_UNPAID
+                    ]),
+                    Document.status == DocumentStatus.PROCESSED,
+                    Document.date_end >= month_start,
+                    Document.date_start <= month_end,
+                ).all()
 
             emp_data = get_employee_data(staff, month, year, attendance, vacations, db)
             employees.append(emp_data)

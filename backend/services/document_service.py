@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Generator
 
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 from backend.core.config import get_settings
 from backend.models.document import Document
 from backend.models.settings import Approvers, SystemSettings
+from backend.services.attendance_service import AttendanceConflictError, AttendanceLockedError
 from backend.services.grammar_service import GrammarService
 from shared.enums import DocumentStatus, DocumentType
 from shared.exceptions import DocumentGenerationError
@@ -36,7 +38,9 @@ UKRAINIAN_MONTHS = {
 UKRAINIAN_STATUS = {
     DocumentStatus.DRAFT: "чернетки",
     DocumentStatus.ON_SIGNATURE: "на_підписі",
+    DocumentStatus.AGREED: "погоджено",
     DocumentStatus.SIGNED: "підписані",
+    DocumentStatus.SCANNED: "відскановано",
     DocumentStatus.PROCESSED: "оброблені",
 }
 
@@ -612,8 +616,7 @@ class DocumentService:
         """Заявник підписав документ - переводимо на підпис."""
         document.applicant_signed_at = datetime.datetime.now()
         document.applicant_signed_comment = comment
-        document.status = DocumentStatus.ON_SIGNATURE
-
+        
         # Move file from draft folder to on_signature folder
         if document.file_docx_path:
             old_path = Path(document.file_docx_path)
@@ -623,36 +626,137 @@ class DocumentService:
                 shutil.move(str(old_path), str(new_path))
                 document.file_docx_path = str(new_path)
 
+        document.update_status_from_workflow()
         self.db.commit()
 
     def set_approval(self, document: Document, comment: str | None = None) -> None:
         """Диспетчерська перевірила документ (Перевірено диспетчерською)."""
         document.approval_at = datetime.datetime.now()
         document.approval_comment = comment
+        document.update_status_from_workflow()
         self.db.commit()
 
     def set_department_head_signed(self, document: Document, comment: str | None = None) -> None:
         """Завідувач кафедри підписав документ."""
         document.department_head_at = datetime.datetime.now()
         document.department_head_comment = comment
+        document.update_status_from_workflow()
         self.db.commit()
 
     def set_approval_order(self, document: Document, comment: str | None = None) -> None:
         """Підписано наказом."""
         document.approval_order_at = datetime.datetime.now()
         document.approval_order_comment = comment
+        document.update_status_from_workflow()
         self.db.commit()
 
     def set_rector_signed(self, document: Document, comment: str | None = None) -> None:
         """Ректор підписав документ."""
         document.rector_at = datetime.datetime.now()
         document.rector_comment = comment
+
+        # Перевіряємо, чи місяць документа вже затверджено
+        from backend.services.tabel_approval_service import TabelApprovalService
+
+        doc_month = document.date_start.month
+        doc_year = document.date_start.year
+
+        approval_service = TabelApprovalService(self.db)
+        is_month_locked = approval_service.is_month_locked(doc_month, doc_year)
+
+        if is_month_locked:
+            # Якщо місяць вже затверджено, додаємо до корегуючого табелю
+            # Це означає, що документ з'явиться в корекції
+            document.tabel_added_at = None  # Не додаємо до основного табелю
+            document.tabel_added_comment = f"Місяць {doc_month}.{doc_year} вже затверджено. Додано до корегуючого табелю."
+
+            # Отримуємо наступний номер послідовності корекції
+            correction_sequence = approval_service.get_next_correction_sequence(doc_month, doc_year)
+
+            # Встановлюємо корекційні поля документа
+            document.is_correction = True
+            document.correction_month = doc_month
+            document.correction_year = doc_year
+            document.correction_sequence = correction_sequence
+
+            # Створюємо запис у attendance з кодом відпустки для корекції
+            self._create_correction_attendance(document, correction_sequence)
+        else:
+            # Якщо місяць не затверджено, додаємо до основного табелю
+            self.set_tabel_added(document, comment="Автоматично додано після підпису ректора")
+
+        # Оновлюємо статус (має стати PROCESSED)
+        document.update_status_from_workflow()
         self.db.commit()
 
-    def set_scanned(self, document: Document, comment: str | None = None) -> None:
+    def _create_correction_attendance(self, document: Document, correction_sequence: int = 1) -> None:
+        """Створює запис відвідуваності для корегуючого табелю."""
+        from backend.models import Attendance
+        from backend.models.document import DocumentType
+        from backend.services.attendance_service import AttendanceService
+
+        # Визначаємо код відпустки
+        if document.doc_type == DocumentType.VACATION_PAID:
+            code = "В"
+        elif document.doc_type == DocumentType.VACATION_UNPAID:
+            code = "НА"
+        else:
+            return  # Не відпустка - нічого не робимо
+
+        # Використовуємо AttendanceService для консистентності
+        att_service = AttendanceService(self.db)
+
+        # Створюємо запис для кожного дня відпустки
+        current = document.date_start
+        while current <= document.date_end:
+            # Перевіряємо, чи вже є запис для цього дня з тією ж послідовністю
+            existing = self.db.query(Attendance).filter(
+                Attendance.staff_id == document.staff_id,
+                Attendance.date == current,
+                Attendance.is_correction == True,
+                Attendance.correction_month == document.date_start.month,
+                Attendance.correction_year == document.date_start.year,
+                Attendance.correction_sequence == correction_sequence,
+            ).first()
+
+            if not existing:
+                try:
+                    att_service.create_attendance(
+                        staff_id=document.staff_id,
+                        attendance_date=current,
+                        code=code,
+                        hours=Decimal("8.0"),
+                        notes=f"Корекція: документ №{document.id}",
+                        is_correction=True,
+                        correction_month=document.date_start.month,
+                        correction_year=document.date_start.year,
+                        correction_sequence=correction_sequence,
+                    )
+                except (AttendanceConflictError, AttendanceLockedError):
+                    # Якщо вже є запис або заблоковано, ігноруємо
+                    pass
+
+            current += datetime.timedelta(days=1)
+
+    def set_scanned(self, document: Document, file_path: str = None, comment: str | None = None) -> None:
         """Документ відскановано (вхідний скан)."""
         document.scanned_at = datetime.datetime.now()
         document.scanned_comment = comment
+        
+        if file_path:
+            scan_path = Path(file_path)
+            if scan_path.exists():
+                output_dir = self._get_output_path(document).parent / "scans"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Copy file with standardized name
+                new_filename = f"scan_{document.id}_{scan_path.name}"
+                new_path = output_dir / new_filename
+                
+                shutil.copy2(str(scan_path), str(new_path))
+                document.file_scan_path = str(new_path)
+        
+        document.update_status_from_workflow()
         self.db.commit()
 
     def set_tabel_added(self, document: Document, comment: str | None = None) -> None:
@@ -684,4 +788,6 @@ class DocumentService:
         elif step == "tabel":
             document.tabel_added_at = None
             document.tabel_added_comment = None
+        
+        document.update_status_from_workflow()
         self.db.commit()

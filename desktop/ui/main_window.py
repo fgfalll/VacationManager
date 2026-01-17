@@ -30,9 +30,16 @@ class MainWindow(QMainWindow):
 
     document_created = pyqtSignal()
 
-    def __init__(self):
-        """Ініціалізує головне вікно."""
+    def __init__(self, show_splash: bool = True):
+        """
+        Ініціалізує головне вікно.
+
+        Args:
+            show_splash: Якщо True - показує сплеш-скрін та оновлює його (для старту),
+                         якщо False - не оновлює (для внутрішнього використання)
+        """
         super().__init__()
+        self._show_splash = show_splash
         self._setup_ui()
         self._connect_signals()
 
@@ -56,8 +63,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.builder_tab, "Конструктор заяв")
         self.tabs.addTab(self.tabel_tab, "📋 Табель")
 
-        # Refresh data on app start
-        self._refresh_data()
+        # Refresh data on app start (тільки якщо не використовуємо сплеш-скрін)
+        if not self._show_splash:
+            self._refresh_data()
 
         # Меню
         menubar = self.menuBar()

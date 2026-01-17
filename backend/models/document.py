@@ -55,6 +55,12 @@ class Document(Base, TimestampMixin):
 
         tabel_added_at: Час додавання до табелю
         tabel_added_comment: Коментар до табелю
+
+        # Correction tracking fields
+        is_correction: Чи є документом корегуючого табеля
+        correction_month: Місяць, що коригується
+        correction_year: Рік, що коригується
+        correction_sequence: Номер послідовності корекції
     """
 
     __tablename__ = "documents"
@@ -104,6 +110,31 @@ class Document(Base, TimestampMixin):
 
     tabel_added_at: Mapped[datetime | None] = mapped_column(DateTime)
     tabel_added_comment: Mapped[str | None] = mapped_column(Text)
+
+    # Correction tracking fields - for documents added after month is locked
+    is_correction: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        comment="Чи є документом корегуючого табеля",
+    )
+    correction_month: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="Місяць, що коригується (для корегуючих документів)",
+    )
+    correction_year: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="Рік, що коригується (для корегуючих документів)",
+    )
+    correction_sequence: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+        comment="Номер послідовності корекції (1, 2, 3...)",
+    )
 
     # Relationships
     staff: Mapped["Staff"] = relationship(back_populates="documents")
@@ -155,20 +186,40 @@ class Document(Base, TimestampMixin):
         """Оновлює статус документа на основі етапів підписання."""
         progress = self.get_workflow_progress()
 
-        # Визначаємо статус на основі прогресу
-        # tabel_added_at → processed
-        if progress["tabel"]["completed"]:
+        # Перевіряємо, чи документ додано до корегуючого табелю
+        # (коментар містить "корегуюч" коли місяць вже затверджено)
+        is_in_correction = bool(
+            self.tabel_added_comment and
+            "корегуюч" in self.tabel_added_comment.lower()
+        )
+
+        # Визначаємо статус на основі пріоритету (від кінця до початку)
+
+        # 1. PROCESSED: Якщо додано до табелю АБО до корегуючого табелю
+        if progress["tabel"]["completed"] or is_in_correction:
             self.status = DocumentStatus.PROCESSED
-        # rector_at → signed
+
+        # 2. SCANNED: Якщо є скан і підпис ректора (але ще не в табелі)
+        elif progress["rector"]["completed"] and progress["scanned"]["completed"]:
+             self.status = DocumentStatus.SCANNED
+
+        # 3. SIGNED: Якщо підписано ректором (але ще не скан)
         elif progress["rector"]["completed"]:
             self.status = DocumentStatus.SIGNED
-        # approval_order_at, department_head_at, approval_at, applicant_at → on_signature
-        elif (progress["approval_order"]["completed"] or
-              progress["department_head"]["completed"] or
+
+        # 4. AGREED: Якщо є підпис зав. кафедри та погодження (усіх required)
+        # Припускаємо, що approval_order це "погоджувачі", а department_head - завідувач
+        elif progress["department_head"]["completed"] and progress["approval_order"]["completed"]:
+            self.status = DocumentStatus.AGREED
+
+        # 5. ON_SIGNATURE: Якщо хоча б хтось почав підписувати (або викладач, або диспетчер)
+        elif (progress["department_head"]["completed"] or
+              progress["approval_order"]["completed"] or
               progress["approval"]["completed"] or
               progress["applicant"]["completed"]):
             self.status = DocumentStatus.ON_SIGNATURE
-        # Чернетка
+
+        # 6. DRAFT: Жодних дій не виконано
         else:
             self.status = DocumentStatus.DRAFT
 
