@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin
@@ -115,6 +115,32 @@ class Attendance(Base, TimestampMixin):
         String(500),
         nullable=True,
         comment="Коментар при видаленні запису",
+    )
+
+    # Correction tracking fields - for attendance added after month is locked
+    is_correction: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Чи є це записом корегуючого табеля",
+    )
+    correction_month: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="Місяць, що коригується (для корегуючих записів)",
+    )
+    correction_year: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="Рік, що коригується (для корегуючих записів)",
+    )
+    correction_sequence: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+        comment="Номер послідовності корекції (1, 2, 3...)",
     )
 
     # Relationships

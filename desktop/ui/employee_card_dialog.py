@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from shared.enums import StaffActionType
 from shared.absence_types import CODE_TO_ABSENCE_NAME
+from backend.services.tabel_service import MONTHS_UKR
 
 
 class EmployeeCardDialog(QDialog):
@@ -41,6 +42,7 @@ class EmployeeCardDialog(QDialog):
     # Сигнали для комунікації з батьківським вікном
     edit_document = pyqtSignal(int)  # document_id
     delete_document = pyqtSignal(int)  # document_id
+    attendance_modified = pyqtSignal(object)  # date that was modified (for switching to correction tab)
 
     def __init__(self, staff_id: int, parent=None):
         """
@@ -126,6 +128,10 @@ class EmployeeCardDialog(QDialog):
                     "hours": record.hours,
                     "notes": record.notes,
                     "created_at": record.created_at,
+                    "is_correction": record.is_correction,
+                    "correction_month": record.correction_month,
+                    "correction_year": record.correction_year,
+                    "correction_sequence": record.correction_sequence,
                 })
 
     def _setup_ui(self):
@@ -1063,27 +1069,71 @@ class EmployeeCardDialog(QDialog):
             button_layout.setContentsMargins(2, 2, 2, 2)
             button_layout.setSpacing(4)
 
-            # Перевіряємо чи запис минулого місяця
-            record_date = record['date']
-            today = date.today()
-            is_past_month = record_date.year < today.year or (
-                record_date.year == today.year and record_date.month < today.month
-            )
+            # Check locking status
+            is_locked = False
+            
+            # Since checking DB for every row is slow, we ideally should have pre-fetched status.
+            # But for simplicity and correctness now, we check on demand or rely on simple logic.
+            # However, simpler logic (is_past_month) was what we are replacing.
+            # Let's use a cached service approach or context if possible. 
+            # Actually, _create_absence_table is called once. We can open DB here.
+            
+            # Use on-the-fly check (not optimal for large lists but safe)
+            # Optimization: We can instantiate service once outside loop if we had DB session.
+            # Since we cannot easily pass db session here without changing signature, 
+            # we will rely on a helper or just check locally if we can.
+            
+            # BETTER APPROACH: Open DB session for the duration of table creation
+            # Note: This tool call replaces a chunk inside the method. I cannot wrap the whole method easily.
+            # So I will use a local check function that opens DB briefly if necessary, OR
+            # simply open DB for each row (performance hit). 
+            
+            # Alternative: The user just asked for logic.
+            # "for locked attendances buttons to update them should be hiden"
+            
+            # Let's try to check based on what we know.
+            # If we assume we can't easily query DB here efficiency, maybe we can assume:
+            # If it's old enough, it's locked? No, manual approval matters.
+            
+            # I will wrap the check in a quick DB call. It's acceptable for UI responsiveness typically < 100 items.
+            is_locked = False
+            try:
+                from backend.core.database import get_db_context
+                from backend.services.tabel_approval_service import TabelApprovalService
+                with get_db_context() as db:
+                    srv = TabelApprovalService(db)
+                    if record.get('is_correction'):
+                        is_locked = srv.is_correction_locked(
+                            record.get('correction_month'),
+                            record.get('correction_year'),
+                            record.get('correction_sequence')
+                        )
+                    else:
+                        r_date = record['date']
+                        is_locked = srv.is_month_locked(r_date.month, r_date.year)
+            except Exception as e:
+                print(f"Error checking lock status: {e}")
+                is_locked = True # Fail safe
 
             # Редагування
-            edit_btn = QPushButton("✏️")
-            edit_btn.setFixedWidth(32)
-            edit_btn.setToolTip("Редагувати")
-            edit_btn.setEnabled(not is_past_month)
-            edit_btn.clicked.connect(lambda checked, r=record: self._on_edit_absence(r))
-            button_layout.addWidget(edit_btn)
+            if not is_locked:
+                edit_btn = QPushButton("✏️")
+                edit_btn.setFixedWidth(32)
+                edit_btn.setToolTip("Редагувати")
+                edit_btn.clicked.connect(lambda checked, r=record: self._on_edit_absence(r))
+                button_layout.addWidget(edit_btn)
 
-            # Видалення
-            delete_btn = QPushButton("🗑️")
-            delete_btn.setFixedWidth(32)
-            delete_btn.setToolTip("Видалити")
-            delete_btn.clicked.connect(lambda checked, r=record: self._on_delete_absence(r))
-            button_layout.addWidget(delete_btn)
+                # Видалення
+                delete_btn = QPushButton("🗑️")
+                delete_btn.setFixedWidth(32)
+                delete_btn.setToolTip("Видалити")
+                delete_btn.clicked.connect(lambda checked, r=record: self._on_delete_absence(r))
+                button_layout.addWidget(delete_btn)
+            else:
+                 # Show lock icon or nothing
+                 lock_lbl = QLabel("🔒")
+                 lock_lbl.setToolTip("Запис затверджено")
+                 button_layout.addWidget(lock_lbl)
 
             table.setCellWidget(row, 4, button_container)
 
@@ -1150,18 +1200,84 @@ class EmployeeCardDialog(QDialog):
 
         # Check if month is locked (approved by HR)
         check_date = result['start_date'] if result['is_range'] else result['date']
+        check_end = result['end_date'] if result['is_range'] else result['date']
+        target_correction_month = None
+        target_correction_year = None
+        target_correction_sequence = 1
+
+        from datetime import date as date_today
         from backend.services.tabel_approval_service import TabelApprovalService
 
         with get_db_context() as db:
             approval_service = TabelApprovalService(db)
-            can_edit, reason = approval_service.can_edit_attendance(self.staff_id, check_date)
+            current_month = date_today.today().month
+            current_year = date_today.today().year
+
+            can_edit = True
+            reason = ""
+
+            # First check: is the attendance date itself in a locked month?
+            attendance_month_locked = approval_service.is_month_locked(check_date.month, check_date.year)
+
+            # Second check: does the range include any locked months?
+            locked_months_in_range = []
+            for month_to_check in range(check_date.month, check_end.month + 1):
+                year_to_check = check_date.year if month_to_check >= check_date.month else check_end.year
+                if approval_service.is_month_locked(month_to_check, year_to_check):
+                    locked_months_in_range.append((month_to_check, year_to_check))
+
+            # Priority 1: If attendance date is in a locked month -> correction for that month
+            if attendance_month_locked:
+                can_edit = False
+                month_name = MONTHS_UKR[check_date.month - 1]
+                reason = f"Період ({check_date.strftime('%B %Y')}) вже погоджено з кадрами. Зміни будуть внесені в корегуючий табель."
+                target_correction_month = check_date.month
+                target_correction_year = check_date.year
+            # Priority 2: If current month (when entry is added) is locked -> correction
+            elif approval_service.is_month_locked(current_month, current_year):
+                can_edit = False
+                reason = f"Поточний місяць ({date_today.today().strftime('%B %Y')}) вже погоджено з кадрами. Зміни будуть внесені в корегуючий табель."
+                target_correction_month = current_month
+                target_correction_year = current_year
+            # Priority 3: If range includes locked months (but attendance date is not locked) -> correction
+            elif locked_months_in_range:
+                if len(locked_months_in_range) == 1:
+                    target_correction_month, target_correction_year = locked_months_in_range[0]
+                else:
+                    target_correction_month, target_correction_year = sorted(locked_months_in_range)[0]
+
+                can_edit = False
+                month_name = MONTHS_UKR[target_correction_month - 1]
+                reason = f"Період включає заблокований місяць ({month_name} {target_correction_year}). Зміни будуть внесені в корегуючий табель."
+            else:
+                # No locked months involved - add to main tabel
+                can_edit = True
+                target_correction_month = check_date.month
+                target_correction_year = check_date.year
 
             if not can_edit:
+                # Get next sequence number for this correction month/year
+                target_correction_sequence = approval_service.get_or_create_correction_sequence(
+                    target_correction_month,
+                    target_correction_year
+                )
+
+                # Create new correction approval record
+                approval_service.record_generation(
+                    month=target_correction_month,  # For corrections, month/year = correction month/year
+                    year=target_correction_year,
+                    is_correction=True,
+                    correction_month=target_correction_month,
+                    correction_year=target_correction_year,
+                    correction_sequence=target_correction_sequence
+                )
+
                 reply = QMessageBox.question(
                     self,
                     "Місяць погоджено з кадрами",
                     f"{reason}\n\n"
-                    "Бажаєте продовжити? Запис буде додано в корегуючий табель.",
+                    f"Буде створено корегуючий табель #{target_correction_sequence} за {check_date.strftime('%B %Y')}.\n\n"
+                    "Бажаєте продовжити?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if reply != QMessageBox.StandardButton.Yes:
@@ -1171,6 +1287,9 @@ class EmployeeCardDialog(QDialog):
             with get_db_context() as db:
                 service = AttendanceService(db)
 
+                # Determine if this is a correction (can_edit=False means locked month)
+                is_correction_record = not can_edit
+
                 if result['is_range']:
                     service.create_attendance_range(
                         staff_id=self.staff_id,
@@ -1178,18 +1297,35 @@ class EmployeeCardDialog(QDialog):
                         end_date=result['end_date'],
                         code=result['code'],
                         notes=result['notes'],
+                        is_correction=is_correction_record,
+                        correction_month=target_correction_month if is_correction_record else None,
+                        correction_year=target_correction_year if is_correction_record else None,
+                        correction_sequence=target_correction_sequence if is_correction_record else 1,
                     )
+                    modified_date = result['start_date']
                 else:
                     service.create_attendance(
                         staff_id=self.staff_id,
                         attendance_date=result['date'],
                         code=result['code'],
                         notes=result['notes'],
+                        is_correction=is_correction_record,
+                        correction_month=target_correction_month if is_correction_record else None,
+                        correction_year=target_correction_year if is_correction_record else None,
+                        correction_sequence=target_correction_sequence if is_correction_record else 1,
                     )
+                    modified_date = result['date']
 
             QMessageBox.information(self, "Успіх", "Відмітку додано")
             self._load_data()
             self._refresh_absence_table()
+            # Pass correction info for switching to correct tab
+            correction_info = {
+                "date": modified_date,
+                "correction_month": target_correction_month,
+                "correction_year": target_correction_year,
+            }
+            self.attendance_modified.emit(correction_info)
 
         except AttendanceConflictError as e:
             # Конфлікт дат - показуємо спеціальне повідомлення
@@ -1257,18 +1393,84 @@ class EmployeeCardDialog(QDialog):
 
         # Check if month is locked (approved by HR)
         check_date = result.get('start_date') or result.get('date') or record_date
+        check_end = result.get('end_date') or check_date
+        target_correction_month = None
+        target_correction_year = None
+        target_correction_sequence = 1
+
+        from datetime import date as date_today
         from backend.services.tabel_approval_service import TabelApprovalService
 
         with get_db_context() as db:
             approval_service = TabelApprovalService(db)
-            can_edit, reason = approval_service.can_edit_attendance(self.staff_id, check_date)
+            current_month = date_today.today().month
+            current_year = date_today.today().year
+
+            can_edit = True
+            reason = ""
+
+            # First check: is the attendance date itself in a locked month?
+            attendance_month_locked = approval_service.is_month_locked(check_date.month, check_date.year)
+
+            # Second check: does the range include any locked months?
+            locked_months_in_range = []
+            for month_to_check in range(check_date.month, check_end.month + 1):
+                year_to_check = check_date.year if month_to_check >= check_date.month else check_end.year
+                if approval_service.is_month_locked(month_to_check, year_to_check):
+                    locked_months_in_range.append((month_to_check, year_to_check))
+
+            # Priority 1: If attendance date is in a locked month -> correction for that month
+            if attendance_month_locked:
+                can_edit = False
+                month_name = MONTHS_UKR[check_date.month - 1]
+                reason = f"Період ({check_date.strftime('%B %Y')}) вже погоджено з кадрами. Зміни будуть внесені в корегуючий табель."
+                target_correction_month = check_date.month
+                target_correction_year = check_date.year
+            # Priority 2: If current month (when entry is added) is locked -> correction
+            elif approval_service.is_month_locked(current_month, current_year):
+                can_edit = False
+                reason = f"Поточний місяць ({date_today.today().strftime('%B %Y')}) вже погоджено з кадрами. Зміни будуть внесені в корегуючий табель."
+                target_correction_month = current_month
+                target_correction_year = current_year
+            # Priority 3: If range includes locked months (but attendance date is not locked) -> correction
+            elif locked_months_in_range:
+                if len(locked_months_in_range) == 1:
+                    target_correction_month, target_correction_year = locked_months_in_range[0]
+                else:
+                    target_correction_month, target_correction_year = sorted(locked_months_in_range)[0]
+
+                can_edit = False
+                month_name = MONTHS_UKR[target_correction_month - 1]
+                reason = f"Період включає заблокований місяць ({month_name} {target_correction_year}). Зміни будуть внесені в корегуючий табель."
+            else:
+                # No locked months involved - add to main tabel
+                can_edit = True
+                target_correction_month = check_date.month
+                target_correction_year = check_date.year
 
             if not can_edit:
+                # Get next sequence number for this correction month/year
+                target_correction_sequence = approval_service.get_or_create_correction_sequence(
+                    target_correction_month,
+                    target_correction_year
+                )
+
+                # Create new correction approval record
+                approval_service.record_generation(
+                    month=target_correction_month,
+                    year=target_correction_year,
+                    is_correction=True,
+                    correction_month=target_correction_month,
+                    correction_year=target_correction_year,
+                    correction_sequence=target_correction_sequence
+                )
+
                 reply = QMessageBox.question(
                     self,
                     "Місяць погоджено з кадрами",
                     f"{reason}\n\n"
-                    "Бажаєте продовжити? Зміни буде внесено в корегуючий табель.",
+                    f"Буде створено корегуючий табель #{target_correction_sequence} за {check_date.strftime('%B %Y')}.\n\n"
+                    "Бажаєте продовжити?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if reply != QMessageBox.StandardButton.Yes:
@@ -1286,6 +1488,13 @@ class EmployeeCardDialog(QDialog):
             QMessageBox.information(self, "Успіх", "Відмітку оновлено")
             self._load_data()
             self._refresh_absence_table()
+            # Pass correction info
+            correction_info = {
+                "date": check_date,
+                "correction_month": target_correction_month,
+                "correction_year": target_correction_year,
+            }
+            self.attendance_modified.emit(correction_info)
 
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося оновити відмітку: {e}")
@@ -1294,6 +1503,7 @@ class EmployeeCardDialog(QDialog):
         """Обробляє видалення відмітки."""
         from backend.core.database import get_db_context
         from backend.services.attendance_service import AttendanceService
+        from backend.models.staff import Staff
 
         # Показуємо діалог з полем для коментаря
         from PyQt6.QtWidgets import QInputDialog, QLineEdit
@@ -1309,20 +1519,73 @@ class EmployeeCardDialog(QDialog):
         if not ok or not comment.strip():
             return
 
+        # Get employee contract dates
+        with get_db_context() as db:
+            staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
+            term_start = staff.term_start if staff else None
+
         # Check if month is locked (approved by HR)
         record_date = record['date']
+        target_correction_month = None
+        target_correction_year = None
+        target_correction_sequence = 1
+
+        from datetime import date as date_today
         from backend.services.tabel_approval_service import TabelApprovalService
 
         with get_db_context() as db:
             approval_service = TabelApprovalService(db)
-            can_edit, reason = approval_service.can_edit_attendance(self.staff_id, record_date)
+            current_month = date_today.today().month
+            current_year = date_today.today().year
+
+            can_edit = True
+            reason = ""
+
+            # First check: is the record date itself in a locked month?
+            record_month_locked = approval_service.is_month_locked(record_date.month, record_date.year)
+
+            # Priority 1: If record date is in a locked month -> correction for that month
+            if record_month_locked:
+                can_edit = False
+                month_name = MONTHS_UKR[record_date.month - 1]
+                reason = f"Період ({record_date.strftime('%B %Y')}) вже погоджено з кадрами. Зміни будуть внесені в корегуючий табель."
+                target_correction_month = record_date.month
+                target_correction_year = record_date.year
+            # Priority 2: If current month (when entry is deleted) is locked -> correction
+            elif approval_service.is_month_locked(current_month, current_year):
+                can_edit = False
+                reason = f"Поточний місяць ({date_today.today().strftime('%B %Y')}) вже погоджено з кадрами. Зміни будуть внесені в корегуючий табель."
+                target_correction_month = current_month
+                target_correction_year = current_year
+            else:
+                # No locked months involved - delete from main tabel
+                can_edit = True
+                target_correction_month = record_date.month
+                target_correction_year = record_date.year
 
             if not can_edit:
+                # Get next sequence number for this correction month/year
+                target_correction_sequence = approval_service.get_or_create_correction_sequence(
+                    target_correction_month,
+                    target_correction_year
+                )
+
+                # Create new correction approval record
+                approval_service.record_generation(
+                    month=target_correction_month,
+                    year=target_correction_year,
+                    is_correction=True,
+                    correction_month=target_correction_month,
+                    correction_year=target_correction_year,
+                    correction_sequence=target_correction_sequence
+                )
+
                 reply = QMessageBox.question(
                     self,
                     "Місяць погоджено з кадрами",
                     f"{reason}\n\n"
-                    "Бажаєте продовжити? Запис буде видалено в корегуючому табелі.",
+                    f"Буде створено корегуючий табель #{target_correction_sequence} за {record_date.strftime('%B %Y')}.\n\n"
+                    "Бажаєте продовжити?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if reply != QMessageBox.StandardButton.Yes:
@@ -1337,6 +1600,13 @@ class EmployeeCardDialog(QDialog):
             QMessageBox.information(self, "Успіх", "Відмітку видалено")
             self._load_data()
             self._refresh_absence_table()
+            # Pass correction info
+            correction_info = {
+                "date": record_date,
+                "correction_month": target_correction_month,
+                "correction_year": target_correction_year,
+            }
+            self.attendance_modified.emit(correction_info)
 
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося видалити відмітку: {e}")

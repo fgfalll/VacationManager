@@ -705,8 +705,72 @@ class StaffTab(QWidget):
 
     def _view_documents(self):
         """Відкриває список документів співробітника."""
-        # TODO: Реалізувати перегляд документів
-        pass
+        from backend.core.database import get_db_context
+        from backend.models.document import Document, DocumentType, DocumentStatus
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QPushButton, QHBoxLayout
+        from datetime import date
+
+        item = self.table.currentItem()
+        if not item:
+            return
+
+        staff_ids = self.table.item(item.row(), 0).data(Qt.ItemDataRole.UserRole)
+        if isinstance(staff_ids, list) and len(staff_ids) > 1:
+            # Use first staff_id for now
+            staff_id = staff_ids[0]
+        else:
+            staff_id = staff_ids
+
+        # Get staff name
+        with get_db_context() as db:
+            from backend.models.staff import Staff
+            staff = db.query(Staff).filter(Staff.id == staff_id).first()
+            if not staff:
+                return
+            staff_name = staff.pib_nom
+
+            # Get documents
+            documents = db.query(Document).filter(
+                Document.staff_id == staff_id,
+                Document.status == DocumentStatus.PROCESSED
+            ).order_by(Document.date_start.desc()).all()
+
+        # Create dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Документи: {staff_name}")
+        dialog.setMinimumWidth(700)
+        dialog.setMinimumHeight(400)
+
+        layout = QVBoxLayout(dialog)
+
+        # Table
+        table = QTableWidget()
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["ID", "Тип", "Дата початку", "Дата завершення", "Статус"])
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.setRowCount(len(documents))
+
+        for row, doc in enumerate(documents):
+            table.setItem(row, 0, QTableWidgetItem(str(doc.id)))
+            table.setItem(row, 1, QTableWidgetItem(doc.doc_type.value))
+            table.setItem(row, 2, QTableWidgetItem(doc.date_start.strftime("%d.%m.%Y")))
+            table.setItem(row, 3, QTableWidgetItem(doc.date_end.strftime("%d.%m.%Y")))
+            table.setItem(row, 4, QTableWidgetItem(doc.status.value))
+
+        layout.addWidget(QLabel(f"<b>Документи працівника: {staff_name}</b>"))
+        layout.addWidget(table)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        close_btn = QPushButton("Закрити")
+        close_btn.clicked.connect(dialog.accept)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
+
+        dialog.exec()
 
     def _show_employee_card(self):
         """Відкриває картку працівника."""
@@ -769,6 +833,8 @@ class StaffTab(QWidget):
         # Connect signals for document actions
         dialog.edit_document.connect(self._on_edit_document)
         dialog.delete_document.connect(self._on_delete_document)
+        # Connect signal to refresh tabel tab when attendance is modified
+        dialog.attendance_modified.connect(self._on_attendance_modified)
 
         # Use open() instead of exec() to allow non-blocking signal handling
         # After dialog closes, refresh the table
@@ -921,6 +987,8 @@ class StaffTab(QWidget):
             card_dialog.edit_document.connect(self._on_edit_document)
             card_dialog.delete_document.connect(self._on_delete_document)
             card_dialog.finished.connect(lambda result: refresh_table())
+            # Connect signal to refresh tabel tab when attendance is modified
+            card_dialog.attendance_modified.connect(self._on_attendance_modified)
             card_dialog.open()
 
         table.itemDoubleClicked.connect(on_double_click)
@@ -938,10 +1006,23 @@ class StaffTab(QWidget):
 
         dialog.exec()
 
+    def _on_attendance_modified(self, correction_info=None):
+        """Викликається при зміні відвідуваності - оновлює табель."""
+        # Get main window and refresh tabel tab
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'refresh_tabel_tab'):
+                parent.refresh_tabel_tab(correction_info)
+                break
+            parent = parent.parent()
+
     def refresh_documents(self):
-        """Оновлює список документів (слот для сигналу)."""
-        # TODO: Оновити список документів
-        pass
+        """Оновлює список документів (слот для сигналу).
+
+        Викликається коли документ створено у конструкторі заяв.
+        """
+        # Refresh main staff data to update any cached document info
+        self._load_data()
 
     def refresh(self):
         """Оновлює дані вкладки."""

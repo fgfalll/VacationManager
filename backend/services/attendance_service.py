@@ -7,10 +7,16 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from backend.models.attendance import Attendance, WEEKEND_DAYS
+from backend.services.tabel_approval_service import TabelApprovalService
 
 
 class AttendanceConflictError(Exception):
     """Виключення при конфлікті дат у записах відвідуваності."""
+    pass
+
+
+class AttendanceLockedError(Exception):
+    """Виключення при спробі змінити заблокований (затверджений) запис."""
     pass
 
 
@@ -25,6 +31,37 @@ class AttendanceService:
             db: Сесія бази даних
         """
         self.db = db
+        self.approval_service = TabelApprovalService(db)
+
+    def check_locking(
+        self,
+        check_date: date,
+        is_correction: bool = False,
+        correction_month: Optional[int] = None,
+        correction_year: Optional[int] = None,
+        correction_sequence: Optional[int] = None,
+    ):
+        """
+        Перевіряє, чи заблокована дата/період для змін.
+         Raises AttendanceLockedError if locked.
+        """
+        if is_correction:
+            # Check specific correction sequence
+            if correction_month is None or correction_year is None or correction_sequence is None:
+                # Should not happen for correction records, but safety check
+                return
+            
+            if self.approval_service.is_correction_locked(correction_month, correction_year, correction_sequence):
+                 raise AttendanceLockedError(
+                    f"Коригуючий табель за {correction_month:02}.{correction_year} (версія {correction_sequence}) вже затверджено. Зміни заборонено."
+                )
+        else:
+            # Check regular month
+            if self.approval_service.is_month_locked(check_date.month, check_date.year):
+                raise AttendanceLockedError(
+                    f"Табель за {check_date.strftime('%m.%Y')} вже затверджено. "
+                    f"Для внесення змін створіть коригуючий табель."
+                )
 
     def create_attendance(
         self,
@@ -116,6 +153,10 @@ class AttendanceService:
         code: str,
         hours: Decimal = Decimal("8.0"),
         notes: Optional[str] = None,
+        is_correction: bool = False,
+        correction_month: Optional[int] = None,
+        correction_year: Optional[int] = None,
+        correction_sequence: int = 1,
     ) -> Attendance:
         """
         Створює запис відвідуваності для одного дня.
@@ -125,14 +166,28 @@ class AttendanceService:
             attendance_date: Дата
             code: Літерний код відвідуваності
             hours: Кількість годин
-            notes: Примечания
+            notes: Примітки
+            is_correction: Чи є це записом корегуючого табеля
+            correction_month: Місяць, що коригується
+            correction_year: Рік, що коригується
+            correction_sequence: Номер послідовності корекції
 
         Returns:
             Attendance: Створений запис
 
         Raises:
             AttendanceConflictError: Якщо є конфліктуючі записи
+            AttendanceLockedError: Якщо місяць/корекція затверджені
         """
+        # Перевіряємо блокування
+        self.check_locking(
+            attendance_date, 
+            is_correction, 
+            correction_month, 
+            correction_year, 
+            correction_sequence
+        )
+
         # Перевіряємо на конфлікти
         conflicts = self.check_conflicts(staff_id, attendance_date)
         if conflicts:
@@ -150,6 +205,10 @@ class AttendanceService:
             code=code,
             hours=hours,
             notes=notes,
+            is_correction=is_correction,
+            correction_month=correction_month,
+            correction_year=correction_year,
+            correction_sequence=correction_sequence,
         )
         self.db.add(attendance)
         self.db.commit()
@@ -165,6 +224,10 @@ class AttendanceService:
         hours: Decimal = Decimal("8.0"),
         notes: Optional[str] = None,
         skip_weekends: bool = True,
+        is_correction: bool = False,
+        correction_month: Optional[int] = None,
+        correction_year: Optional[int] = None,
+        correction_sequence: int = 1,
     ) -> Attendance:
         """
         Створює запис відвідуваності для діапазону дат (один запис з date_end).
@@ -177,13 +240,27 @@ class AttendanceService:
             hours: Кількість годин за день
             notes: Примітки
             skip_weekends: Чи пропускати вихідні дні (для візуалізації, не впливає на зберігання)
+            is_correction: Чи є це записом корегуючого табеля
+            correction_month: Місяць, що коригується
+            correction_year: Рік, що коригується
+            correction_sequence: Номер послідовності корекції
 
         Returns:
             Attendance: Створений запис з діапазоном дат
 
         Raises:
             AttendanceConflictError: Якщо є конфліктуючі записи
+            AttendanceLockedError: Якщо місяць/корекція затверджені
         """
+        # Перевіряємо блокування
+        self.check_locking(
+            start_date, 
+            is_correction, 
+            correction_month, 
+            correction_year, 
+            correction_sequence
+        )
+
         # Перевіряємо на конфлікти
         conflicts = self.check_conflicts(staff_id, start_date, end_date)
         if conflicts:
@@ -202,6 +279,10 @@ class AttendanceService:
             code=code,
             hours=hours,
             notes=notes,
+            is_correction=is_correction,
+            correction_month=correction_month,
+            correction_year=correction_year,
+            correction_sequence=correction_sequence,
         )
         self.db.add(attendance)
         self.db.commit()
@@ -274,10 +355,22 @@ class AttendanceService:
 
         Returns:
             Attendance | None: Оновлений запис або None
+            
+        Raises:
+            AttendanceLockedError: Якщо запис заблоковано
         """
         attendance = self.get_attendance_by_id(attendance_id)
         if not attendance:
             return None
+
+        # Check if EXISTING record is locked
+        self.check_locking(
+            attendance.date,
+            attendance.is_correction,
+            attendance.correction_month,
+            attendance.correction_year,
+            attendance.correction_sequence
+        )
 
         if code is not None:
             attendance.code = code
@@ -300,10 +393,22 @@ class AttendanceService:
 
         Returns:
             bool: True якщо видалено, False якщо не знайдено
+
+        Raises:
+            AttendanceLockedError: Якщо запис заблоковано
         """
         attendance = self.get_attendance_by_id(attendance_id)
         if not attendance:
             return False
+
+        # Check locking before delete
+        self.check_locking(
+            attendance.date,
+            attendance.is_correction,
+            attendance.correction_month,
+            attendance.correction_year,
+            attendance.correction_sequence
+        )
 
         # Зберігаємо коментар перед видаленням
         if notes:
@@ -329,7 +434,26 @@ class AttendanceService:
 
         Returns:
             int: Кількість видалених записів
+
+        Raises:
+            AttendanceLockedError: Якщо хоча б один запис у діапазоні заблоковано
         """
+        # Спочатку знаходимо що видалятимемо, щоб перевірити блокування
+        to_delete = self.db.query(Attendance).filter(
+            Attendance.staff_id == staff_id,
+            Attendance.date >= start_date,
+            Attendance.date <= end_date,
+        ).all()
+        
+        for record in to_delete:
+             self.check_locking(
+                record.date,
+                record.is_correction,
+                record.correction_month,
+                record.correction_year,
+                record.correction_sequence
+            )
+
         deleted = self.db.query(Attendance).filter(
             Attendance.staff_id == staff_id,
             Attendance.date >= start_date,

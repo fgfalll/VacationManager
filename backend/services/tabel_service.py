@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -260,6 +260,8 @@ def get_day_status(
     vacations: list[Document],
     weekends: set[int] = WEEKEND_DAYS,
     is_correction: bool = False,
+    show_work_days: bool = True,
+    is_new_employee: bool = False,
 ) -> DayStatus:
     """
     Визначає статус дня для працівника.
@@ -273,9 +275,9 @@ def get_day_status(
     - Робочі дні: "Р" (години показуються лише в підсумках для фахівців)
 
     Для корегуючого табеля:
-    - Дні перед початком контракту: закреслені (новий працівник ретроактивно)
-    - Дні після початку контракту: Р (робочі дні)
-    - Кінцеві дати контракту: НЕ закреслюються
+    - Дні перед початком контракту: закреслені, порожні
+    - Дні від початку контракту: "Р" (робочі дні) - бо основний табель мав би ці дні
+    - Дні з корекцією: показують код відвідуваності
 
     Args:
         current_date: Поточна дата
@@ -284,6 +286,7 @@ def get_day_status(
         vacations: Список документів відпусток
         weekends: Множина вихідних днів тижня
         is_correction: True якщо це корегуючий табель
+        show_work_days: Для корегуючого табеля - показувати "Р" для днів від контракту
 
     Returns:
         DayStatus: Статус дня
@@ -292,10 +295,12 @@ def get_day_status(
     # End dates are NOT strikethrough in correction mode
     if is_correction:
         if current_date < staff.term_start:
-            # Before contract started - strikethrough, empty
-            return DayStatus(code="", strikethrough=True, disabled=True)
-        # After contract started (or after end) - show as normal work day
-        # No strikethrough for end dates in correction mode
+            # Before contract started
+            # If new employee: strikethrough (because they need full table)
+            # If existing: empty (because main table has strikethrough)
+            should_strikethrough = True if is_new_employee else False
+            return DayStatus(code="", strikethrough=should_strikethrough, disabled=True)
+        # After contract started - continue to logic below
     else:
         # Normal mode: strikethrough for both before start AND after end
         if current_date < staff.term_start:
@@ -317,7 +322,28 @@ def get_day_status(
                 weekend=current_date.weekday() in weekends,
             )
 
-    # Check if weekend
+    # In correction mode, days from contract start show "Р" (working days)
+    # because the main tabel should have had these as working days
+    if is_correction:
+        # Check if weekend - weekends are empty in correction mode too
+        if current_date.weekday() in weekends:
+            return DayStatus(code="", weekend=True)
+
+        # Check for vacation (processed documents)
+        for vacation in vacations:
+            if vacation.date_start <= current_date <= vacation.date_end:
+                if vacation.doc_type == DocumentType.VACATION_PAID:
+                    return DayStatus(code="В")  # Оплачувана відпустка
+                elif vacation.doc_type == DocumentType.VACATION_UNPAID:
+                    return DayStatus(code="НА")  # Відпустка без збереження зарплати за згодою
+
+        # Default for correction mode:
+        # If new employee: show "P" (Working Day) - full table needed
+        # If existing: show empty (Changes only)
+        default_code = "Р" if is_new_employee else ""
+        return DayStatus(code=default_code, hours="")
+
+    # Normal mode - check weekends
     if current_date.weekday() in weekends:
         return DayStatus(code="", weekend=True)
 
@@ -438,6 +464,7 @@ def get_employee_data(
     vacations: list[Document],
     db=None,
     is_correction: bool = False,
+    is_new_employee: bool = False,
 ) -> EmployeeData:
     """
     Збирає дані працівника для табеля.
@@ -514,7 +541,12 @@ def get_employee_data(
 
     for day in range(1, days_in_month + 1):
         current_date = date(year, month, day)
-        day_status = get_day_status(current_date, staff, attendance_records, vacations, is_correction=is_correction)
+        day_status = get_day_status(
+            current_date, staff, attendance_records, vacations,
+            is_correction=is_correction, 
+            show_work_days=not is_correction,
+            is_new_employee=is_new_employee
+        )
         days.append(day_status)
 
         if day_status.code == "Р":
@@ -743,6 +775,7 @@ def generate_tabel_html(
     is_correction: bool = False,
     correction_month: int | None = None,
     correction_year: int | None = None,
+    department_name: str | None = None,
 ) -> str:
     """
     Генерує HTML табеля для заданого місяця та року.
@@ -757,6 +790,7 @@ def generate_tabel_html(
         is_correction: True для корегуючого табеля
         correction_month: Місяць, що коригується (для корегуючих табелів)
         correction_year: Рік, що коригується (для корегуючих табелів)
+        department_name: Назва підрозділу (опціонально)
 
     Returns:
         str: HTML код табеля
@@ -766,159 +800,21 @@ def generate_tabel_html(
     responsible_person = ""
     department_head = ""
     hr_person = ""
-    department_name = ""
-
+    
+    # Use provided department name or default to empty (will be fetched if None)
+    # Actually, we keep it as None to know if we need to fetch it
+    
     logger.info(f"Starting generate_tabel_html: month={month}, year={year}, is_correction={is_correction}")
 
     try:
         with get_db_context() as db:
-            # Get department name from settings
-            department_name = SystemSettings.get_value(db, "department_name", "")
+            # Get department name from settings if not provided
+            if department_name is None:
+                department_name = SystemSettings.get_value(db, "department_name", "")
 
-            # Get settings
-            hr_employee_id = SystemSettings.get_value(db, "hr_signature_id", None)
-            if hr_employee_id and hr_employee_id not in ("None", "none", ""):
-                if str(hr_employee_id).startswith("custom:"):
-                    # Користувацьке ім'я - форматуємо напряму
-                    custom_name = str(hr_employee_id)[7:]
-                    hr_person = format_initials(custom_name)
-                else:
-                    hr_staff = db.query(Staff).get(int(hr_employee_id))
-                    if hr_staff:
-                        hr_person = format_initials(hr_staff.pib_nom)
-
-            month_start = date(year, month, 1)
-            month_end = date(year, month, month_days)
-
-            if is_correction:
-                # CORRECTION MODE: Get attendance records for dates BEFORE the selected month
-                # This shows retroactive entries that were added after the fact
-                correction_attendance = db.query(Attendance).filter(
-                    Attendance.date < month_start,
-                ).order_by(Attendance.date).all()
-
-                # Group by staff_id and get unique staff members with correction entries
-                staff_ids_with_corrections = set()
-                for att in correction_attendance:
-                    staff_ids_with_corrections.add(att.staff_id)
-
-                # Get staff records for these employees
-                staff_list = db.query(Staff).filter(
-                    Staff.id.in_(staff_ids_with_corrections)
-                ).order_by(Staff.pib_nom).all() if staff_ids_with_corrections else []
-
-                # Find responsible person and department head (from active staff)
-                all_active_staff = db.query(Staff).filter(
-                    Staff.is_active == True,
-                    Staff.term_end >= month_start
-                ).all()
-                for staff_member in all_active_staff:
-                    pos = staff_member.position.lower()
-                    if 'фахівець' in pos and not responsible_person:
-                        responsible_person = format_initials(staff_member.pib_nom)
-
-                    if ('завідувач кафедри' in pos or 'в.о завідувача кафедри' in pos) and not department_head:
-                        department_head = format_initials(staff_member.pib_nom)
-
-                    if responsible_person and department_head:
-                        break
-
-                # Group attendance by staff for easy lookup
-                attendance_by_staff = {}
-                for att in correction_attendance:
-                    if att.staff_id not in attendance_by_staff:
-                        attendance_by_staff[att.staff_id] = []
-                    attendance_by_staff[att.staff_id].append(att)
-
-                # Generate employee data for each staff with corrections
-                for staff in staff_list:
-                    attendance = attendance_by_staff.get(staff.id, [])
-
-                    # Get correction month/year from first attendance record
-                    if attendance:
-                        corr_month = attendance[0].date.month
-                        corr_year = attendance[0].date.year
-                        # Use correction month for vacation lookup
-                        corr_month_start = date(corr_year, corr_month, 1)
-                        corr_month_end = date(corr_year, corr_month, calendar.monthrange(corr_year, corr_month)[1])
-                    else:
-                        corr_month_start = month_start
-                        corr_month_end = month_end
-
-                    # Get vacation documents that overlap with correction period
-                    vacations = db.query(Document).filter(
-                        Document.staff_id == staff.id,
-                        Document.doc_type.in_([
-                            DocumentType.VACATION_PAID,
-                            DocumentType.VACATION_UNPAID
-                        ]),
-                        Document.status == DocumentStatus.PROCESSED,
-                        Document.date_end >= corr_month_start,
-                        Document.date_start <= corr_month_end,
-                    ).all()
-
-                    # Use the correction month for generating data
-                    corr_month_for_data = attendance[0].date.month if attendance else month
-                    corr_year_for_data = attendance[0].date.year if attendance else year
-
-                    emp_data = get_employee_data(
-                        staff, corr_month_for_data, corr_year_for_data,
-                        attendance, vacations, db, is_correction=True
-                    )
-                    employees.append(emp_data)
-
-            else:
-                # NORMAL MODE: Get employees whose contract is valid for current month
-                staff_list = db.query(Staff).filter(
-                    or_(
-                        # Active employees with contract ending this month or later
-                        and_(
-                            Staff.is_active == True,
-                            Staff.term_end >= month_start
-                        ),
-                        # Inactive employees whose contract ended this month
-                        and_(
-                            Staff.is_active == False,
-                            Staff.term_end >= month_start,
-                            Staff.term_end <= month_end
-                        )
-                    )
-                ).order_by(Staff.pib_nom).all()
-
-                # Find responsible person and department head
-                for staff_member in staff_list:
-                    pos = staff_member.position.lower()
-                    if 'фахівець' in pos and not responsible_person:
-                        responsible_person = format_initials(staff_member.pib_nom)
-
-                    if ('завідувач кафедри' in pos or 'в.о завідувача кафедри' in pos) and not department_head:
-                        department_head = format_initials(staff_member.pib_nom)
-
-                    if responsible_person and department_head:
-                        break
-
-                for staff in staff_list:
-                    # Get attendance records for this month
-                    attendance = db.query(Attendance).filter(
-                        Attendance.staff_id == staff.id,
-                        Attendance.date >= month_start,
-                        Attendance.date <= month_end,
-                    ).all()
-
-                    # Get vacation documents with processed status
-                    vacations = db.query(Document).filter(
-                        Document.staff_id == staff.id,
-                        Document.doc_type.in_([
-                            DocumentType.VACATION_PAID,
-                            DocumentType.VACATION_UNPAID
-                        ]),
-                        Document.status == DocumentStatus.PROCESSED,
-                        Document.date_end >= month_start,
-                        Document.date_start <= month_end,
-                    ).all()
-
-                    emp_data = get_employee_data(staff, month, year, attendance, vacations, db)
-                    employees.append(emp_data)
+            employees, responsible_person, department_head, hr_person = get_employees_for_tabel(
+                db, month, year, is_correction, correction_month, correction_year
+            )
 
     except Exception as e:
         # Log the error for debugging
@@ -1152,7 +1048,7 @@ def save_tabel_to_file(
         Path: Шлях до збереженого файлу
     """
     if output_dir is None:
-        output_dir = Path(__file__).parent.parent.parent / "storage" / "tabels"
+        output_dir = Path(__file__).parent.parent.parent / "tabel" / "archive"
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1169,6 +1065,331 @@ def save_tabel_to_file(
         f.write(html)
 
     return filepath
+
+
+def save_tabel_archive(
+    month: int,
+    year: int,
+    is_correction: bool = False,
+    correction_month: int | None = None,
+    correction_year: int | None = None,
+    correction_sequence: int = 1,
+    employees_data: list | None = None,
+    is_approved: bool = False,
+    output_dir: Path | None = None,
+) -> Path:
+    """
+    Зберігає компактний архів табеля у JSON форматі.
+
+    Архів містить мінімальні дані для відновлення табеля:
+    - Версія формату
+    - Місяць/рік
+    - Налаштування установи
+    - Дані працівників
+    - Метадані (час створення, версія програми)
+
+    Args:
+        month: Місяць архіву
+        year: Рік архіву
+        is_correction: Чи це корегуючий табель
+        correction_month: Місяць що коригується (для корегуючих)
+        correction_year: Рік що коригується (для корегуючих)
+        correction_sequence: Номер послідовності корекції
+        employees_data: Дані працівників (список словників)
+        is_approved: Чи погоджено табель (для архіву)
+        output_dir: Директорія для збереження
+
+    Returns:
+        Path: Шлях до збереженого архіву
+    """
+    import json
+    from datetime import datetime
+    from backend.models.settings import SystemSettings
+    from backend.core.database import get_db_context
+
+    if output_dir is None:
+        output_dir = Path(__file__).parent.parent.parent / "tabel" / "archive"
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get institution settings for archive
+    with get_db_context() as db:
+        institution_name = SystemSettings.get_value(db, "university_name", DEFAULT_INSTITUTION_NAME)
+        edrpou_code = SystemSettings.get_value(db, "edrpou_code", DEFAULT_EDRPOU_CODE)
+        department_name = SystemSettings.get_value(db, "dept_name", "")
+        department_abbr = SystemSettings.get_value(db, "dept_abbr", "")
+
+    month_name = MONTHS_UKR[month - 1]
+
+    # Build archive data with is_approved from parameter
+    archive_data = {
+        "version": "1.0",
+        "archived_at": datetime.utcnow().isoformat(),
+        "month": month,
+        "year": year,
+        "is_correction": is_correction,
+        "correction_month": correction_month,
+        "correction_year": correction_year,
+        "correction_sequence": correction_sequence,
+        "is_approved": is_approved,
+        "settings": {
+            "institution_name": institution_name,
+            "edrpou_code": edrpou_code,
+            "department_name": department_name,
+            "department_abbr": department_abbr,
+        },
+        "employees": employees_data or [],
+    }
+
+    # Format: Табель_Січень_2026.json or Табель_корегуючий_Січень_2026_#1.json
+    if is_correction:
+        filename = f"Табель_корегуючий_{month_name}_{year}_#{correction_sequence}.json"
+    else:
+        filename = f"Табель_{month_name}_{year}.json"
+    filepath = output_dir / filename
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(archive_data, f, ensure_ascii=False, indent=2)
+
+    return filepath
+
+
+def reconstruct_tabel_from_archive(archive_path: Path) -> dict:
+    """
+    Відновлює дані табеля з архіву.
+
+    Args:
+        archive_path: Шлях до JSON архіву
+
+    Returns:
+        dict: Словник з даними для відтворення табеля
+            - month: Місяць
+            - year: Рік
+            - is_correction: Чи корегуючий
+            - correction_month: Місяць що коригується
+            - correction_year: Рік що коригується
+            - settings: Налаштування
+            - employees: Дані працівників
+            - archived_at: Час архівування
+            - is_approved: Чи погоджено
+    """
+    import json
+
+    with open(archive_path, 'r', encoding='utf-8') as f:
+        archive_data = json.load(f)
+
+    return archive_data
+
+
+def reconstruct_tabel_html_from_archive(archive_data: dict) -> str:
+    """
+    Генерує HTML табеля з архівних даних.
+
+    Args:
+        archive_data: Дані архіву (словник з month, year, settings, employees, etc.)
+
+    Returns:
+        str: HTML код табеля для відображення
+    """
+    from datetime import datetime
+
+    month = archive_data["month"]
+    year = archive_data["year"]
+    is_correction = archive_data.get("is_correction", False)
+    correction_month = archive_data.get("correction_month")
+    correction_year = archive_data.get("correction_year")
+    settings = archive_data.get("settings", {})
+    employees_data = archive_data.get("employees", [])
+
+    _, month_days = calendar.monthrange(year, month)
+
+    # Build employee data objects for the template
+    employees = []
+    for emp in employees_data:
+        emp_obj = {
+            "staff_id": emp.get("staff_id", 0),
+            "pib_nom": emp.get("pib_nom", ""),
+            "degree": emp.get("degree", ""),
+            "position": emp.get("position", ""),
+            "rate": emp.get("rate", 1.0),
+            "days": [],
+            "absence": {},
+            "totals": {
+                "work_days": 0,
+                "work_hours": "0,00",
+            }
+        }
+
+        # Build days array (31 days)
+        days_dict = {d["day"]: d for d in emp.get("days", [])}
+        for day in range(1, month_days + 1):
+            if day in days_dict:
+                day_data = days_dict[day]
+                emp_obj["days"].append({
+                    "day": day,
+                    "code": day_data.get("code", ""),
+                    "hours": day_data.get("hours", 0),
+                    "notes": day_data.get("notes", ""),
+                })
+            else:
+                emp_obj["days"].append({
+                    "day": day,
+                    "code": "",
+                    "hours": 0,
+                    "notes": "",
+                })
+
+        # Calculate totals from days
+        work_days = sum(1 for d in emp_obj["days"] if d["code"] and d["code"] not in ["В", "с", "ч", "нв", "пв"])
+        work_hours = sum(d["hours"] for d in emp_obj["days"] if d["code"] and d["code"] not in ["В", "с", "ч", "нв", "пв"])
+        emp_obj["totals"]["work_days"] = work_days
+        emp_obj["totals"]["work_hours"] = f"{work_hours:.2f}".replace(".", ",")
+
+        employees.append(emp_obj)
+
+    # For correction tabels, use the correction month/year for title
+    if is_correction and correction_month and correction_year:
+        title_month = correction_month
+        title_year = correction_year
+    else:
+        title_month = month
+        title_year = year
+
+    # Generate HTML using template
+    if is_correction:
+        env = get_jinja_env_correction()
+    else:
+        env = get_jinja_env()
+
+    template = env.get_template("tabel_template.html")
+
+    template_data = {
+        "institution_name": settings.get("institution_name", DEFAULT_INSTITUTION_NAME),
+        "edrpou_code": settings.get("edrpou_code", DEFAULT_EDRPOU_CODE),
+        "department_name": settings.get("department_name", ""),
+        "month_name": MONTHS_UKR[title_month - 1],
+        "month_genitive": MONTHS_GENITIVE[title_month - 1],
+        "month_days": month_days,
+        "generation_date": datetime.now().strftime("%d.%m.%Y"),
+        "month_start": date(title_year, title_month, 1).strftime("%d.%m.%Y"),
+        "month_end": date(title_year, title_month, month_days).strftime("%d.%m.%Y"),
+        "correction_start": "",
+        "correction_end": "",
+        "title_year": str(title_year),
+        "title_month": title_month,
+        "employees": employees,
+        "page_number": 1,
+        "total_pages": 1,
+        "show_monthly_totals": False,
+        "is_correction": is_correction,
+        "totals": {
+            "work_days": sum(e["totals"]["work_days"] for e in employees),
+            "work_hours": f"{sum(float(e['totals']['work_hours'].replace(',', '.')) for e in employees):.2f}".replace(".", ","),
+            "days": [0] * 31,
+            "absence": {},
+        },
+        "responsible_person": "",
+        "department_head": "",
+        "hr_person": "",
+    }
+
+    html = template.render(**template_data)
+    return html
+
+
+def list_tabel_archives(output_dir: Path | None = None) -> list[dict]:
+    """
+    Повертає список архівів табелів з групуванням по основних табелях.
+
+    Структура:
+    - main_tabels: Основні табелі (не корегуючі) з вкладеними corrections
+    - orphan_corrections: Корегуючі табелі без основного табеля
+
+    Args:
+        output_dir: Директорія з архівами
+
+    Returns:
+        dict: Словник з 'main_tabels' та 'orphan_corrections'
+    """
+    import json
+    from datetime import datetime
+
+    if output_dir is None:
+        output_dir = Path(__file__).parent.parent.parent / "tabel" / "archive"
+
+    if not output_dir.exists():
+        return {"main_tabels": [], "orphan_corrections": []}
+
+    # First, collect all archives
+    all_archives = []
+    for filepath in output_dir.glob("*.json"):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # Parse archived date
+            archived_at = datetime.fromisoformat(data.get("archived_at", ""))
+
+            # Build display name
+            month_name = MONTHS_UKR[data["month"] - 1]
+            if data.get("is_correction"):
+                corr_month_name = MONTHS_UKR[data["correction_month"] - 1] if data.get("correction_month") else "?"
+                display_name = f"↳ Корег. ({corr_month_name} {data['correction_year']})"
+            else:
+                display_name = f"{month_name} {data['year']}"
+
+            archive_info = {
+                "month": data["month"],
+                "year": data["year"],
+                "is_correction": data.get("is_correction", False),
+                "correction_month": data.get("correction_month"),
+                "correction_year": data.get("correction_year"),
+                "display_name": display_name,
+                "path": filepath,
+                "archived_at": archived_at,
+                "is_approved": data.get("is_approved", False),
+            }
+            all_archives.append(archive_info)
+        except (json.JSONDecodeError, KeyError, OSError) as e:
+            logger.warning(f"Failed to read archive {filepath}: {e}")
+            continue
+
+    # Sort by archived_at (newest first)
+    all_archives.sort(key=lambda x: x["archived_at"], reverse=True)
+
+    # Separate main tabels and corrections
+    main_tabels = []
+    corrections = []
+
+    for archive in all_archives:
+        if archive["is_correction"]:
+            corrections.append(archive)
+        else:
+            main_tabels.append(archive)
+
+    # Group corrections under their main tabel
+    result_main_tabels = []
+    for main in main_tabels:
+        main_entry = main.copy()
+        main_entry["corrections"] = []
+        # Find corrections for this main tabel (same month/year)
+        for corr in corrections:
+            if corr["month"] == main["month"] and corr["year"] == main["year"]:
+                main_entry["corrections"].append(corr)
+        result_main_tabels.append(main_entry)
+
+    # Collect orphan corrections (no matching main tabel)
+    used_correction_paths = set()
+    for main in result_main_tabels:
+        for corr in main["corrections"]:
+            used_correction_paths.add(str(corr["path"]))
+
+    orphan_corrections = [c for c in corrections if str(c["path"]) not in used_correction_paths]
+
+    return {
+        "main_tabels": result_main_tabels,
+        "orphan_corrections": orphan_corrections
+    }
 
 
 def _wrap_tabel_html_for_pdf(html_content: str) -> str:
@@ -1520,3 +1741,213 @@ def generate_tabel_with_title(
     else:
         logger.warning(f"DOCX template not found: {docx_template}")
         return html, final_path, None
+
+
+def get_employees_for_tabel(
+    db,
+    month: int,
+    year: int,
+    is_correction: bool = False,
+    correction_month: int | None = None,
+    correction_year: int | None = None,
+) -> tuple[list[EmployeeData], str, str, str]:
+    """
+    Retrieves and prepares employee data for the tabel, including responsible persons.
+    Handles both normal and correction modes.
+
+    Args:
+        db: Database session
+        month: Month (1-12)
+        year: Year
+        is_correction: True for correction tabel
+        correction_month: Month being corrected
+        correction_year: Year being corrected
+
+    Returns:
+        tuple: (
+            employees: list[EmployeeData],
+            responsible_person: str,
+            department_head: str,
+            hr_person: str
+        )
+    """
+    # Imports are already at module level, but we can verify
+    # from sqlalchemy import or_, and_
+    # from backend.models import Staff, Attendance, Document, DocumentType, DocumentStatus, SystemSettings
+
+    employees: list[EmployeeData] = []
+    
+    # Get days in month
+    _, month_days = calendar.monthrange(year, month)
+    month_start = date(year, month, 1)
+    month_end = date(year, month, month_days)
+
+    responsible_person = ""
+    department_head = ""
+    hr_person = ""
+
+    # Get HR signature from settings
+    hr_employee_id = SystemSettings.get_value(db, "hr_signature_id", None)
+    if hr_employee_id and hr_employee_id not in ("None", "none", ""):
+        if str(hr_employee_id).startswith("custom:"):
+            custom_name = str(hr_employee_id)[7:]
+            hr_person = format_initials(custom_name)
+        else:
+            hr_staff = db.query(Staff).get(int(hr_employee_id))
+            if hr_staff:
+                hr_person = format_initials(hr_staff.pib_nom)
+
+    if is_correction:
+        # CORRECTION MODE: Get attendance records marked as corrections for THIS month
+        # Only show employees who:
+        # 1. Have correction attendance records for THIS month, OR
+        # 2. Were added AFTER this month was locked AND their contract started in this month
+        correction_attendance = db.query(Attendance).filter(
+            Attendance.date >= month_start,
+            Attendance.date <= month_end,
+            Attendance.is_correction == True,
+            Attendance.correction_month == correction_month,
+            Attendance.correction_year == correction_year,
+        ).order_by(Attendance.date).all()
+
+        # Group by staff_id and get unique staff members with corrections for THIS month
+        staff_ids_with_corrections = set()
+        for att in correction_attendance:
+            staff_ids_with_corrections.add(att.staff_id)
+
+        # Calculate when this correction month was locked (1st of next month at 00:00:00)
+        if month == 12:
+            lock_month = 1
+            lock_year = year + 1
+        else:
+            lock_month = month + 1
+            lock_year = year
+        lock_date = datetime(lock_year, lock_month, 1, 0, 0, 0)
+
+        # Include employees whose contract started in this correction month
+        # AND who were added AFTER the month was locked
+        staff_added_after_lock = db.query(Staff).filter(
+            Staff.term_start >= month_start,
+            Staff.term_start <= month_end,
+            Staff.created_at >= lock_date
+        ).all()
+        
+        new_staff_ids = set()
+        for staff in staff_added_after_lock:
+            staff_ids_with_corrections.add(staff.id)
+            new_staff_ids.add(staff.id)
+
+        # If no corrections AND no new contracts for this month, return empty list
+        if not staff_ids_with_corrections:
+            employees = []
+        else:
+            # Get staff records for these employees
+            staff_list = db.query(Staff).filter(
+                Staff.id.in_(staff_ids_with_corrections)
+            ).order_by(Staff.pib_nom).all() if staff_ids_with_corrections else []
+
+            # Find responsible person and department head (from active staff)
+            all_active_staff = db.query(Staff).filter(
+                Staff.is_active == True,
+                Staff.term_end >= month_start
+            ).all()
+            for staff_member in all_active_staff:
+                pos = staff_member.position.lower()
+                if 'фахівець' in pos and not responsible_person:
+                    responsible_person = format_initials(staff_member.pib_nom)
+
+                if ('завідувач кафедри' in pos or 'в.о завідувача кафедри' in pos) and not department_head:
+                    department_head = format_initials(staff_member.pib_nom)
+
+                if responsible_person and department_head:
+                    break
+
+            # Group attendance by staff for easy lookup
+            attendance_by_staff = {}
+            for att in correction_attendance:
+                if att.staff_id not in attendance_by_staff:
+                    attendance_by_staff[att.staff_id] = []
+                attendance_by_staff[att.staff_id].append(att)
+
+            # Generate employee data for each staff with corrections
+            for staff in staff_list:
+                attendance = attendance_by_staff.get(staff.id, [])
+
+                # Get vacation documents that overlap with correction period
+                vacations = db.query(Document).filter(
+                    Document.staff_id == staff.id,
+                    Document.doc_type.in_([
+                        DocumentType.VACATION_PAID,
+                        DocumentType.VACATION_UNPAID
+                    ]),
+                    Document.status == DocumentStatus.PROCESSED,
+                    Document.date_end >= month_start,
+                    Document.date_start <= month_end,
+                ).all()
+
+                # Generate correction data for this employee
+                is_new_employee_flag = staff.id in new_staff_ids
+                
+                emp_data = get_employee_data(
+                    staff, month, year,
+                    attendance, vacations, db, 
+                    is_correction=True,
+                    is_new_employee=is_new_employee_flag
+                )
+                employees.append(emp_data)
+
+    else:
+        # NORMAL MODE: Get employees whose contract is valid for current month
+        staff_list = db.query(Staff).filter(
+            or_(
+                # Active employees with contract ending this month or later
+                and_(
+                    Staff.is_active == True,
+                    Staff.term_end >= month_start
+                ),
+                # Inactive employees whose contract ended this month
+                and_(
+                    Staff.is_active == False,
+                    Staff.term_end >= month_start,
+                    Staff.term_end <= month_end
+                )
+            )
+        ).order_by(Staff.pib_nom).all()
+
+        # Find responsible person and department head
+        for staff_member in staff_list:
+            pos = staff_member.position.lower()
+            if 'фахівець' in pos and not responsible_person:
+                responsible_person = format_initials(staff_member.pib_nom)
+
+            if ('завідувач кафедри' in pos or 'в.о завідувача кафедри' in pos) and not department_head:
+                department_head = format_initials(staff_member.pib_nom)
+
+            if responsible_person and department_head:
+                break
+
+        for staff in staff_list:
+            # Get attendance records for this month (excluding corrections)
+            attendance = db.query(Attendance).filter(
+                Attendance.staff_id == staff.id,
+                Attendance.date >= month_start,
+                Attendance.date <= month_end,
+                Attendance.is_correction == False,
+            ).all()
+
+            # Get vacation documents with processed status
+            vacations = db.query(Document).filter(
+                Document.staff_id == staff.id,
+                Document.doc_type.in_([
+                    DocumentType.VACATION_PAID,
+                    DocumentType.VACATION_UNPAID
+                ]),
+                Document.status == DocumentStatus.PROCESSED,
+                Document.date_end >= month_start,
+                Document.date_start <= month_end,
+            ).all()
+
+            emp_data = get_employee_data(staff, month, year, attendance, vacations, db)
+            employees.append(emp_data)
+
+    return employees, responsible_person, department_head, hr_person
