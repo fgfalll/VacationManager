@@ -56,6 +56,9 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.builder_tab, "Конструктор заяв")
         self.tabs.addTab(self.tabel_tab, "📋 Табель")
 
+        # Refresh data on app start
+        self._refresh_data()
+
         # Меню
         menubar = self.menuBar()
 
@@ -110,6 +113,10 @@ class MainWindow(QMainWindow):
         self.schedule_tab.refresh()
         self.builder_tab.refresh()
         self.tabel_tab.refresh()
+
+    def refresh_tabel_tab(self, correction_info=None):
+        """Оновлює вкладку табеля (викликається при зміні відвідуваності)."""
+        self.tabel_tab.refresh(correction_info)
 
     def _show_about(self):
         """Показує інформацію про програму."""

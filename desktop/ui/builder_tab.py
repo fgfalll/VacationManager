@@ -1,6 +1,7 @@
 """Вкладка конструктора заяв з WYSIWYG редактором."""
 
 import json
+import logging
 import random
 from datetime import date, timedelta
 from decimal import Decimal
@@ -45,6 +46,8 @@ from sqlalchemy.orm import joinedload
 
 from shared.enums import DocumentType, DocumentStatus
 from desktop.ui.wysiwyg_bridge import WysiwygBridge, WysiwygEditorState
+
+logger = logging.getLogger(__name__)
 
 
 def _date_range_iter(start: date, end: date):
@@ -215,6 +218,29 @@ class BuilderTab(QWidget):
         self._setup_ui()
         self._setup_focus_handlers()
 
+    def _on_js_console_message(self, level: int, message: str, line_number: int, source_id: str):
+        """Handle JavaScript console messages."""
+        # Map QWebEnginePage.JavaScriptConsoleMessageLevel to logging levels
+        # 0: Info, 1: Warning, 2: Error
+        log_level = logging.INFO
+        prefix = "JS:INFO"
+        
+        if level == 0:
+            log_level = logging.INFO
+            prefix = "JS:INFO"
+        elif level == 1:
+            log_level = logging.WARNING
+            prefix = "JS:WARN"
+        elif level == 2:
+            log_level = logging.ERROR
+            prefix = "JS:ERROR"
+            
+        logger.log(log_level, f"{prefix} [{source_id}:{line_number}] {message}")
+        
+        # Also print to stdout for immediate debugging
+        if log_level >= logging.WARNING:
+            print(f"{prefix} [{source_id}:{line_number}] {message}")
+
     def showEvent(self, event):
         """Оновлює прев'ю при відображенні вкладки."""
         super().showEvent(event)
@@ -233,6 +259,19 @@ class BuilderTab(QWidget):
         self.select_staff_by_id(staff_id)
         self._clear_form()
         self._update_preview()
+
+    def set_vacation_dates(self, start_date: date, end_date: date):
+        """
+        Встановлює дати відпустки з графіку.
+
+        Args:
+            start_date: Початок відпустки
+            end_date: Кінець відпустки
+        """
+        self._date_ranges = [(start_date, end_date)]
+        self._parsed_dates = list(_date_range_iter(start_date, end_date))
+        self._update_ranges_list()
+        self._update_dates_info()
 
     def load_document(self, document_id: int, staff_id: int):
         """
@@ -623,6 +662,9 @@ class BuilderTab(QWidget):
         # Реєструємо міст в каналі
         self.web_channel.registerObject("pybridge", self.wysiwyg_bridge)
         self.web_view.page().setWebChannel(self.web_channel)
+        
+        # Connect console logging
+        self.web_view.page().javaScriptConsoleMessage = self._on_js_console_message
 
         # Inject QWebChannel initialization script
         channel_init_script = """
@@ -678,6 +720,9 @@ class BuilderTab(QWidget):
         # Register bridge
         web_channel.registerObject("pybridge", bridge)
         web_view.page().setWebChannel(web_channel)
+        
+        # Connect console logging
+        web_view.page().javaScriptConsoleMessage = self._on_js_console_message
 
         # Create tab name
         tab_name = f"{position}"
@@ -3282,7 +3327,7 @@ class DateRangePickerPopup(QWidget):
 
     def _setup_picker(self):
         """Створює і налаштовує віджет."""
-        from date_range_popover import DatePickerConfig, DateRangePicker, PickerMode
+        from desktop.ui.date_range_popover import DatePickerConfig, DateRangePicker, PickerMode
         from PyQt6.QtCore import QDate
 
         # min_date: 3 weeks ago, max_date: far future (year 2100)
@@ -3296,7 +3341,7 @@ class DateRangePickerPopup(QWidget):
             max_date=max_date,
         )
 
-        self._picker = DateRangePicker(config=config)
+        self._picker = DateRangePicker(config=config, parent=self)
 
         # Підключення сигналів
         self._picker.range_selected.connect(self._on_range_selected)
