@@ -22,6 +22,10 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QMessageBox,
     QCheckBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QInputDialog,
 )
 from PyQt6.QtCore import Qt
 
@@ -91,6 +95,10 @@ class SettingsDialog(QDialog):
         tabel_tab = self._create_tabel_tab()
         self.tabs.addTab(tabel_tab, "Табель")
 
+        # Вкладка "Debug" - для перегляду та редагування БД
+        debug_tab = self._create_debug_tab()
+        self.tabs.addTab(debug_tab, "🔧 Debug")
+
         # Кнопки збереження
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save |
@@ -116,6 +124,7 @@ class SettingsDialog(QDialog):
             "formatting": 3,
             "vacation": 4,
             "tabel": 5,
+            "debug": 6,
         }
         if tab in tab_map:
             self.tabs.setCurrentIndex(tab_map[tab])
@@ -573,6 +582,384 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         return widget
+
+    def _create_debug_tab(self) -> QWidget:
+        """Створює вкладку Debug для перегляду/редагування БД."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Warning label
+        warning = QLabel(
+            "⚠️ УВАГА: Цей розділ призначений для розробників. "
+            "Зміни в базі даних можуть призвести до некоректної роботи програми!"
+        )
+        warning.setStyleSheet("color: #B91C1C; font-weight: bold; padding: 10px; background: #FEE2E2; border-radius: 5px;")
+        warning.setWordWrap(True)
+        layout.addWidget(warning)
+
+        # Table selector
+        selector_layout = QHBoxLayout()
+        selector_layout.addWidget(QLabel("Таблиця:"))
+
+        self.debug_table_combo = QComboBox()
+        self._populate_table_combo()
+        self.debug_table_combo.currentIndexChanged.connect(self._load_debug_table)
+        selector_layout.addWidget(self.debug_table_combo)
+
+        load_btn = QPushButton("🔄 Завантажити")
+        load_btn.clicked.connect(self._load_debug_table)
+        selector_layout.addWidget(load_btn)
+
+        selector_layout.addStretch()
+        layout.addLayout(selector_layout)
+
+        # Filter for attendance/tabel_approval
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Фільтр (staff_id):"))
+        self.debug_filter_staff = QLineEdit()
+        self.debug_filter_staff.setPlaceholderText("Залиште порожнім для всіх")
+        self.debug_filter_staff.setMaximumWidth(100)
+        filter_layout.addWidget(self.debug_filter_staff)
+
+        filter_layout.addWidget(QLabel("is_correction:"))
+        self.debug_filter_correction = QComboBox()
+        self.debug_filter_correction.addItems(["Всі", "True", "False"])
+        self.debug_filter_correction.setMaximumWidth(100)
+        filter_layout.addWidget(self.debug_filter_correction)
+
+        filter_layout.addStretch()
+        layout.addLayout(filter_layout)
+
+        # Data table
+        self.debug_table = QTableWidget()
+        self.debug_table.setAlternatingRowColors(True)
+        self.debug_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.debug_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        self.debug_table.horizontalHeader().setStretchLastSection(True)
+        self.debug_table.cellDoubleClicked.connect(self._edit_debug_cell)
+        layout.addWidget(self.debug_table)
+
+        # Action buttons
+        actions_layout = QHBoxLayout()
+
+        edit_btn = QPushButton("✏️ Редагувати обране")
+        edit_btn.clicked.connect(self._edit_selected_record)
+        actions_layout.addWidget(edit_btn)
+
+        delete_btn = QPushButton("🗑️ Видалити обране")
+        delete_btn.clicked.connect(self._delete_selected_record)
+        delete_btn.setStyleSheet("background-color: #FEE2E2;")
+        actions_layout.addWidget(delete_btn)
+
+        actions_layout.addStretch()
+
+        copy_btn = QPushButton("📋 Копіювати")
+        copy_btn.clicked.connect(self._copy_selected_record)
+        actions_layout.addWidget(copy_btn)
+
+        sql_btn = QPushButton("📝 SQL запит")
+        sql_btn.clicked.connect(self._run_sql_query)
+        actions_layout.addWidget(sql_btn)
+
+        layout.addLayout(actions_layout)
+
+        # Record count label
+        self.debug_record_count = QLabel("Записів: 0")
+        layout.addWidget(self.debug_record_count)
+
+        return widget
+
+    def _populate_table_combo(self):
+        """Заповнює dropdown списком таблиць з бази даних."""
+        import sqlite3
+        from pathlib import Path
+
+        db_path = Path(__file__).parent.parent.parent / "vacation_manager.db"
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'alembic_%' ORDER BY name")
+            tables = [row[0] for row in cursor.fetchall()]
+            conn.close()
+
+            self.debug_table_combo.clear()
+            self.debug_table_combo.addItems(tables)
+
+        except Exception as e:
+            # Fallback to common tables if DB query fails
+            self.debug_table_combo.addItems([
+                "attendance", "staff", "documents", "tabel_approval", "settings"
+            ])
+
+    def _load_debug_table(self):
+        """Завантажує дані обраної таблиці."""
+        import sqlite3
+        from pathlib import Path
+
+        table_name = self.debug_table_combo.currentText()
+        db_path = Path(__file__).parent.parent.parent / "vacation_manager.db"
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # Build query with filters
+            query = f"SELECT * FROM {table_name}"
+            params = []
+
+            filters = []
+            staff_filter = self.debug_filter_staff.text().strip()
+            if staff_filter and table_name in ["attendance", "documents"]:
+                filters.append("staff_id = ?")
+                params.append(int(staff_filter))
+
+            correction_filter = self.debug_filter_correction.currentText()
+            if correction_filter != "Всі" and table_name in ["attendance", "tabel_approval"]:
+                filters.append("is_correction = ?")
+                params.append(1 if correction_filter == "True" else 0)
+
+            if filters:
+                query += " WHERE " + " AND ".join(filters)
+
+            query += " ORDER BY id DESC LIMIT 100"
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            if rows:
+                columns = rows[0].keys()
+                self.debug_table.setColumnCount(len(columns))
+                self.debug_table.setHorizontalHeaderLabels(list(columns))
+                self.debug_table.setRowCount(len(rows))
+
+                for row_idx, row in enumerate(rows):
+                    for col_idx, col_name in enumerate(columns):
+                        value = row[col_name]
+                        item = QTableWidgetItem(str(value) if value is not None else "NULL")
+                        item.setData(Qt.ItemDataRole.UserRole, {"column": col_name, "value": value})
+                        self.debug_table.setItem(row_idx, col_idx, item)
+
+                self.debug_record_count.setText(f"Записів: {len(rows)}")
+            else:
+                self.debug_table.setRowCount(0)
+                self.debug_table.setColumnCount(0)
+                self.debug_record_count.setText("Записів: 0")
+
+            conn.close()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося завантажити таблицю: {e}")
+
+    def _edit_debug_cell(self, row: int, col: int):
+        """Редагує вибрану комірку."""
+        item = self.debug_table.item(row, col)
+        if not item:
+            return
+
+        column_name = self.debug_table.horizontalHeaderItem(col).text()
+        current_value = item.text()
+
+        new_value, ok = QInputDialog.getText(
+            self, "Редагувати значення",
+            f"Стовпець: {column_name}\nНове значення:",
+            text=current_value
+        )
+
+        if ok:
+            # Get ID from first column
+            id_item = self.debug_table.item(row, 0)
+            record_id = int(id_item.text())
+            table_name = self.debug_table_combo.currentText()
+
+            self._update_record(table_name, record_id, column_name, new_value)
+
+    def _edit_selected_record(self):
+        """Редагує обраний запис."""
+        current_row = self.debug_table.currentRow()
+        current_col = self.debug_table.currentColumn()
+        if current_row >= 0 and current_col >= 0:
+            self._edit_debug_cell(current_row, current_col)
+
+    def _update_record(self, table_name: str, record_id: int, column: str, value: str):
+        """Оновлює запис у базі даних."""
+        import sqlite3
+        from pathlib import Path
+
+        db_path = Path(__file__).parent.parent.parent / "vacation_manager.db"
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Convert value types
+            if value.lower() == "null":
+                sql_value = None
+            elif value.lower() in ("true", "false"):
+                sql_value = 1 if value.lower() == "true" else 0
+            else:
+                try:
+                    sql_value = int(value)
+                except ValueError:
+                    sql_value = value
+
+            cursor.execute(
+                f"UPDATE {table_name} SET {column} = ? WHERE id = ?",
+                (sql_value, record_id)
+            )
+            conn.commit()
+            conn.close()
+
+            QMessageBox.information(self, "Успіх", f"Запис оновлено: {column} = {value}")
+            self._load_debug_table()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося оновити запис: {e}")
+
+    def _copy_selected_record(self):
+        """Копіює обраний запис у буфер обміну."""
+        from PyQt6.QtWidgets import QApplication
+
+        current_row = self.debug_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Увага", "Оберіть запис для копіювання")
+            return
+
+        # Collect all column values for the row
+        values = []
+        headers = []
+        for col in range(self.debug_table.columnCount()):
+            header_item = self.debug_table.horizontalHeaderItem(col)
+            if header_item:
+                headers.append(header_item.text())
+            item = self.debug_table.item(current_row, col)
+            if item:
+                values.append(item.text())
+            else:
+                values.append("")
+
+        # Format as both header: value pairs and tab-separated
+        pairs = [f"{h}: {v}" for h, v in zip(headers, values)]
+        text = "\n".join(pairs) + "\n\n" + "\t".join(values)
+
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+
+        QMessageBox.information(self, "Скопійовано", f"Запис скопійовано в буфер обміну")
+
+    def _delete_selected_record(self):
+        """Видаляє обрані записи."""
+        import sqlite3
+        from pathlib import Path
+
+        # Get all selected rows
+        selected_rows = set()
+        for item in self.debug_table.selectedItems():
+            selected_rows.add(item.row())
+
+        if not selected_rows:
+            QMessageBox.warning(self, "Увага", "Оберіть записи для видалення")
+            return
+
+        # Collect IDs from selected rows
+        record_ids = []
+        for row in selected_rows:
+            id_item = self.debug_table.item(row, 0)
+            if id_item:
+                record_ids.append(int(id_item.text()))
+
+        if not record_ids:
+            return
+
+        table_name = self.debug_table_combo.currentText()
+
+        # Confirmation message
+        if len(record_ids) == 1:
+            msg = f"Видалити запис ID={record_ids[0]} з таблиці {table_name}?"
+        else:
+            msg = f"Видалити {len(record_ids)} записів (ID: {', '.join(map(str, record_ids[:5]))}" \
+                  f"{'...' if len(record_ids) > 5 else ''}) з таблиці {table_name}?"
+
+        reply = QMessageBox.question(
+            self, "Підтвердження", msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        db_path = Path(__file__).parent.parent.parent / "vacation_manager.db"
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            
+            # Delete all selected records
+            placeholders = ",".join("?" * len(record_ids))
+            cursor.execute(f"DELETE FROM {table_name} WHERE id IN ({placeholders})", record_ids)
+            deleted_count = cursor.rowcount
+            
+            conn.commit()
+            conn.close()
+
+            QMessageBox.information(self, "Успіх", f"Видалено записів: {deleted_count}")
+            self._load_debug_table()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося видалити записи: {e}")
+
+    def _run_sql_query(self):
+        """Відкриває конструктор SQL запитів."""
+        dialog = SQLQueryBuilderDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            query = dialog.get_query()
+            if query:
+                self._execute_sql_query(query)
+
+    def _execute_sql_query(self, query: str):
+        """Виконує SQL запит."""
+        import sqlite3
+        from pathlib import Path
+
+        db_path = Path(__file__).parent.parent.parent / "vacation_manager.db"
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query.strip())
+
+            if query.strip().upper().startswith("SELECT"):
+                rows = cursor.fetchall()
+                if rows:
+                    columns = rows[0].keys()
+                    self.debug_table.setColumnCount(len(columns))
+                    self.debug_table.setHorizontalHeaderLabels(list(columns))
+                    self.debug_table.setRowCount(len(rows))
+
+                    for row_idx, row in enumerate(rows):
+                        for col_idx, col_name in enumerate(columns):
+                            value = row[col_name]
+                            item = QTableWidgetItem(str(value) if value is not None else "NULL")
+                            self.debug_table.setItem(row_idx, col_idx, item)
+
+                    self.debug_record_count.setText(f"Записів: {len(rows)}")
+                else:
+                    self.debug_table.setRowCount(0)
+                    self.debug_record_count.setText("Записів: 0")
+            else:
+                conn.commit()
+                QMessageBox.information(
+                    self, "Успіх",
+                    f"Запит виконано. Змінено рядків: {cursor.rowcount}"
+                )
+                self._load_debug_table()
+
+            conn.close()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка SQL", f"Помилка виконання запиту:\n{e}")
 
     def _add_position(self):
         """Відкриває діалог для додавання посади."""
@@ -1181,3 +1568,349 @@ class PositionSelectionDialog(QDialog):
         if current_item:
             return current_item.text()
         return None
+
+
+class SQLQueryBuilderDialog(QDialog):
+    """Діалог для візуального конструювання SQL запитів."""
+
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.conditions = []
+        self._tables = self._get_tables()
+        self._setup_ui()
+
+    def _get_tables(self) -> list[str]:
+        """Отримує список таблиць з бази даних."""
+        import sqlite3
+        from pathlib import Path
+
+        db_path = Path(__file__).parent.parent.parent / "vacation_manager.db"
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'alembic_%' ORDER BY name")
+            tables = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            return tables
+        except:
+            return ["attendance", "staff", "documents", "tabel_approval", "settings"]
+
+    def _get_columns(self, table: str) -> list[str]:
+        """Отримує список стовпців для таблиці."""
+        import sqlite3
+        from pathlib import Path
+
+        db_path = Path(__file__).parent.parent.parent / "vacation_manager.db"
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({table})")
+            columns = [row[1] for row in cursor.fetchall()]
+            conn.close()
+            return columns
+        except:
+            return ["id"]
+
+    def _setup_ui(self):
+        self.setWindowTitle("🔧 Конструктор SQL запитів")
+        self.setMinimumSize(700, 500)
+
+        layout = QVBoxLayout(self)
+
+        # Query type selector
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Тип запиту:"))
+        self.query_type = QComboBox()
+        self.query_type.addItems(["SELECT", "UPDATE", "DELETE"])
+        self.query_type.currentTextChanged.connect(self._on_type_changed)
+        type_layout.addWidget(self.query_type)
+        type_layout.addStretch()
+        layout.addLayout(type_layout)
+
+        # Table selector
+        table_layout = QHBoxLayout()
+        table_layout.addWidget(QLabel("Таблиця:"))
+        self.table_combo = QComboBox()
+        self.table_combo.addItems(self._tables)
+        self.table_combo.currentTextChanged.connect(self._on_table_changed)
+        table_layout.addWidget(self.table_combo)
+        table_layout.addStretch()
+        layout.addLayout(table_layout)
+
+        # Columns group (for SELECT)
+        self.columns_group = QGroupBox("Стовпці (SELECT)")
+        columns_layout = QVBoxLayout()
+        self.select_all_checkbox = QCheckBox("Всі стовпці (*)")
+        self.select_all_checkbox.setChecked(True)
+        self.select_all_checkbox.toggled.connect(self._on_select_all_toggled)
+        columns_layout.addWidget(self.select_all_checkbox)
+        
+        self.columns_list = QListWidget()
+        self.columns_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self.columns_list.setMaximumHeight(100)
+        columns_layout.addWidget(self.columns_list)
+        self.columns_group.setLayout(columns_layout)
+        layout.addWidget(self.columns_group)
+
+        # SET group (for UPDATE)
+        self.set_group = QGroupBox("SET (оновити значення)")
+        set_layout = QHBoxLayout()
+        self.set_column = QComboBox()
+        set_layout.addWidget(self.set_column)
+        set_layout.addWidget(QLabel("="))
+        self.set_value = QLineEdit()
+        self.set_value.setPlaceholderText("Нове значення")
+        set_layout.addWidget(self.set_value)
+        self.set_group.setLayout(set_layout)
+        self.set_group.hide()
+        layout.addWidget(self.set_group)
+
+        # WHERE conditions
+        where_group = QGroupBox("WHERE (умови)")
+        where_layout = QVBoxLayout()
+
+        # Conditions list
+        self.conditions_widget = QWidget()
+        self.conditions_layout = QVBoxLayout(self.conditions_widget)
+        self.conditions_layout.setContentsMargins(0, 0, 0, 0)
+        where_layout.addWidget(self.conditions_widget)
+
+        # Add condition button
+        add_cond_btn = QPushButton("➕ Додати умову")
+        add_cond_btn.clicked.connect(self._add_condition)
+        where_layout.addWidget(add_cond_btn)
+
+        where_group.setLayout(where_layout)
+        layout.addWidget(where_group)
+
+        # ORDER BY and LIMIT
+        options_layout = QHBoxLayout()
+        options_layout.addWidget(QLabel("ORDER BY:"))
+        self.order_combo = QComboBox()
+        self.order_combo.addItem("(немає)")
+        options_layout.addWidget(self.order_combo)
+        
+        self.order_dir = QComboBox()
+        self.order_dir.addItems(["DESC", "ASC"])
+        options_layout.addWidget(self.order_dir)
+
+        options_layout.addWidget(QLabel("LIMIT:"))
+        self.limit_spin = QSpinBox()
+        self.limit_spin.setRange(0, 10000)
+        self.limit_spin.setValue(100)
+        self.limit_spin.setSpecialValueText("(без ліміту)")
+        options_layout.addWidget(self.limit_spin)
+        options_layout.addStretch()
+        layout.addLayout(options_layout)
+
+        # Preview
+        preview_group = QGroupBox("Попередній перегляд запиту")
+        preview_layout = QVBoxLayout()
+        self.preview_text = QTextEdit()
+        self.preview_text.setMaximumHeight(80)
+        self.preview_text.setStyleSheet("font-family: monospace; background: #f5f5f5;")
+        preview_layout.addWidget(self.preview_text)
+        
+        refresh_btn = QPushButton("🔄 Оновити перегляд")
+        refresh_btn.clicked.connect(self._update_preview)
+        preview_layout.addWidget(refresh_btn)
+        preview_group.setLayout(preview_layout)
+        layout.addWidget(preview_group)
+
+        # Raw SQL mode
+        self.raw_checkbox = QCheckBox("Редагувати SQL напряму")
+        self.raw_checkbox.toggled.connect(self._on_raw_toggled)
+        layout.addWidget(self.raw_checkbox)
+
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("▶️ Виконати")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        # Initialize
+        self._on_table_changed(self.table_combo.currentText())
+        self._update_preview()
+
+    def _on_type_changed(self, query_type: str):
+        """Обробляє зміну типу запиту."""
+        self.columns_group.setVisible(query_type == "SELECT")
+        self.set_group.setVisible(query_type == "UPDATE")
+        self._update_preview()
+
+    def _on_table_changed(self, table: str):
+        """Оновлює список стовпців при зміні таблиці."""
+        columns = self._get_columns(table)
+        
+        self.columns_list.clear()
+        self.set_column.clear()
+        self.order_combo.clear()
+        self.order_combo.addItem("(немає)")
+        
+        for col in columns:
+            self.columns_list.addItem(col)
+            self.set_column.addItem(col)
+            self.order_combo.addItem(col)
+
+        # Update conditions
+        for cond in self.conditions:
+            cond["column"].clear()
+            for col in columns:
+                cond["column"].addItem(col)
+
+        self._update_preview()
+
+    def _on_select_all_toggled(self, checked: bool):
+        self.columns_list.setEnabled(not checked)
+        self._update_preview()
+
+    def _on_raw_toggled(self, checked: bool):
+        self.preview_text.setReadOnly(not checked)
+        if checked:
+            self.preview_text.setStyleSheet("font-family: monospace; background: white;")
+        else:
+            self.preview_text.setStyleSheet("font-family: monospace; background: #f5f5f5;")
+
+    def _add_condition(self):
+        """Додає нову умову WHERE."""
+        cond_widget = QWidget()
+        cond_layout = QHBoxLayout(cond_widget)
+        cond_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Connector (AND/OR)
+        connector = QComboBox()
+        connector.addItems(["AND", "OR"])
+        connector.setMaximumWidth(60)
+        if not self.conditions:
+            connector.hide()
+        cond_layout.addWidget(connector)
+
+        # Column
+        column = QComboBox()
+        columns = self._get_columns(self.table_combo.currentText())
+        for col in columns:
+            column.addItem(col)
+        cond_layout.addWidget(column)
+
+        # Operator
+        operator = QComboBox()
+        operator.addItems(["=", "!=", ">", "<", ">=", "<=", "LIKE", "IS NULL", "IS NOT NULL"])
+        operator.currentTextChanged.connect(lambda: self._on_operator_changed(operator, value))
+        cond_layout.addWidget(operator)
+
+        # Value
+        value = QLineEdit()
+        value.setPlaceholderText("Значення")
+        cond_layout.addWidget(value)
+
+        # Remove button
+        remove_btn = QPushButton("❌")
+        remove_btn.setMaximumWidth(30)
+        remove_btn.clicked.connect(lambda: self._remove_condition(cond_widget))
+        cond_layout.addWidget(remove_btn)
+
+        self.conditions.append({
+            "widget": cond_widget,
+            "connector": connector,
+            "column": column,
+            "operator": operator,
+            "value": value,
+        })
+        self.conditions_layout.addWidget(cond_widget)
+        self._update_preview()
+
+    def _on_operator_changed(self, operator: QComboBox, value: QLineEdit):
+        """Ховає поле значення для IS NULL/IS NOT NULL."""
+        op = operator.currentText()
+        value.setVisible(op not in ("IS NULL", "IS NOT NULL"))
+
+    def _remove_condition(self, widget: QWidget):
+        """Видаляє умову."""
+        self.conditions = [c for c in self.conditions if c["widget"] != widget]
+        widget.deleteLater()
+        # Show/hide first connector
+        if self.conditions:
+            self.conditions[0]["connector"].hide()
+        self._update_preview()
+
+    def _update_preview(self):
+        """Оновлює текст попереднього перегляду."""
+        if self.raw_checkbox.isChecked():
+            return
+
+        query = self._build_query()
+        self.preview_text.setPlainText(query)
+
+    def _build_query(self) -> str:
+        """Будує SQL запит з налаштувань."""
+        query_type = self.query_type.currentText()
+        table = self.table_combo.currentText()
+
+        if query_type == "SELECT":
+            if self.select_all_checkbox.isChecked():
+                columns = "*"
+            else:
+                selected = [item.text() for item in self.columns_list.selectedItems()]
+                columns = ", ".join(selected) if selected else "*"
+            query = f"SELECT {columns} FROM {table}"
+
+        elif query_type == "UPDATE":
+            column = self.set_column.currentText()
+            value = self.set_value.text()
+            # Format value
+            if value.lower() in ("null", "true", "false") or value.isdigit():
+                formatted_value = value
+            else:
+                formatted_value = f"'{value}'"
+            query = f"UPDATE {table} SET {column} = {formatted_value}"
+
+        else:  # DELETE
+            query = f"DELETE FROM {table}"
+
+        # WHERE
+        if self.conditions:
+            where_parts = []
+            for i, cond in enumerate(self.conditions):
+                col = cond["column"].currentText()
+                op = cond["operator"].currentText()
+                val = cond["value"].text()
+
+                if op in ("IS NULL", "IS NOT NULL"):
+                    part = f"{col} {op}"
+                elif val.lower() in ("null", "true", "false") or val.isdigit():
+                    part = f"{col} {op} {val}"
+                else:
+                    part = f"{col} {op} '{val}'"
+
+                if i > 0:
+                    conn = cond["connector"].currentText()
+                    part = f"{conn} {part}"
+
+                where_parts.append(part)
+
+            query += " WHERE " + " ".join(where_parts)
+
+        # ORDER BY (only for SELECT)
+        if query_type == "SELECT":
+            order_col = self.order_combo.currentText()
+            if order_col != "(немає)":
+                query += f" ORDER BY {order_col} {self.order_dir.currentText()}"
+
+            # LIMIT
+            limit = self.limit_spin.value()
+            if limit > 0:
+                query += f" LIMIT {limit}"
+
+        return query
+
+    def get_query(self) -> str:
+        """Повертає готовий SQL запит."""
+        if self.raw_checkbox.isChecked():
+            return self.preview_text.toPlainText().strip()
+        return self._build_query()
+
