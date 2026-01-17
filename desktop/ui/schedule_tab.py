@@ -213,10 +213,12 @@ class ScheduleTab(QWidget):
 
     def _auto_distribute(self):
         """Автоматично розподіляє відпустки."""
+        from backend.core.database import get_db_context
         from backend.services.schedule_service import ScheduleService
 
-        service = ScheduleService(self.db)
-        result = service.auto_distribute(self.current_year)
+        with get_db_context() as db:
+            service = ScheduleService(db)
+            result = service.auto_distribute(self.current_year)
 
         QMessageBox.information(
             self,
