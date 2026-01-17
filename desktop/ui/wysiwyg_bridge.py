@@ -88,7 +88,20 @@ class WysiwygBridge(QObject):
             field_name: Назва поля
             value: Нове значення
         """
-        script = f"updateAutoField('{field_name}', '{value}');"
+        script = f"""
+        (function() {{
+            if (typeof updateAutoField === 'function') {{
+                updateAutoField('{field_name}', '{value}');
+            }} else {{
+                console.warn("WysiwygBridge: updateAutoField not defined yet, retrying...");
+                setTimeout(() => {{
+                    if (typeof updateAutoField === 'function') {{
+                        updateAutoField('{field_name}', '{value}');
+                    }}
+                }}, 500);
+            }}
+        }})();
+        """
         web_view.page().runJavaScript(script)
 
     def update_block(self, web_view, block_name: str, html: str) -> None:
@@ -114,7 +127,20 @@ class WysiwygBridge(QObject):
             status: Статус (draft, on_signature, signed, processed)
             status_text: Текст статусу (опціонально)
         """
-        script = f"setDocumentStatus('{status}', '{status_text}');"
+        script = f"""
+        (function() {{
+            if (typeof setDocumentStatus === 'function') {{
+                setDocumentStatus('{status}', '{status_text}');
+            }} else {{
+                console.warn("WysiwygBridge: setDocumentStatus not defined yet, retrying...");
+                setTimeout(() => {{
+                    if (typeof setDocumentStatus === 'function') {{
+                        setDocumentStatus('{status}', '{status_text}');
+                    }}
+                }}, 500);
+            }}
+        }})();
+        """
         web_view.page().runJavaScript(script)
 
     def get_block_content(self, web_view, block_name: str, callback: Callable[[str], None]) -> None:
@@ -169,7 +195,21 @@ class WysiwygBridge(QObject):
             signatories: Список словників з даними погоджувачів
         """
         signatories_json = json.dumps(signatories, ensure_ascii=False)
-        script = f"updateSignatories({signatories_json});"
+        # Wrap in safe partial execution
+        script = f"""
+        (function() {{
+            if (typeof updateSignatories === 'function') {{
+                updateSignatories({signatories_json});
+            }} else {{
+                console.warn("WysiwygBridge: updateSignatories not defined yet, retrying...");
+                setTimeout(() => {{
+                    if (typeof updateSignatories === 'function') {{
+                        updateSignatories({signatories_json});
+                    }}
+                }}, 500);
+            }}
+        }})();
+        """
         web_view.page().runJavaScript(script)
 
     def set_predefined_signatories(self, web_view, signatories: list[dict]) -> None:
@@ -181,7 +221,20 @@ class WysiwygBridge(QObject):
             signatories: Список словників з даними погоджувачів
         """
         signatories_json = json.dumps(signatories, ensure_ascii=False)
-        script = f"setPredefinedSignatories({signatories_json});"
+        script = f"""
+        (function() {{
+            if (typeof setPredefinedSignatories === 'function') {{
+                setPredefinedSignatories({signatories_json});
+            }} else {{
+                console.warn("WysiwygBridge: setPredefinedSignatories not defined yet, retrying...");
+                setTimeout(() => {{
+                     if (typeof setPredefinedSignatories === 'function') {{
+                        setPredefinedSignatories({signatories_json});
+                     }}
+                }}, 500);
+            }}
+        }})();
+        """
         web_view.page().runJavaScript(script)
 
     def initialize_signatories(self, web_view) -> None:
