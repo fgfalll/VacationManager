@@ -2,7 +2,7 @@
 
 Add correction tracking fields to attendance table.
 
-Revision ID: 20260117_1050
+Revision ID: 20260117_1050_attendance_correction
 Revises: a1b2c3d4e5f6
 Create Date: 2026-01-17
 
