@@ -272,6 +272,7 @@ class BuilderTab(QWidget):
         self._parsed_dates = list(_date_range_iter(start_date, end_date))
         self._update_ranges_list()
         self._update_dates_info()
+        self._update_preview()
 
     def load_document(self, document_id: int, staff_id: int):
         """
@@ -970,8 +971,7 @@ class BuilderTab(QWidget):
             position_info = f" ({positions_count} посад)" if positions_count > 1 else ""
 
             info_text = (
-                f"Посада: {staff.position}{position_info}\n"
-                f"Ставка: {staff.rate}\n"
+                f"Ставка: {staff.rate}{position_info}\n"
                 f"Баланс: {staff.vacation_balance} днів\n"
                 f"Тип: {self._get_employment_type_label(staff.employment_type.value)}\n"
                 f"Контракт до: {staff.term_end.strftime('%d.%m.%Y')}"
@@ -3045,6 +3045,36 @@ class BuilderTab(QWidget):
                 ).first()
 
                 if existing:
+                    # Prepare staff data and render in current context
+                    staff_data = {
+                        'pib_nom': additional_staff.pib_nom,
+                        'position': additional_staff.position,
+                        'employment_type': additional_staff.employment_type.value if additional_staff.employment_type else None,
+                    }
+                    is_internal = additional_staff.employment_type and \
+                                  additional_staff.employment_type.value == "internal"
+
+                    # Get doc_type value
+                    existing_doc_type = existing.doc_type.value if hasattr(existing.doc_type, 'value') else str(existing.doc_type)
+
+                    # Render preview with existing document
+                    self._render_additional_preview(
+                        document_id=existing.id,
+                        doc_type=existing_doc_type,
+                        date_start=existing.date_start,
+                        date_end=existing.date_end,
+                        days_count=existing.days_count,
+                        staff_data=staff_data,
+                        is_internal=is_internal
+                    )
+
+                    # Switch to the new tab
+                    if existing.id in self._additional_previews:
+                        web_view, _, _ = self._additional_previews[existing.id]
+                        index = self.preview_tabs.indexOf(web_view)
+                        if index >= 0:
+                            self.preview_tabs.setCurrentIndex(index)
+
                     QMessageBox.information(
                         self,
                         "Документ вже існує",
@@ -3103,7 +3133,10 @@ class BuilderTab(QWidget):
                 self.additional_position_widget.setVisible(False)
 
         except Exception as e:
-            QMessageBox.critical(self, "Помилка", f"Не вдалося створити документ: {str(e)}")
+            import traceback
+            error_msg = str(e) or "Невідома помилка"
+            traceback.print_exc()
+            QMessageBox.critical(self, "Помилка", f"Не вдалося створити документ:\n{error_msg}")
 
     def _render_additional_preview(self, document_id: int, doc_type: str, date_start, date_end, days_count: int, staff_data: dict, is_internal: bool):
         """Відображає попередній перегляд документа для додаткової позиції."""
@@ -3139,12 +3172,15 @@ class BuilderTab(QWidget):
             # Load content
             bridge.load_content(web_view, html_content)
 
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] _render_additional_preview: {e}")
+            traceback.print_exc()
 
     def _get_context_for_staff_data(self, doc_type: str, date_start, date_end, days_count: int, staff_data: dict, is_internal: bool = False):
         """Генерує контекст шаблону для конкретного співробітника (з даними, без об'єкта Document)."""
-        from backend.models.settings import Settings
+        from backend.core.database import get_db_context
+        from backend.models.settings import SystemSettings
         from backend.models.staff import Staff as StaffModel
         from backend.services.grammar_service import GrammarService
 
@@ -3183,7 +3219,7 @@ class BuilderTab(QWidget):
         rector_name = "Олександра Удови"
         try:
             with get_db_context() as db:
-                settings = db.query(Settings).first()
+                settings = db.query(SystemSettings).first()
                 if settings and settings.university_name:
                     university_name_raw = settings.university_name
                     rector_name = settings.rector_name or rector_name
@@ -3347,7 +3383,7 @@ class BuilderTab(QWidget):
         rector_name = "Олександра Удови"
         try:
             with get_db_context() as db:
-                settings = db.query(Settings).first()
+                settings = db.query(SystemSettings).first()
                 if settings and settings.university_name:
                     university_name_raw = settings.university_name
                     rector_name = settings.rector_name or rector_name

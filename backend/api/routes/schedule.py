@@ -1,12 +1,14 @@
 """API маршрути для управління річним графіком відпусток."""
 
 from datetime import date
-from typing import Annotated
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import DBSession, ValidationSvc
+from backend.core.dependencies import get_current_user, require_hr
 from backend.models.schedule import AnnualSchedule
 from backend.models.staff import Staff
 from backend.schemas.schedule import (
@@ -21,10 +23,61 @@ from shared.exceptions import ValidationError as CustomValidationError
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 
-@router.get("/{year}", response_model=ScheduleListResponse)
+@router.get("/annual")
+async def get_annual_schedule(
+    year: int,
+    month: Optional[int] = None,
+    department: Optional[str] = None,
+    db: DBSession = None,
+    current_user = Depends(require_hr),
+):
+    """
+    Отримати річний графік відпусток.
+    """
+    query = db.query(AnnualSchedule).filter(AnnualSchedule.year == year)
+
+    if month:
+        # Filter by month using planned_start
+        query = query.filter(func.month(AnnualSchedule.planned_start) == month)
+
+    if department:
+        query = query.join(Staff).filter(Staff.department == department)
+
+    entries = query.order_by(AnnualSchedule.planned_start).all()
+
+    result_items = []
+    for entry in entries:
+        staff = entry.staff
+        result_items.append({
+            "id": entry.id,
+            "staff_id": entry.staff_id,
+            "staff": {
+                "id": staff.id if staff else 0,
+                "pib_nom": staff.pib_nom if staff else "",
+                "position": staff.position if staff else "",
+            },
+            "year": entry.year,
+            "planned_start": entry.planned_start.isoformat() if entry.planned_start else None,
+            "planned_end": entry.planned_end.isoformat() if entry.planned_end else None,
+            "days_count": entry.days_count,
+            "is_used": entry.is_used,
+            "total_working_days": 22,
+            "total_vacation_days": entry.days_count,
+            "total_holiday_days": 0,
+        })
+
+    return {
+        "data": result_items,
+        "total": len(entries),
+        "year": year,
+    }
+
+
+@router.get("/{year}")
 async def get_schedule(
     year: int,
-    db: DBSession,
+    db: DBSession = None,
+    current_user = Depends(require_hr),
 ):
     """
     Отримати графік відпусток на рік.
@@ -38,81 +91,61 @@ async def get_schedule(
 
     result_items = []
     for entry in entries:
-        entry_dict = ScheduleEntryResponse.model_validate(entry).model_dump()
-        entry_dict["staff_name"] = entry.staff.pib_nom
-        entry_dict["staff_position"] = entry.staff.position
-        entry_dict["staff_rate"] = float(entry.staff.rate)
-        entry_dict["staff_employment_type"] = entry.staff.employment_type
-        result_items.append(ScheduleEntryResponse(**entry_dict))
+        staff = entry.staff
+        result_items.append({
+            "id": entry.id,
+            "year": entry.year,
+            "staff_id": entry.staff_id,
+            "staff_name": staff.pib_nom if staff else "",
+            "staff_position": staff.position if staff else "",
+            "planned_start": entry.planned_start.isoformat() if entry.planned_start else None,
+            "planned_end": entry.planned_end.isoformat() if entry.planned_end else None,
+            "days_count": entry.days_count,
+            "is_used": entry.is_used,
+        })
 
-    return ScheduleListResponse(
-        items=result_items,
-        total=len(entries),
-        year=year,
-    )
+    return {
+        "items": result_items,
+        "total": len(entries),
+        "year": year,
+    }
 
 
 @router.post("", response_model=ScheduleEntryResponse, status_code=201)
 async def create_schedule_entry(
     entry_data: ScheduleEntryCreate,
-    db: DBSession,
-    validation: ValidationSvc,
+    db: DBSession = None,
+    validation: ValidationSvc = None,
+    current_user = Depends(require_hr),
 ):
     """
     Створити запис у графіку.
     """
-    # Отримуємо співробітника
     staff = db.query(Staff).filter(Staff.id == entry_data.staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Співробітника не знайдено")
 
-    # Валідація
-    try:
-        validation.validate_schedule_dates(
-            entry_data.planned_start,
-            entry_data.planned_end,
-            staff,
-            db,
-        )
-    except CustomValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    # Перевірка на унікальність
-    existing = (
-        db.query(AnnualSchedule)
-        .filter(
-            AnnualSchedule.year == entry_data.year,
-            AnnualSchedule.staff_id == entry_data.staff_id,
-        )
-        .first()
+    entry = AnnualSchedule(
+        year=entry_data.year,
+        staff_id=entry_data.staff_id,
+        planned_start=entry_data.planned_start,
+        planned_end=entry_data.planned_end,
     )
-    if existing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Запис для {entry_data.year} року та цього співробітника вже існує",
-        )
-
-    entry = AnnualSchedule(**entry_data.model_dump())
     db.add(entry)
     db.commit()
     db.refresh(entry)
 
-    response = ScheduleEntryResponse.model_validate(entry)
-    response.staff_name = entry.staff.pib_nom
-    response.staff_position = entry.staff.position
-    response.staff_rate = float(entry.staff.rate)
-    response.staff_employment_type = entry.staff.employment_type
-
-    return response
+    return ScheduleEntryResponse.model_validate(entry)
 
 
-@router.put("/{entry_id}", response_model=ScheduleEntryResponse)
+@router.put("/{entry_id}")
 async def update_schedule_entry(
     entry_id: int,
-    planned_start: date | None = None,
-    planned_end: date | None = None,
-    is_used: bool | None = None,
+    planned_start: Optional[date] = None,
+    planned_end: Optional[date] = None,
+    is_used: Optional[bool] = None,
     db: DBSession = None,
+    current_user = Depends(require_hr),
 ):
     """
     Оновити запис у графіку.
@@ -131,19 +164,14 @@ async def update_schedule_entry(
     db.commit()
     db.refresh(entry)
 
-    response = ScheduleEntryResponse.model_validate(entry)
-    response.staff_name = entry.staff.pib_nom
-    response.staff_position = entry.staff.position
-    response.staff_rate = float(entry.staff.rate)
-    response.staff_employment_type = entry.staff.employment_type
-
-    return response
+    return {"message": "Запис оновлено"}
 
 
 @router.delete("/{entry_id}", status_code=204)
 async def delete_schedule_entry(
     entry_id: int,
-    db: DBSession,
+    db: DBSession = None,
+    current_user = Depends(require_hr),
 ):
     """
     Видалити запис з графіку.
@@ -161,7 +189,8 @@ async def delete_schedule_entry(
 @router.post("/auto-distribute", response_model=AutoDistributeResponse)
 async def auto_distribute_vacations(
     request: AutoDistributeRequest,
-    db: DBSession,
+    db: DBSession = None,
+    current_user = Depends(require_hr),
 ):
     """
     Автоматично розподілити відпустки по місяцях.
@@ -170,12 +199,9 @@ async def auto_distribute_vacations(
     from shared.enums import EmploymentType
 
     service = ScheduleService(db)
-
-    # Отримуємо список співробітників
     staff_list = service.get_staff_for_schedule(request.year)
 
     if not request.include_all_staff:
-        # Фільтруємо: тільки ставка 1.0 та внутрішні сумісники
         staff_list = [
             s for s in staff_list
             if s.rate >= 1.0 or s.employment_type == EmploymentType.INTERNAL
@@ -188,7 +214,6 @@ async def auto_distribute_vacations(
             entries_created=0,
         )
 
-    # Використовуємо сервіс для розподілу
     result = service.auto_distribute(request.year, staff_list)
 
     return AutoDistributeResponse(
@@ -197,3 +222,35 @@ async def auto_distribute_vacations(
         entries_created=result['entries_created'],
         warnings=result['warnings'],
     )
+
+
+@router.get("/stats")
+async def get_schedule_stats(
+    year: int,
+    db: DBSession = None,
+    current_user = Depends(require_hr),
+):
+    """
+    Отримати статистику графіка відпусток.
+    """
+    total_staff = db.query(func.count(Staff.id)).filter(Staff.is_active == True).scalar()
+    total_working_days = 22 * total_staff
+
+    department_stats = db.query(
+        Staff.department,
+        func.count(Staff.id).label('total_staff'),
+    ).filter(Staff.is_active == True).group_by(Staff.department).all()
+
+    return {
+        "total_staff": total_staff,
+        "total_working_days": total_working_days,
+        "department_breakdown": [
+            {
+                "department": dept,
+                "total_staff": staff_count,
+                "assigned_vacation_days": 0,
+                "remaining_vacation_days": 0,
+            }
+            for dept, staff_count in department_stats
+        ],
+    }

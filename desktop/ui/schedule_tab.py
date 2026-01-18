@@ -14,12 +14,46 @@ from PyQt6.QtWidgets import (
     QDateEdit,
     QHeaderView,
     QMessageBox,
+    QCheckBox,
+    QComboBox,
+    QGroupBox,
+    QGridLayout,
+    QRadioButton,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from datetime import date
 
 from shared.enums import EmploymentType
+
+
+class AutoDistributeSettings:
+    """Налаштування для авторозподілу."""
+
+    def __init__(self):
+        # Days per period
+        self.min_days_per_period = 7
+        self.max_days_per_period = 14
+        self.use_balance_days = True  # Use vacation_balance from staff
+        self.custom_days = 24  # If not using balance
+
+        # Number of periods
+        self.max_periods = 2  # Max number of vacation periods per employee
+        self.use_all_balance = True  # Split all balance into periods
+
+        # Document creation
+        self.create_documents = True
+        self.doc_type = "vacation_main"
+
+        # Month selection
+        self.all_year = True
+        self.summer_only = False  # June-September
+        self.winter_only = False  # December-February
+        self.custom_months = []  # List of months
+
+        # Other options
+        self.skip_existing = True
+        self.random_distribution = True
 
 
 class ScheduleTab(QWidget):
@@ -36,6 +70,7 @@ class ScheduleTab(QWidget):
         """Ініціалізує вкладку графіку."""
         super().__init__()
         self.current_year = date.today().year
+        self.settings = AutoDistributeSettings()
         self._setup_ui()
         self._load_data()
 
@@ -56,6 +91,10 @@ class ScheduleTab(QWidget):
         self.refresh_btn = QPushButton("Оновити")
         self.refresh_btn.clicked.connect(self._load_data)
         control_layout.addWidget(self.refresh_btn)
+
+        self.settings_btn = QPushButton("Налаштування...")
+        self.settings_btn.clicked.connect(self._show_settings)
+        control_layout.addWidget(self.settings_btn)
 
         self.auto_distribute_btn = QPushButton("Авторозподіл")
         self.auto_distribute_btn.clicked.connect(self._auto_distribute)
@@ -211,6 +250,13 @@ class ScheduleTab(QWidget):
                     self._load_data()
                     self.data_changed.emit()
 
+    def _show_settings(self):
+        """Показує діалог налаштувань авторозподілу."""
+        dialog = AutoDistributeSettingsDialog(self.settings, parent=self)
+        if dialog.exec():
+            # Settings already updated in dialog
+            pass
+
     def _auto_distribute(self):
         """Автоматично розподіляє відпустки."""
         from backend.core.database import get_db_context
@@ -218,14 +264,26 @@ class ScheduleTab(QWidget):
 
         with get_db_context() as db:
             service = ScheduleService(db)
-            result = service.auto_distribute(self.current_year)
+            result = service.auto_distribute(
+                self.current_year,
+                settings=self.settings
+            )
 
-        QMessageBox.information(
-            self,
-            "Авторозподіл",
-            f"Створено записів: {result['entries_created']}\n"
-            f"Попереджень: {len(result['warnings'])}",
-        )
+        # Показуємо результат
+        msg = f"Створено записів графіку: {result['entries_created']}\n"
+        msg += f"Створено документів: {result.get('documents_created', 0)}\n"
+        msg += f"Попереджень: {len(result['warnings'])}"
+
+        if result['warnings']:
+            msg += "\n\nПопередження:\n"
+            for w in result['warnings'][:10]:  # Показуємо перші 10
+                msg += f"• {w}\n"
+            if len(result['warnings']) > 10:
+                msg += f"... та ще {len(result['warnings']) - 10}"
+
+            QMessageBox.warning(self, "Авторозподіл", msg)
+        else:
+            QMessageBox.information(self, "Авторозподіл", msg)
 
         self._load_data()
         self.data_changed.emit()
@@ -251,13 +309,21 @@ class ScheduleTab(QWidget):
             planned_start = entry.planned_start
             planned_end = entry.planned_end
 
-        # Перемикаємось на вкладку конструктора
-        main_window = self.parent().parent()
-        main_window.setCurrentIndex(2)  # Builder tab
+        # Знаходимо головне вікно
+        from desktop.ui.main_window import MainWindow
+        main_window = self.window()
+        if not isinstance(main_window, MainWindow):
+            # Спробуємо інший спосіб
+            main_window = self.parent().parent()
+            if not isinstance(main_window, MainWindow):
+                QMessageBox.warning(self, "Помилка", "Не вдалося знайти головне вікно")
+                return
 
-        # Передаємо дані в конструктор
+        # Перемикаємось на вкладку конструктора
+        main_window.navigate_to_builder(staff_id)
+
+        # Встановлюємо дати
         builder_tab = main_window.builder_tab
-        builder_tab.new_document(staff_id)
         builder_tab.set_vacation_dates(planned_start, planned_end)
 
     def refresh(self):
@@ -371,3 +437,173 @@ class ScheduleEntryDialog(QDialog):
 
             db.commit()
         super().accept()
+
+
+class AutoDistributeSettingsDialog(QDialog):
+    """Діалог налаштувань авторозподілу відпусток."""
+
+    def __init__(self, settings: AutoDistributeSettings, parent=None):
+        """Ініціалізує діалог."""
+        super().__init__(parent)
+        self.settings = settings
+        self.setWindowTitle("Налаштування авторозподілу")
+        self.setMinimumWidth(450)
+        self._setup_ui()
+        self._load_settings()
+
+    def _setup_ui(self):
+        """Налаштовує інтерфейс."""
+        layout = QVBoxLayout(self)
+
+        # Період відпустки
+        period_group = QGroupBox("Тривалість відпустки")
+        period_layout = QGridLayout()
+
+        period_layout.addWidget(QLabel("Мін. днів у періоді:"), 0, 0)
+        self.min_days_spin = QSpinBox()
+        self.min_days_spin.setRange(1, 30)
+        self.min_days_spin.setValue(7)
+        period_layout.addWidget(self.min_days_spin, 0, 1)
+
+        period_layout.addWidget(QLabel("Макс. днів у періоді:"), 1, 0)
+        self.max_days_spin = QSpinBox()
+        self.max_days_spin.setRange(1, 30)
+        self.max_days_spin.setValue(14)
+        period_layout.addWidget(self.max_days_spin, 1, 1)
+
+        self.use_balance_check = QCheckBox("Використовувати баланс відпустки працівника")
+        self.use_balance_check.setChecked(True)
+        period_layout.addWidget(self.use_balance_check, 2, 0, 1, 2)
+
+        self.custom_days_spin = QSpinBox()
+        self.custom_days_spin.setRange(1, 60)
+        self.custom_days_spin.setValue(24)
+        period_layout.addWidget(QLabel("Або фіксована кількість днів:"), 3, 0)
+        period_layout.addWidget(self.custom_days_spin, 3, 1)
+
+        period_group.setLayout(period_layout)
+        layout.addWidget(period_group)
+
+        # Кількість періодів
+        periods_group = QGroupBox("Кількість періодів")
+        periods_layout = QVBoxLayout()
+
+        self.max_periods_spin = QSpinBox()
+        self.max_periods_spin.setRange(1, 10)
+        self.max_periods_spin.setValue(2)
+        periods_layout.addWidget(QLabel("Максимум періодів на працівника:"))
+        periods_layout.addWidget(self.max_periods_spin)
+
+        self.use_all_balance_check = QCheckBox("Розбити всі дні на періоди")
+        self.use_all_balance_check.setChecked(True)
+        periods_layout.addWidget(self.use_all_balance_check)
+
+        periods_group.setLayout(periods_layout)
+        layout.addWidget(periods_group)
+
+        # Створення документів
+        docs_group = QGroupBox("Документи")
+        docs_layout = QVBoxLayout()
+
+        self.create_docs_check = QCheckBox("Створювати документи (чернетки)")
+        self.create_docs_check.setChecked(True)
+        docs_layout.addWidget(self.create_docs_check)
+
+        self.doc_type_combo = QComboBox()
+        doc_types = [
+            ("vacation_main", "Основна відпустка (В)"),
+            ("vacation_paid", "Відпустка оплачувана"),
+            ("vacation_additional", "Додаткова відпустка (Д)"),
+        ]
+        for value, label in doc_types:
+            self.doc_type_combo.addItem(label, value)
+        docs_layout.addWidget(QLabel("Тип документа:"))
+        docs_layout.addWidget(self.doc_type_combo)
+
+        docs_group.setLayout(docs_layout)
+        layout.addWidget(docs_group)
+
+        # Місяці
+        months_group = QGroupBox("Місяці")
+        months_layout = QVBoxLayout()
+
+        self.all_year_radio = QRadioButton("Весь рік")
+        self.all_year_radio.setChecked(True)
+        months_layout.addWidget(self.all_year_radio)
+
+        self.summer_radio = QRadioButton("Літо (червень-вересень)")
+        months_layout.addWidget(self.summer_radio)
+
+        self.winter_radio = QRadioButton("Зима (грудень-лютий)")
+        months_layout.addWidget(self.winter_radio)
+
+        months_group.setLayout(months_layout)
+        layout.addWidget(months_group)
+
+        # Інші налаштування
+        other_group = QGroupBox("Інші")
+        other_layout = QVBoxLayout()
+
+        self.skip_existing_check = QCheckBox("Пропускати працівників з існуючими записами")
+        self.skip_existing_check.setChecked(True)
+        other_layout.addWidget(self.skip_existing_check)
+
+        self.random_check = QCheckBox("Випадковий розподіл дат")
+        self.random_check.setChecked(True)
+        other_layout.addWidget(self.random_check)
+
+        other_group.setLayout(other_layout)
+        layout.addWidget(other_group)
+
+        # Кнопки
+        from PyQt6.QtWidgets import QDialogButtonBox
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save_settings)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _load_settings(self):
+        """Завантажує поточні налаштування."""
+        self.min_days_spin.setValue(self.settings.min_days_per_period)
+        self.max_days_spin.setValue(self.settings.max_days_per_period)
+        self.use_balance_check.setChecked(self.settings.use_balance_days)
+        self.custom_days_spin.setValue(self.settings.custom_days)
+        self.max_periods_spin.setValue(self.settings.max_periods)
+        self.use_all_balance_check.setChecked(self.settings.use_all_balance)
+        self.create_docs_check.setChecked(self.settings.create_documents)
+
+        idx = self.doc_type_combo.findData(self.settings.doc_type)
+        if idx >= 0:
+            self.doc_type_combo.setCurrentIndex(idx)
+
+        if self.settings.all_year:
+            self.all_year_radio.setChecked(True)
+        elif self.settings.summer_only:
+            self.summer_radio.setChecked(True)
+        else:
+            self.winter_radio.setChecked(True)
+
+        self.skip_existing_check.setChecked(self.settings.skip_existing)
+        self.random_check.setChecked(self.settings.random_distribution)
+
+    def _save_settings(self):
+        """Зберігає налаштування."""
+        self.settings.min_days_per_period = self.min_days_spin.value()
+        self.settings.max_days_per_period = self.max_days_spin.value()
+        self.settings.use_balance_days = self.use_balance_check.isChecked()
+        self.settings.custom_days = self.custom_days_spin.value()
+        self.settings.max_periods = self.max_periods_spin.value()
+        self.settings.use_all_balance = self.use_all_balance_check.isChecked()
+        self.settings.create_documents = self.create_docs_check.isChecked()
+        self.settings.doc_type = self.doc_type_combo.currentData()
+
+        self.settings.all_year = self.all_year_radio.isChecked()
+        self.settings.summer_only = self.summer_radio.isChecked()
+        self.settings.winter_only = self.winter_radio.isChecked()
+
+        self.settings.skip_existing = self.skip_existing_check.isChecked()
+        self.settings.random_distribution = self.random_check.isChecked()
+
+        self.accept()

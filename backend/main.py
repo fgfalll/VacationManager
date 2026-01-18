@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from backend.api.routes import documents, schedule, staff, upload
+from backend.api.routes import documents, schedule, staff, upload, auth, attendance, settings as settings_routes
 from backend.core.config import get_settings
 from backend.core.logging import setup_logging
 from backend.core.websocket import manager
@@ -48,9 +48,12 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 templates = Jinja2Templates(directory=str(templates_dir))
 
 # Routes
+app.include_router(auth.router, prefix="/api")
 app.include_router(staff.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(schedule.router, prefix="/api")
+app.include_router(attendance.router, prefix="/api")
+app.include_router(settings_routes.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
 
 

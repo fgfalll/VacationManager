@@ -3,7 +3,7 @@
 from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Boolean, Date, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin
@@ -26,9 +26,6 @@ class AnnualSchedule(Base, TimestampMixin):
     """
 
     __tablename__ = "annual_schedule"
-    __table_args__ = (
-        UniqueConstraint("year", "staff_id", name="uq_year_staff"),
-    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
