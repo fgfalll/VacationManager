@@ -1,8 +1,8 @@
-# VacationManager v7.2.0
+# VacationManager v7.4.5
 
 Система управління відпустками та табелем обліку робочого часу для університетської кафедри.
 
-## Версія Latest (v7.2.0) - Покращена архівація документів та StaffPosition enum
+## Версія Latest (v7.4.5) - Новий WebUI та розширене API
 
 ### Проект
 
@@ -24,16 +24,71 @@
 
 ### Технологічний стек
 
-- **Backend**: Python 3.10+, FastAPI, SQLAlchemy 2.0, Alembic
-- **Desktop**: PyQt6, PyQt6-WebEngine
-- **Database**: SQLite
-- **Document Generation**: WeasyPrint (HTML to PDF), Jinja2 templates
-- **Grammar**: pymorphy3 (Ukrainian morphology)
-- **Logging**: structlog
+**Backend:**
+- Python 3.10+, FastAPI, SQLAlchemy 2.0, Alembic
+- JWT Auth (bcrypt), WebSocket support
+- SQLite database
+
+**Frontend (WebUI):**
+- React 18, TypeScript, Vite
+- Zustand (state management)
+- Axios (HTTP client)
+
+**Desktop:**
+- PyQt6, PyQt6-WebEngine
+
+**Document Generation:**
+- WeasyPrint (HTML to PDF), Jinja2 templates
+
+**Grammar & Logging:**
+- pymorphy3 (Ukrainian morphology), structlog
 
 ---
 
 ## Останні оновлення (січень 2026)
+
+### v7.4.5 - Новий WebUI та розширене API
+
+**Повноцінний React/TypeScript WebUI:**
+- React 18 з TypeScript та Vite build system
+- Axios-based API client з typed endpoints
+- Zustand state management для auth та UI
+- **Сторінки:** Dashboard, Staff (список/деталі), Documents (створення/список/деталі/скани), Schedule, Attendance, Settings, Auth (Login)
+- **Компоненти Layout:** Header, Sidebar, MainLayout
+- API інтеграція з endpoint-ами бекенду
+
+**Нові API Routes:**
+- `backend/api/routes/auth.py` — JWT автентифікація (login, logout, refresh, register)
+- `backend/api/routes/attendance.py` — керування відвідуваністю
+- `backend/api/routes/dashboard.py` — агрегована статистика
+- `backend/api/routes/settings.py` — налаштування додатку
+- `backend/api/routes/tabel.py` — генерація та управління табелями
+
+**Нові Pydantic Schemas:**
+- `backend/schemas/auth.py` — AuthRequest, TokenResponse, UserResponse
+- `backend/schemas/attendance.py` — AttendanceCreate, AttendanceResponse
+- `backend/schemas/dashboard.py` — DashboardStats, StaffStats, DocumentStats
+
+**Backend Core:**
+- `backend/core/security.py` — JWT токени, хешування паролів (bcrypt)
+- `backend/core/dependencies.py` — dependency injection для FastAPI
+- `backend/debug_settings.py` — debug конфігурація
+
+**Document Renderer Service:**
+- `backend/services/document_renderer.py` — сервіс рендерингу документів з шаблонів
+- `backend/templates/documents/` — HTML шаблони для всіх типів відпусток
+- `backend/templates/tabel/` — шаблони табеля
+- `backend/templates/tabel_corection/` — шаблони корегувальних табелів
+
+**Database Migration:**
+- `alembic/versions/20260117_*` — видалено unique constraint з annual_schedule
+
+**Additional Files:**
+- `run.py` — main entry point для запуску додатку
+- `desktop/__main__.py` — desktop application module
+- `tabel/` — архіви табелів з даними про підписи
+
+### v7.2.0 - Покращена архівація документів
 
 ### Major Changes
 
@@ -290,13 +345,34 @@ alembic upgrade head
 ### Запуск Web сервера
 
 ```bash
+# Using run.py (recommended)
+python run.py
+
+# Or directly
 python -m backend.main
 ```
 
 API буде доступно за адресою: http://127.0.0.1:8000
 
-- Документація API: http://127.0.0.1:8000/docs
+- API Documentation: http://127.0.0.1:8000/docs
 - Upload Portal: http://127.0.0.1:8000/upload-portal
+
+### Запуск WebUI (React)
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+WebUI буде доступно за адресою: http://localhost:5173
+
+**Production build:**
+```bash
+cd web
+npm run build
+# Сервування статичних файлів через FastAPI або nginx
+```
 
 ### Запуск Desktop додатку
 
@@ -338,22 +414,28 @@ pytest --cov=backend --cov=desktop
 ```
 VacationManager/
 ├── backend/                # FastAPI backend
-│   ├── core/              # Config, Database, Logging (structlog)
+│   ├── core/              # Config, Database, Security, Logging
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── security.py        # НОВЕ - JWT, password hashing
+│   │   └── dependencies.py    # НОВЕ - FastAPI dependencies
 │   ├── models/            # SQLAlchemy ORM models
 │   │   ├── base.py
 │   │   ├── staff.py          # +pib_dav
 │   │   ├── document.py
 │   │   ├── schedule.py
 │   │   ├── settings.py
-│   │   ├── attendance.py  # НОВЕ
-│   │   └── staff_history.py  # НОВЕ
+│   │   ├── attendance.py
+│   │   └── staff_history.py
 │   ├── schemas/           # Pydantic schemas
 │   │   ├── schedule.py
 │   │   ├── responses.py
 │   │   ├── staff.py
 │   │   ├── document.py
-│   │   ├── attendance.py  # НОВЕ
-│   │   └── tabel.py       # НОВЕ
+│   │   ├── attendance.py
+│   │   ├── tabel.py
+│   │   ├── auth.py            # НОВЕ
+│   │   └── dashboard.py       # НОВЕ
 │   ├── services/          # Business logic
 │   │   ├── grammar_service.py
 │   │   ├── validation_service.py
@@ -362,41 +444,74 @@ VacationManager/
 │   │   ├── schedule_service.py
 │   │   ├── staff_service.py
 │   │   ├── date_parser.py
-│   │   ├── attendance_service.py  # НОВЕ
-│   │   └── tabel_service.py       # НОВЕ
+│   │   ├── attendance_service.py
+│   │   ├── tabel_service.py
+│   │   └── document_renderer.py  # НОВЕ - HTML to PDF rendering
 │   ├── api/
 │   │   ├── routes/        # FastAPI endpoints
 │   │   │   ├── documents.py
 │   │   │   ├── staff.py
 │   │   │   ├── schedule.py
 │   │   │   ├── upload.py
-│   │   │   ├── attendance.py  # НОВЕ
-│   │   │   └── tabel.py       # НОВЕ
+│   │   │   ├── attendance.py
+│   │   │   ├── tabel.py
+│   │   │   ├── auth.py         # НОВЕ - JWT auth endpoints
+│   │   │   ├── dashboard.py    # НОВЕ
+│   │   │   └── settings.py     # НОВЕ
 │   │   └── dependencies.py
+│   ├── templates/         # HTML templates для документів
+│   │   ├── documents/         # НОВЕ - 20+ шаблонів відпусток
+│   │   ├── tabel/             # НОВЕ - шаблони табеля
+│   │   └── tabel_corection/   # НОВЕ - корегувальні табелі
 │   ├── static/            # CSS, JS для upload portal
-│   └── templates/         # HTML templates для web
+│   └── debug_settings.py  # НОВЕ
+├── web/                   # НОВЕ - React/TypeScript WebUI
+│   ├── src/
+│   │   ├── api/           # Axios client, endpoints, types
+│   │   ├── components/    # Layout components (Header, Sidebar, MainLayout)
+│   │   ├── pages/         # Page components
+│   │   │   ├── auth/      # Login
+│   │   │   ├── dashboard/ # Dashboard
+│   │   │   ├── staff/     # Staff list/detail
+│   │   │   ├── documents/ # Documents (create/list/detail/scan)
+│   │   │   ├── schedule/  # Schedule view
+│   │   │   ├── attendance/# Attendance view
+│   │   │   └── settings/  # Settings
+│   │   ├── stores/        # Zustand stores (auth, ui)
+│   │   ├── App.tsx
+│   │   └── main.tsx
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── tsconfig.json
 ├── desktop/               # PyQt6 Desktop application
 │   ├── ui/                # UI components
-│   │   ├── scan_upload_dialog.py  # НОВЕ - завантаження сканів
+│   │   └── scan_upload_dialog.py
 │   ├── widgets/           # Custom widgets
 │   │   ├── status_badge.py
 │   │   └── live_preview.py
 │   ├── templates/         # Jinja2 templates для PDF
-│   │   ├── tabel/         # НОВЕ - шаблони табеля
-│   │   └── documents/     # НОВЕ - шаблони документів
-│   └── utils/             # Utilities
+│   │   ├── tabel/         # шаблони табеля
+│   │   └── documents/     # шаблони документів
+│   └── __main__.py        # НОВЕ
+├── tabel/                 # НОВЕ - Архіви табелів
+│   └── archive/           # JSON archives with signature data
 ├── shared/                # Shared code
 │   ├── enums.py
 │   ├── constants.py
 │   ├── validators.py
 │   ├── exceptions.py
-│   └── absence_types.py   # НОВЕ
+│   └── absence_types.py
 ├── storage/               # Generated documents and scans
-│   └── tabels/            # НОВЕ - згенеровані табелі
+│   └── tabels/            # згенеровані табелі
 ├── tests/
 │   ├── unit/
 │   └── integration/
-└── alembic/               # Database migrations
+├── alembic/               # Database migrations
+│   └── versions/
+│       └── 20260117_*     # НОВЕ - remove unique constraint
+├── run.py                 # НОВЕ - Main entry point
+├── package.json           # НОВЕ - Root package.json
+└── requirements.txt
 ```
 
 ## API Reference
@@ -733,7 +848,7 @@ flowchart TB
 
 ## Ліцензія
 
-© 2025-2026 VacationManager v7.0
+© 2025-2026 VacationManager v7.4.5
 
 ---
 
@@ -741,7 +856,9 @@ flowchart TB
 
 | Версія | Дата | Зміни |
 |--------|------|-------|
-| v7.0 | Січень 2026 | Web UI (React), JWT Auth, REST API, Покращений Workflow |
+| v7.4.5 | Січень 2026 | **Повноцінний WebUI (React/TS + Vite)**, нові API routes (auth, attendance, dashboard, settings, tabel), document renderer service, розширені шаблони |
+| v7.2.0 | Січень 2026 | Покращена архівація документів, StaffPosition enum, PIB у давальному відмінку |
+| v7.0 | Січень 2026 | Web UI (React prototype), JWT Auth, REST API, Покращений Workflow |
 | v6.0 | Січень 2026 | Табель обліку, Attendance Tracking, Workflow |
 | v5.0 | 2025 | Базова функціональність |
 
