@@ -70,6 +70,10 @@ class Staff(Base, TimestampMixin):
     vacation_balance: Mapped[int] = mapped_column(default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Contact fields (optional)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Relationships
     documents: Mapped[list["Document"]] = relationship(
         back_populates="staff",

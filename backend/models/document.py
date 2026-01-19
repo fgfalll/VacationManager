@@ -92,9 +92,19 @@ class Document(Base, TimestampMixin):
     payment_period: Mapped[str | None] = mapped_column(String(100))
     custom_text: Mapped[str | None] = mapped_column(Text)
     editor_content: Mapped[str | None] = mapped_column(Text)
+    rendered_html: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Rendered HTML content for document preview",
+    )
 
     file_docx_path: Mapped[str | None] = mapped_column(String(500))
     file_scan_path: Mapped[str | None] = mapped_column(String(500))
+    archive_metadata_path: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Path to JSON archive with snapshot of staff/approver/settings data",
+    )
 
     # Legacy fields (kept for compatibility)
     signed_at: Mapped[datetime | None] = mapped_column(DateTime)
