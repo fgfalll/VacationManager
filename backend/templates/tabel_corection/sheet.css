@@ -1,0 +1,519 @@
+/* Tabel (Timesheet) Styles - Ukrainian Government Form P-5 */
+
+@page {
+    size: A4 landscape;
+    margin: 10px 20px;
+}
+
+@media print {
+    body {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+
+body {
+    font-family: "Times New Roman", serif;
+    font-size: 10pt;
+    margin: 0;
+    padding: 0;
+    background-color: #fff;
+}
+
+.ritz.grid-container {
+    width: 100%;
+    max-width: none;
+    margin: 0 10px;
+}
+
+table.waffle {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: auto;
+}
+
+table.waffle th,
+table.waffle td {
+    padding: 2px 4px;
+    vertical-align: middle;
+}
+
+table.waffle th,
+table.waffle td {
+    border: 1px solid #000;
+}
+
+/* Signature cells - no borders for cleaner signature area */
+.s15,
+.s17,
+.s19,
+.s20,
+.s22,
+.s23,
+.s24 {
+    border: none !important;
+}
+
+/* Row headers */
+.row-header-wrapper {
+    font-size: 8pt;
+    color: #666;
+    text-align: center;
+}
+
+.row-header,
+.row-headers-background {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+}
+
+.column-headers-background {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    font-size: 8pt;
+    text-align: center;
+}
+
+.freezebar-origin-ltr {
+    border-right: 2px solid #ccc;
+}
+
+/* Cell styles */
+.s0,
+.s1 {
+    border: none !important;
+    background-color: #fff;
+    text-align: center;
+    font-weight: bold;
+    font-style: italic;
+    color: #000;
+    vertical-align: middle;
+}
+
+.s0 {
+    font-size: 10pt;
+}
+
+.s1 {
+    font-size: 20pt;
+}
+
+.s2 {
+    background-color: #fff;
+    border-top: none !important;
+    border-bottom: none !important;
+    border-left: none !important;
+    border-right: none !important;
+}
+
+table.waffle td.s2 {
+    border-top: none !important;
+    border-bottom: none !important;
+    border-left: none !important;
+    border-right: none !important;
+}
+
+.s3 {
+    border: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-size: 12pt;
+    vertical-align: middle;
+}
+
+/* Number column (№) - 14pt font */
+.s-num {
+    font-size: 14pt !important;
+}
+
+/* "з них" cell - 14pt font */
+.s-z-nyh {
+    font-size: 14pt !important;
+}
+
+.s4 {
+    border-bottom: 1px solid #000;
+    border-right: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-size: 14pt;
+    vertical-align: middle;
+}
+
+.s5 {
+    border-bottom: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-size: 8pt;
+    vertical-align: middle;
+}
+
+/* Vertical headers for absence columns */
+.s5-vertical {
+    border: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 8pt;
+    white-space: pre-wrap;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    padding: 4px 2px;
+    height: 90px;
+    box-sizing: border-box;
+}
+
+.s6 {
+    border-bottom: 1px solid #000;
+    border-right: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-size: 14pt;
+    vertical-align: middle;
+}
+
+/* Employee name+position cell - enable word wrap */
+td.employee-cell {
+    text-align: center;
+    font-size: 14pt;
+    line-height: 1.2;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    padding: 2px 4px;
+}
+
+/* Employee header cell */
+td.employee-header-cell {
+    font-size: 14pt;
+}
+
+.s7 {
+    border-bottom: 1px solid #000;
+    border-right: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-size: 14pt;
+    vertical-align: middle;
+}
+
+.s8 {
+    border-bottom: 1px solid #000;
+    border-right: 1px solid #000;
+    background-color: #fff;
+    text-align: left;
+    color: #000;
+    font-size: 14pt;
+    vertical-align: middle;
+}
+
+.s9 {
+    border-bottom: 1px solid #000;
+    border-right: 1px solid #000;
+    background-color: #fff;
+    text-align: right;
+    color: #000;
+    font-size: 14pt;
+    vertical-align: middle;
+}
+
+.s10 {
+    border-bottom: 1px solid #000;
+    background-color: #fff;
+    text-align: left;
+    color: #000;
+    font-size: 14pt;
+    vertical-align: bottom;
+}
+
+.s11 {
+    background-color: #fff;
+    text-align: left;
+    color: #000;
+    font-size: 14pt;
+    vertical-align: bottom;
+}
+
+.s12 {
+    border-bottom: 1px solid #000;
+    border-right: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    font-family: Arial, sans-serif;
+    font-size: 12pt;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.s13 {
+    border-bottom: 1px solid #000;
+    border-right: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    font-weight: bold;
+    font-style: italic;
+    color: #000;
+    font-size: 16pt;
+    vertical-align: middle;
+}
+
+.s14 {
+    border-bottom: 1px solid #000;
+    border-right: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14pt;
+    vertical-align: middle;
+}
+
+.s15,
+.s17,
+.s19,
+.s20,
+.s22,
+.s23,
+.s24 {
+    background-color: #fff;
+    text-align: left;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 12pt;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.s16 {
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 12pt;
+    vertical-align: middle;
+}
+
+.s18 {
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: 1px solid #000;
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 14pt;
+    vertical-align: middle;
+}
+
+.s19 {
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-size: 12pt;
+    vertical-align: middle;
+}
+
+.s20 {
+    background-color: #fff;
+    text-align: left;
+    color: #000;
+    font-size: 12pt;
+    vertical-align: middle;
+}
+
+.s21 {
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-size: 8pt;
+    vertical-align: middle;
+}
+
+.s22 {
+    border-bottom: 1px solid #000;
+    background-color: #fff;
+    text-align: left;
+    color: #000;
+    font-size: 12pt;
+    vertical-align: middle;
+}
+
+.s23 {
+    background-color: #fff;
+    text-align: center;
+    color: #000;
+    font-size: 10pt;
+    vertical-align: middle;
+}
+
+.s24 {
+    border-bottom: 1px solid #000;
+    background-color: #fff;
+    text-align: left;
+    color: #000;
+    font-size: 14pt;
+    vertical-align: middle;
+}
+
+/* Row height styles */
+tr[style*="height: 24px"] .row-header-wrapper {
+    line-height: 24px;
+}
+
+tr[style*="height: 21px"] .row-header-wrapper {
+    line-height: 21px;
+}
+
+tr[style*="height: 38px"] .row-header-wrapper {
+    line-height: 38px;
+}
+
+tr[style*="height: 66px"] .row-header-wrapper {
+    line-height: 66px;
+}
+
+tr[style*="height: 28px"] .row-header-wrapper {
+    line-height: 28px;
+}
+
+tr[style*="height: 36px"] .row-header-wrapper {
+    line-height: 36px;
+}
+
+tr[style*="height: 17px"] .row-header-wrapper {
+    line-height: 17px;
+}
+
+tr[style*="height: 12px"] .row-header-wrapper {
+    line-height: 12px;
+}
+
+tr[style*="height: 19px"] .row-header-wrapper {
+    line-height: 19px;
+}
+
+/* Signature underline */
+.text-decoration-underline {
+    text-decoration: underline;
+    text-decoration-skip-ink: none;
+    -webkit-text-decoration-skip: none;
+}
+
+/* Strikethrough for days outside contract period - uses pseudo-element for PDF-friendly rendering */
+td.disabled-cell {
+    position: relative;
+    border: 1px solid #000 !important;
+    background-color: #fff !important;
+}
+
+/* Thick diagonal strikethrough using pseudo-element */
+td.disabled-cell::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #000;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+/* First row disabled cells - border styling for merged appearance */
+tr.disabled-row-first td.disabled-cell {
+    border-bottom-color: transparent !important;
+}
+
+/* Second row disabled cells - border styling for merged appearance */
+tr.disabled-row-second td.disabled-cell {
+    border-top-color: transparent !important;
+}
+
+/* Correction tabel: disabled cells are just empty (no strikethrough) */
+td.correction-disabled {
+    background-color: #fff !important;
+}
+
+/* Page break for pagination - use before for WeasyPrint */
+.page-break {
+    page-break-before: always;
+    break-before: page;
+    -webkit-column-break-before: always;
+    page-break-after: avoid;
+    break-after: avoid;
+}
+
+.page-break-after {
+    page-break-after: always;
+    break-after: page;
+    -webkit-column-break-after: always;
+}
+
+/* Each page container for multi-page PDF output */
+.page-container {
+    width: 297mm;
+    min-height: 210mm;
+    background: #fff;
+    margin: 0 auto 30px auto;
+    padding: 5mm;
+    box-sizing: border-box;
+    /* Visible border for clear page separation in preview */
+    border: 2px solid #333;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Each page grid-container within container */
+.page-container .ritz.grid-container {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+}
+
+/* Page separator - clear visual break between pages */
+.page-separator {
+    height: 20px;
+    background: repeating-linear-gradient(45deg,
+            #666,
+            #666 10px,
+            #fff 10px,
+            #fff 20px);
+    margin: 10px 0;
+    border-top: 2px solid #333;
+    border-bottom: 2px solid #333;
+}
+
+@media print {
+    .page-break {
+        page-break-before: always;
+        break-before: page;
+    }
+
+    .page-break-after {
+        page-break-after: always;
+        break-after: page;
+    }
+
+    .page-container {
+        width: auto !important;
+        min-height: auto !important;
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    .page-separator {
+        display: none;
+    }
+}

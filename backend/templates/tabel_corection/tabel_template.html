@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Табель обліку робочого часу</title>
+    <link rel="stylesheet" href="sheet.css">
+</head>
+
+<body>
+    {% macro format_hours(value) -%}
+        {% if value is none or value == '' or value == 0 or value == '0' or value == '0,00' or value == '0.00' or value == '0:00' %}
+        {% else %}
+            {{ value|string|replace(',', ':') }}
+        {% endif %}
+    {%- endmacro %}
+
+    {% macro render_day(day) -%}
+        {% if day.strikethrough %}
+            {# Strikethrough for dates before contract start (retroactive employees) #}
+        {% elif day.code == 'Р' and day.hours and day.hours != '' %}
+            {{ day.hours }}
+        {% else %}
+            {{ day.code }}
+        {% endif %}
+    {%- endmacro %}
+
+    {% macro day_class(day) -%}
+        {% if day.strikethrough %}disabled-cell {% endif %}s6
+    {%- endmacro %}
+
+    {% macro row_class(days, row_num) -%}
+        {% set has_disabled = false %}
+        {% for day in days %}
+            {% if day.strikethrough %}
+                {% set has_disabled = true %}
+            {% endif %}
+        {% endfor %}
+        {% if has_disabled %}
+            {% if row_num == 1 %}disabled-row-first{% else %}disabled-row-second{% endif %}
+        {% endif %}
+    {%- endmacro %}
+
+    <div class="ritz grid-container" dir="ltr">
+        <table class="waffle" cellspacing="0" cellpadding="0">
+            </thead>
+            <tbody>
+                <!-- Row 1-2: Header with institution name and title -->
+                <tr style="height: 24px">
+                    <td class="s0" colspan="4" rowspan="2">{{ institution_name }}</td>
+                    <td class="s1" colspan="27" rowspan="2">{% if is_correction %}Табель обліку робочого часу{% else %}Табель обліку використання робочого часу{% endif %}</td>
+                    <td class="s0" colspan="4" rowspan="2">{{ edrpou_code }}</td>
+                </tr>
+                <tr style="height: 21px">
+                </tr>
+
+                <!-- Row 3: First header row -->
+                <tr style="height: 38px">
+                    <td class="s3 s-num" rowspan="3">№</td>
+                    <td class="s3 employee-header-cell" rowspan="3">Прізвище, ім'я, по-батькові, посада (кількість ставок)</td>
+                    <td class="s4" colspan="16">Відтки про явки та неявки за числами місяця (годин)</td>
+                    <td class="s3" colspan="6">Відпрацьовано за місяць</td>
+                    <td class="s3" colspan="12">з причини за місяць (дн.)</td>
+                </tr>
+
+                <!-- Row 4: Day numbers 1-15 -->
+                <tr style="height: 66px">
+                    <td class="s3">1</td>
+                    <td class="s3">2</td>
+                    <td class="s3">3</td>
+                    <td class="s3">4</td>
+                    <td class="s3">5</td>
+                    <td class="s3">6</td>
+                    <td class="s3">7</td>
+                    <td class="s3">8</td>
+                    <td class="s3">9</td>
+                    <td class="s3">10</td>
+                    <td class="s3">11</td>
+                    <td class="s3">12</td>
+                    <td class="s3">13</td>
+                    <td class="s3">14</td>
+                    <td class="s3">15</td>
+                    <td class="s3">-</td>
+                    <td class="s3" rowspan="2">днів</td>
+                    <td class="s3" rowspan="2">годин</td>
+                    <td class="s3 s-z-nyh" colspan="4">з них:</td>
+                    <td class="s5-vertical">основна та додаткова відпустка</td>
+                    <td class="s5-vertical">відпустка у зв'язку з навчанням</td>
+                    <td class="s5-vertical">відпустка без збер. зар.плати за згодою</td>
+                    <td class="s5-vertical">відп. без збер. зар. плати на пер. навчання</td>
+                    <td class="s5-vertical">відрядження</td>
+                    <td class="s5-vertical">перевод на неповний робочий день</td>
+                    <td class="s5-vertical">тимч. перевод на інше підпр.</td>
+                    <td class="s5-vertical">простої</td>
+                    <td class="s5-vertical">прогули</td>
+                    <td class="s5-vertical">страйки</td>
+                    <td class="s5-vertical">тимчасова непрацезд.</td>
+                    <td class="s5-vertical">неявки</td>
+                </tr>
+
+                <!-- Row 5: Day numbers 16-31 and sub-headers -->
+                <tr style="height: 28px">
+                    <td class="s3">16</td>
+                    <td class="s3">17</td>
+                    <td class="s3">18</td>
+                    <td class="s3">19</td>
+                    <td class="s3">20</td>
+                    <td class="s3">21</td>
+                    <td class="s3">22</td>
+                    <td class="s3">23</td>
+                    <td class="s3">24</td>
+                    <td class="s3">25</td>
+                    <td class="s3">26</td>
+                    <td class="s3">27</td>
+                    <td class="s3">28</td>
+                    <td class="s3">29</td>
+                    <td class="s3">30</td>
+                    <td class="s3">31</td>
+                    <td class="s5">надуроч.</td>
+                    <td class="s5">нічних</td>
+                    <td class="s5">вечірніх</td>
+                    <td class="s5">вихідних, святкових</td>
+                    <td class="s5">коди 8-10</td>
+                    <td class="s5">коди 11-15, 17, 22</td>
+                    <td class="s5">код 18</td>
+                    <td class="s5">код 19</td>
+                    <td class="s5">код 7</td>
+                    <td class="s5">код 20</td>
+                    <td class="s5">код 21</td>
+                    <td class="s5">код 23</td>
+                    <td class="s5">код 24</td>
+                    <td class="s5">код 25</td>
+                    <td class="s5">коди 26, 27</td>
+                    <td class="s5">коди 28-30</td>
+                </tr>
+
+                <!-- Employee rows -->
+                {% for emp in employees %}
+                <!-- First row: Days 1-15 -->
+                <tr style="height: 36px" class="{{ row_class(emp.days, 1) }}">
+                    <td class="s6 s-num" rowspan="2">{{ loop.index }}</td>
+                    <td class="s6 employee-cell" rowspan="2">
+                        {{ emp.pib }}<br>
+                        {{ emp.position }}{% if emp.rate %}, {{ emp.rate }}{% endif %}
+                    </td>
+                    <td class="{{ day_class(emp.days[0]) }}">{{ render_day(emp.days[0]) }}</td>
+                    <td class="{{ day_class(emp.days[1]) }}">{{ render_day(emp.days[1]) }}</td>
+                    <td class="{{ day_class(emp.days[2]) }}">{{ render_day(emp.days[2]) }}</td>
+                    <td class="{{ day_class(emp.days[3]) }}">{{ render_day(emp.days[3]) }}</td>
+                    <td class="{{ day_class(emp.days[4]) }}">{{ render_day(emp.days[4]) }}</td>
+                    <td class="{{ day_class(emp.days[5]) }}">{{ render_day(emp.days[5]) }}</td>
+                    <td class="{{ day_class(emp.days[6]) }}">{{ render_day(emp.days[6]) }}</td>
+                    <td class="{{ day_class(emp.days[7]) }}">{{ render_day(emp.days[7]) }}</td>
+                    <td class="{{ day_class(emp.days[8]) }}">{{ render_day(emp.days[8]) }}</td>
+                    <td class="{{ day_class(emp.days[9]) }}">{{ render_day(emp.days[9]) }}</td>
+                    <td class="{{ day_class(emp.days[10]) }}">{{ render_day(emp.days[10]) }}</td>
+                    <td class="{{ day_class(emp.days[11]) }}">{{ render_day(emp.days[11]) }}</td>
+                    <td class="{{ day_class(emp.days[12]) }}">{{ render_day(emp.days[12]) }}</td>
+                    <td class="{{ day_class(emp.days[13]) }}">{{ render_day(emp.days[13]) }}</td>
+                    <td class="{{ day_class(emp.days[14]) }}">{{ render_day(emp.days[14]) }}</td>
+                    <td class="s6"></td>
+                    <!-- First half month: worked days and hours -->
+                    <td class="s6">{{ emp.totals.first_half_work_days }}</td>
+                    <td class="s6">{{ format_hours(emp.totals.first_half_work_hours) }}</td>
+                    <!-- First half overtime -->
+                    <td class="s7">{{ format_hours(emp.totals.first_half_overtime) }}</td>
+                    <td class="s8">{{ format_hours(emp.totals.first_half_night) }}</td>
+                    <td class="s9">{{ format_hours(emp.totals.first_half_evening) }}</td>
+                    <td class="s8">{{ format_hours(emp.totals.first_half_weekend) }}</td>
+                    <!-- Absence totals (first half) -->
+                    <td class="s8">{{ emp.absence.vacation_8_10_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.vacation_11_15_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.vacation_18_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.vacation_19_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.business_trip_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.part_time_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.temp_transfer_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.idle_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.absenteeism_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.strike_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.temp_disability_1 or '' }}</td>
+                    <td class="s8">{{ emp.absence.unexcused_1 or '' }}</td>
+                </tr>
+                <!-- Second row: Days 16-31 -->
+                <tr style="height: 36px" class="{{ row_class(emp.days, 2) }}">
+                    <td class="{{ day_class(emp.days[15]) }}">{{ render_day(emp.days[15]) }}</td>
+                    <td class="{{ day_class(emp.days[16]) }}">{{ render_day(emp.days[16]) }}</td>
+                    <td class="{{ day_class(emp.days[17]) }}">{{ render_day(emp.days[17]) }}</td>
+                    <td class="{{ day_class(emp.days[18]) }}">{{ render_day(emp.days[18]) }}</td>
+                    <td class="{{ day_class(emp.days[19]) }}">{{ render_day(emp.days[19]) }}</td>
+                    <td class="{{ day_class(emp.days[20]) }}">{{ render_day(emp.days[20]) }}</td>
+                    <td class="{{ day_class(emp.days[21]) }}">{{ render_day(emp.days[21]) }}</td>
+                    <td class="{{ day_class(emp.days[22]) }}">{{ render_day(emp.days[22]) }}</td>
+                    <td class="{{ day_class(emp.days[23]) }}">{{ render_day(emp.days[23]) }}</td>
+                    <td class="{{ day_class(emp.days[24]) }}">{{ render_day(emp.days[24]) }}</td>
+                    <td class="{{ day_class(emp.days[25]) }}">{{ render_day(emp.days[25]) }}</td>
+                    <td class="{{ day_class(emp.days[26]) }}">{{ render_day(emp.days[26]) }}</td>
+                    <td class="{{ day_class(emp.days[27]) }}">{{ render_day(emp.days[27]) }}</td>
+                    <td class="{{ day_class(emp.days[28]) }}">{{ render_day(emp.days[28]) }}</td>
+                    <td class="{{ day_class(emp.days[29]) }}">{{ render_day(emp.days[29]) }}</td>
+                    <td class="{{ day_class(emp.days[30]) }}">{{ render_day(emp.days[30]) }}</td>
+                    <!-- Second half month: worked days and hours -->
+                    <td class="s6">{{ emp.totals.second_half_work_days }}</td>
+                    <td class="s6">{{ format_hours(emp.totals.second_half_work_hours) }}</td>
+                    <!-- Second half overtime -->
+                    <td class="s9">{{ format_hours(emp.totals.second_half_overtime) }}</td>
+                    <td class="s8">{{ format_hours(emp.totals.second_half_night) }}</td>
+                    <td class="s9">{{ format_hours(emp.totals.second_half_evening) }}</td>
+                    <td class="s8">{{ format_hours(emp.totals.second_half_weekend) }}</td>
+                    <!-- Absence totals (second half) -->
+                    <td class="s8">{{ emp.absence.vacation_8_10_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.vacation_11_15_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.vacation_18_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.vacation_19_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.business_trip_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.part_time_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.temp_transfer_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.idle_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.absenteeism_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.strike_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.temp_disability_2 or '' }}</td>
+                    <td class="s8">{{ emp.absence.unexcused_2 or '' }}</td>
+                </tr>
+                {% endfor %}
+
+                <!-- Totals row -->
+                <tr style="height: 17px">
+                    <td class="s13" colspan="18">Всього</td>
+                    <td class="s14">{{ totals.work_days if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ format_hours(totals.work_hours) if show_monthly_totals else '' }}</td>
+                    <!-- Monthly overtime totals -->
+                    <td class="s14">{{ format_hours(totals.overtime) if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ format_hours(totals.night) if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ format_hours(totals.evening) if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.weekend if show_monthly_totals else '' }}</td>
+                    <!-- Absence totals (monthly) -->
+                    <td class="s14">{{ totals.absence.vacation_8_10 if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.vacation_11_15 if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.vacation_18 if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.vacation_19 if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.business_trip if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.part_time if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.temp_transfer if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.idle if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.absenteeism if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.strike if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.temp_disability if show_monthly_totals else '' }}</td>
+                    <td class="s14">{{ totals.absence.unexcused if show_monthly_totals else '' }}</td>
+                </tr>
+
+                <!-- Empty spacer row -->
+                <tr style="height: 35px">
+                    <td class="s2" colspan="37"></td>
+                </tr>
+
+                <!-- First half month signature -->
+                <tr style="height: 20px">
+                    <td class="s15" colspan="6">Заповнені дані за I половину місяця підтверджую:</td>
+                    <td class="s15" colspan="8">Відповідальна особа за складання</td>
+                    <td class="s16" colspan="2"></td>
+                    <td class="s17"></td>
+                    <td class="s18" colspan="5">{{ responsible_person }}</td>
+                    <td class="s15" colspan="5">Керівник структурного підрозділу</td>
+                    <td class="s16" colspan="2"></td>
+                    <td class="s17"></td>
+                    <td class="s18" colspan="6">{{ department_head }}</td>
+                </tr>
+
+                <!-- Signature labels row 1 -->
+                <tr style="height: 20px">
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s19" colspan="2">(підпис)</td>
+                    <td class="s19" colspan="6">(прізвище, ім'я, по-батькові)</td>
+                    <td class="s20"></td>
+                    <td class="s20"></td>
+                    <td class="s20"></td>
+                    <td class="s20"></td>
+                    <td class="s2"></td>
+                    <td class="s19" colspan="2">(підпис)</td>
+                    <td class="s20"></td>
+                    <td class="s19" colspan="6">(прізвище, ім'я, по-батькові)</td>
+                </tr>
+
+                <!-- Empty spacer row -->
+                <tr style="height: 25px">
+                    <td class="s2" colspan="37"></td>
+                </tr>
+
+                <!-- Second half month signature -->
+                <tr style="height: 20px">
+                    <td class="s15" colspan="6">Заповнені дані за II половину місяця підтверджую:</td>
+                    <td class="s15" colspan="8">Відповідальна особа за складання</td>
+                    <td class="s16" colspan="2"></td>
+                    <td class="s17"></td>
+                    <td class="s18" colspan="5">{{ responsible_person }}</td>
+                    <td class="s15" colspan="5">Керівник структурного підрозділу</td>
+                    <td class="s16" colspan="2"></td>
+                    <td class="s17"></td>
+                    <td class="s18" colspan="6">{{ department_head }}</td>
+                </tr>
+
+                <!-- Signature labels row 2 -->
+                <tr style="height: 20px">
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s19" colspan="2">(підпис)</td>
+                    <td class="s19" colspan="6">(прізвище, ім'я, по-батькові)</td>
+                    <td class="s20"></td>
+                    <td class="s20"></td>
+                    <td class="s20"></td>
+                    <td class="s20"></td>
+                    <td class="s2"></td>
+                    <td class="s19" colspan="2">(підпис)</td>
+                    <td class="s20"></td>
+                    <td class="s19" colspan="6">(прізвище, ім'я, по-батькові)</td>
+                </tr>
+
+                <!-- Empty spacer row -->
+                <tr style="height: 25px">
+                    <td class="s2" colspan="37"></td>
+                </tr>
+
+                <!-- HR personnel signature row 1 -->
+                <tr style="height: 20px">
+                    <td class="s15" colspan="2">Працівник кадрової служби</td>
+                    <td class="s16" colspan="2"></td>
+                    <td class="s17"></td>
+                    <td class="s18" colspan="7">{{ hr_person }}</td>
+                    <td class="s17"></td>
+                    <td class="s16" colspan="3"></td>
+                    <td class="s17"></td>
+                    <td class="s17"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                </tr>
+
+                <!-- HR signature label row 1 -->
+                <tr style="height: 12px">
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s19" colspan="2">(підпис)</td>
+                    <td class="s20"></td>
+                    <td class="s19" colspan="7">(прізвище, ім'я, по-батькові)</td>
+                    <td class="s20"></td>
+                    <td class="s23" colspan="3">дата</td>
+                    <td class="s20"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                </tr>
+
+                <!-- Empty spacer row -->
+                <tr style="height: 25px">
+                    <td class="s2" colspan="37"></td>
+                </tr>
+
+                <!-- HR personnel signature row 2 -->
+                <tr style="height: 20px">
+                    <td class="s15" colspan="2">Працівник кадрової служби</td>
+                    <td class="s16" colspan="2"></td>
+                    <td class="s17"></td>
+                    <td class="s18" colspan="7">{{ hr_person }}</td>
+                    <td class="s17"></td>
+                    <td class="s16" colspan="3"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                </tr>
+
+                <!-- HR signature label row 2 -->
+                <tr style="height: 12px">
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s19" colspan="2">(підпис)</td>
+                    <td class="s20"></td>
+                    <td class="s19" colspan="7">(прізвище, ім'я, по-батькові)</td>
+                    <td class="s20"></td>
+                    <td class="s23" colspan="3">дата</td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                    <td class="s2"></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+
+</html>
