@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QFileDialog,
+    QSizePolicy,
 )
 import os
 
@@ -46,6 +47,8 @@ class EmployeeCardDialog(QDialog):
     edit_document = pyqtSignal(int)  # document_id
     delete_document = pyqtSignal(int)  # document_id
     attendance_modified = pyqtSignal(object)  # date that was modified (for switching to correction tab)
+    staff_changed = pyqtSignal()  # staff data changed (for refreshing parent)
+    subposition_via_document = pyqtSignal()  # open builder for subposition document
 
     def __init__(self, staff_id: int, parent=None):
         """
@@ -72,10 +75,34 @@ class EmployeeCardDialog(QDialog):
             if not staff:
                 raise ValueError(f"Співробітника з ID {self.staff_id} не знайдено")
 
+            # Зберігаємо PIB для пошуку інших позицій
+            self.pib_nom = staff.pib_nom
+
+            # Знаходимо всі позиції цього співробітника
+            all_positions = db.query(Staff).filter(
+                Staff.pib_nom == staff.pib_nom,
+                Staff.is_active == True
+            ).order_by(Staff.rate.desc()).all()
+
+            # Зберігаємо всі активні позиції
+            self.all_positions = []
+            for pos in all_positions:
+                pos_value = pos.position.value if hasattr(pos.position, 'value') else str(pos.position)
+                emp_type_value = pos.employment_type.value if hasattr(pos.employment_type, 'value') else str(pos.employment_type)
+                self.all_positions.append({
+                    "id": pos.id,
+                    "position": pos_value,
+                    "position_label": get_position_label(pos_value),
+                    "rate": float(pos.rate),
+                    "employment_type": emp_type_value,
+                    "term_start": pos.term_start,
+                    "term_end": pos.term_end,
+                })
+
             service = StaffService(db)
             history = service.get_staff_history(self.staff_id)
 
-            # Зберігаємо дані перед закриттям сесії (detached instance problem)
+            # Зберігаємо дані поточної позиції (обраної)
             self.staff_data = {
                 "id": staff.id,
                 "pib_nom": staff.pib_nom,
@@ -91,6 +118,16 @@ class EmployeeCardDialog(QDialog):
                 "is_active": staff.is_active,
                 "days_until_term_end": staff.days_until_term_end,
             }
+
+            # Перевіряємо чи має підписаний документ (для додавання сумісництва)
+            from backend.models.document import Document
+            from shared.enums import DocumentStatus
+
+            signed_docs = db.query(Document).filter(
+                Document.staff_id == staff.id,
+                Document.status == DocumentStatus.SIGNED
+            ).count()
+            self.has_signed_document = signed_docs > 0
 
             # Зберігаємо історію з потрібними даними
             self.history = []
@@ -147,7 +184,8 @@ class EmployeeCardDialog(QDialog):
         layout.setSpacing(5)
 
         # Інформація про співробітника
-        layout.addWidget(self._create_info_section())
+        self._info_frame = self._create_info_section()
+        layout.addWidget(self._info_frame)
 
         # Історія відпусток
         vacation_header = QHBoxLayout()
@@ -236,13 +274,28 @@ class EmployeeCardDialog(QDialog):
         layout.addWidget(separator)
 
         # Деталі
+        # Handle both enum objects and string values
+        emp_type_value = self.staff_data['employment_type'].value if hasattr(self.staff_data['employment_type'], 'value') else self.staff_data['employment_type']
+        work_basis_value = self.staff_data['work_basis'].value if hasattr(self.staff_data['work_basis'], 'value') else self.staff_data['work_basis']
+
+        # Формуємо список всіх позицій
+        positions_html = ""
+        for i, pos in enumerate(self.all_positions):
+            if pos["id"] == self.staff_data["id"]:
+                # Поточна позиція
+                positions_html += f"<b>{pos['position_label']}</b> ({pos['rate']})"
+            else:
+                # Інші позиції
+                positions_html += f"{pos['position_label']} ({pos['rate']})"
+            if i < len(self.all_positions) - 1:
+                positions_html += "<br>"
+
         details_text = f"""
         <table cellspacing="5">
-            <tr><td><b>Посада:</b></td><td>{self._format_position(self.staff_data['position'])}</td></tr>
+            <tr><td><b>Позиції:</b></td><td>{positions_html}</td></tr>
             <tr><td><b>Вчений ступінь:</b></td><td>{self.staff_data['degree'] or '—'}</td></tr>
-            <tr><td><b>Ставка:</b></td><td>{self.staff_data['rate']}</td></tr>
-            <tr><td><b>Тип працевлаштування:</b></td><td>{self._format_employment_type(self.staff_data['employment_type'].value)}</td></tr>
-            <tr><td><b>Основа:</b></td><td>{self._format_work_basis(self.staff_data['work_basis'].value)}</td></tr>
+            <tr><td><b>Тип працевлаштування:</b></td><td>{self._format_employment_type(emp_type_value)}</td></tr>
+            <tr><td><b>Основа:</b></td><td>{self._format_work_basis(work_basis_value)}</td></tr>
             <tr><td><b>Контракт:</b></td><td>
                 {self.staff_data['term_start'].strftime('%d.%m.%Y')} —
                 {self.staff_data['term_end'].strftime('%d.%m.%Y')}
@@ -266,6 +319,11 @@ class EmployeeCardDialog(QDialog):
             ["Період", "Тип", "Днів", "Статус", "Створено", "Дії"]
         )
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Make "Actions" column fixed width or resize to contents? 
+        # User wants buttons to "fill cell", so Stretch is good. 
+        # But for 3 buttons Stretch might be too wide or narrow.
+        # Let's keep Stretch for now as requested "fill cell".
+        
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setRowCount(len(self.vacation_documents))
 
@@ -275,7 +333,7 @@ class EmployeeCardDialog(QDialog):
             "on_signature": QColor("#FFE082"), # Жовтий - на підписі
             "signed": QColor("#C8E6C9"),       # Зелений - підписано
             "processed": QColor("#81D4FA"),    # Блакитний - оброблено
-            "not_confirmed": QColor("#FFCDD2"), # Червоний - не підтверджено
+            "not_confirmed": QColor("#FFCDD2"), # Червоний - не підтверджено (немає скану)
         }
 
         for row, doc in enumerate(self.vacation_documents):
@@ -306,12 +364,21 @@ class EmployeeCardDialog(QDialog):
                 "term_extension_contract": "Продовження (контракт)",
                 "term_extension_competition": "Продовження (конкурс)",
                 "term_extension_pdf": "Продовження (сумісництво)",
+                # Прийом на роботу
+                "employment_contract": "Прийом (контракт)",
+                "employment_competition": "Прийом (конкурс)",
+                "employment_pdf": "Прийом (PDF)",
             }
             doc_type = doc_type_labels.get(doc['doc_type'], doc['doc_type'])
             table.setItem(row, 1, QTableWidgetItem(doc_type))
 
             # Кількість днів
-            table.setItem(row, 2, QTableWidgetItem(str(doc['days_count'])))
+            # For employment documents, show "-"
+            if doc['doc_type'].startswith('employment_'):
+                days_text = "-"
+            else:
+                days_text = str(doc['days_count'])
+            table.setItem(row, 2, QTableWidgetItem(days_text))
 
             # Статус з кольором
             status_labels = {
@@ -322,14 +389,25 @@ class EmployeeCardDialog(QDialog):
                 "not_confirmed": "Не підтверджено",
             }
 
-            # Перевіряємо чи є скан для підписаних/оброблених документів
-            status = doc['status']
-            if status in ('signed', 'processed') and not doc.get('file_scan_path'):
-                status = 'not_confirmed'
+            # Logic for visuals:
+            # 1. If status is signed/processed but NO SCAN -> Not Confirmed (Red)
+            # 2. If status is signed AND HAS SCAN -> Treat as Processed (Blue/Approved)
+            
+            raw_status = doc['status']
+            has_scan = bool(doc.get('file_scan_path'))
+            
+            display_status_key = raw_status
+            
+            if raw_status in ('signed', 'processed'):
+                if not has_scan:
+                    display_status_key = 'not_confirmed'
+                elif raw_status == 'signed' and has_scan:
+                    # User request: "fully signed and scaned ... should be Обробленно"
+                    display_status_key = 'processed'
 
-            status_text = status_labels.get(status, doc['status'])
+            status_text = status_labels.get(display_status_key, display_status_key)
             status_item = QTableWidgetItem(status_text)
-            status_item.setBackground(status_colors.get(status, QColor("white")))
+            status_item.setBackground(status_colors.get(display_status_key, QColor("white")))
             table.setItem(row, 3, status_item)
 
             # Дата створення
@@ -338,39 +416,50 @@ class EmployeeCardDialog(QDialog):
 
             # Кнопки дій
             button_container = QWidget()
+            # User wants buttons to fill cell: Remove spacing/margins, expand policy
             button_layout = QHBoxLayout(button_container)
-            button_layout.setContentsMargins(2, 2, 2, 2)
-            button_layout.setSpacing(4)
+            button_layout.setContentsMargins(0, 0, 0, 0)
+            button_layout.setSpacing(1) # Small spacing line
 
             # Перевіряємо чи документ відскановано (не можна редагувати/видаляти)
-            is_scanned = doc['status'] in ('processed', 'signed')
-
-            # Кнопка редагування (для чернеток та на підписі)
+            # Logic for disabling buttons: same as before?
+            # "fully signed" and "scanned" usually means finalized.
+            is_locked = display_status_key in ('processed', 'signed') and has_scan
+            # Wait, if displayed as processed, it is locked.
+            # If draft/on_signature -> unlocked.
+            
+            # Additional check: raw status 'processed' means applied to tabel.
+            if raw_status == 'processed':
+                is_locked = True
+            
+            # Кнопка редагування (Edit)
             edit_btn = QPushButton("✏️")
-            edit_btn.setFixedWidth(32)
             edit_btn.setToolTip("Редагувати документ")
-            edit_btn.setEnabled(not is_scanned)
-            if is_scanned:
-                edit_btn.setToolTip("Неможливо редагувати (документ відскановано)")
+            edit_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            edit_btn.setEnabled(not is_locked)
+            if is_locked:
+                edit_btn.setToolTip("Неможливо редагувати (документ оброблено)")
+                # Greying out is handled by system style for disabled widgets usually.
             edit_btn.clicked.connect(lambda checked, d=doc: self._on_edit_document(d['id']))
             button_layout.addWidget(edit_btn)
 
-            # Кнопка видалення
-            delete_btn = QPushButton("🗑️")
-            delete_btn.setFixedWidth(32)
-            delete_btn.setToolTip("Видалити документ")
-            delete_btn.setEnabled(not is_scanned)
-            if is_scanned:
-                delete_btn.setToolTip("Неможливо видалити (документ відскановано)")
-            delete_btn.clicked.connect(lambda checked, d=doc: self._on_delete_document(d['id']))
-            button_layout.addWidget(delete_btn)
-
-            # Кнопка етапів підписання
-            workflow_btn = QPushButton("📋")
-            workflow_btn.setFixedWidth(32)
+            # Кнопка підписання (Workflow/Signature) - Middle button
+            workflow_btn = QPushButton("📋") # Using same icon as before? Or ✍️?
+            # User image showed a clipboard/checklist icon. 📋 is clipboard.
             workflow_btn.setToolTip("Етапи підписання")
+            workflow_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             workflow_btn.clicked.connect(lambda checked, d=doc: self._on_workflow_document(d['id']))
             button_layout.addWidget(workflow_btn)
+
+            # Кнопка видалення (Delete)
+            delete_btn = QPushButton("🗑️")
+            delete_btn.setToolTip("Видалити документ")
+            delete_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            delete_btn.setEnabled(not is_locked)
+            if is_locked:
+                delete_btn.setToolTip("Неможливо видалити (документ оброблено)")
+            delete_btn.clicked.connect(lambda checked, d=doc: self._on_delete_document(d['id']))
+            button_layout.addWidget(delete_btn)
 
             table.setCellWidget(row, 5, button_container)
 
@@ -420,6 +509,23 @@ class EmployeeCardDialog(QDialog):
     def _create_action_buttons(self) -> QHBoxLayout:
         """Створює кнопки дій."""
         layout = QHBoxLayout()
+
+        if self.staff_data['is_active']:
+            # Перевіряємо чи можна додати сумісництво:
+            # Можна додавати тільки з основної позиції (ставка 1.00)
+            is_main_position = self.staff_data['rate'] == 1.0
+
+            if is_main_position:
+                add_subposition_btn = QPushButton("➕ Додати сумісництво")
+                add_subposition_btn.setToolTip("Додати додаткову позицію (ставка < 1.00)")
+                add_subposition_btn.clicked.connect(self._add_subposition)
+                layout.addWidget(add_subposition_btn)
+            else:
+                # Показуємо що можна додавати тільки з основної позиції
+                info_btn = QPushButton("ℹ️ Сумісництво з основної позиції")
+                info_btn.setToolTip("Додавати сумісництво можна тільки з основної позиції (ставка 1.00)")
+                info_btn.setEnabled(False)
+                layout.addWidget(info_btn)
 
         if not self.staff_data['is_active']:
             # Кнопка відновлення для неактивних
@@ -996,6 +1102,10 @@ class EmployeeCardDialog(QDialog):
 
                 db.commit()
                 QMessageBox.information(self, "Успіх", "Етапи підписання оновлено")
+                
+                # Refresh UI
+                self._load_data()
+                self._refresh_tables()
 
     def _upload_scan(self, document_id: int, parent_dialog: QDialog):
         """Завантаження скану документа."""
@@ -1018,8 +1128,10 @@ class EmployeeCardDialog(QDialog):
                 doc = db.query(Document).filter(Document.id == document_id).first()
                 if not doc:
                     return
-                
-                service = DocumentService(db)
+
+                from backend.services.grammar_service import GrammarService
+                grammar = GrammarService()
+                service = DocumentService(db, grammar)
                 service.set_scanned(doc, file_path=file_path, comment="Завантажено через UI")
                 QMessageBox.information(self, "Успіх", "Скан успішно завантажено")
                 
@@ -1155,25 +1267,122 @@ class EmployeeCardDialog(QDialog):
         }
         return color_map.get(action_type, QColor("#FFFFFF"))
 
-    def _restore_staff(self):
-        """Відновлює співробітника (реактивує запис з новими даними)."""
+    def _add_subposition(self):
+        """Додає сумісництво - показує діалог з вибором способу."""
+        from datetime import date, timedelta
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QFrame
+        from desktop.ui.scan_upload_dialog import ScanUploadDialog
+
+        # Створюємо діалог з вибором способу
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Додати сумісництво: {self.staff_data['pib_nom']}")
+        dialog.setMinimumWidth(500)
+
+        layout = QVBoxLayout(dialog)
+
+        # Інформація про співробітника
+        info_frame = QFrame()
+        info_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        info_layout = QVBoxLayout(info_frame)
+
+        info_layout.addWidget(QLabel(f"<b>Співробітник:</b> {self.staff_data['pib_nom']}"))
+        info_layout.addWidget(QLabel(f"<b>Поточна позиція:</b> {get_position_label(self.staff_data['position'])} ({self.staff_data['rate']})"))
+        info_layout.addWidget(QLabel(""))
+
+        info_text = QLabel(
+            "<i>Оберіть спосіб додавання сумісництва:</i><br><br>"
+            "• <b>Створити документ</b> - перехід до конструктора заяв на продовження сумісництва<br>"
+            "• <b>Завантажити скан</b> - завантажити скан договору для створення нової позиції"
+        )
+        info_text.setWordWrap(True)
+        info_layout.addWidget(info_text)
+        layout.addWidget(info_frame)
+
+        # Кнопки вибору способу
+        button_layout = QHBoxLayout()
+
+        create_doc_btn = QPushButton("📄 Створити документ\n(продовження сумісництва)")
+        create_doc_btn.setMinimumHeight(70)
+        create_doc_btn.clicked.connect(lambda: self._add_subposition_via_document(dialog))
+        button_layout.addWidget(create_doc_btn)
+
+        upload_scan_btn = QPushButton("📎 Завантажити скан\nдоговору")
+        upload_scan_btn.setMinimumHeight(70)
+        upload_scan_btn.clicked.connect(lambda: self._add_subposition_via_scan(dialog))
+        button_layout.addWidget(upload_scan_btn)
+
+        layout.addLayout(button_layout)
+        dialog.exec()
+
+    def _add_subposition_via_document(self, parent_dialog: QDialog):
+        """Додає сумісництво через створення документа."""
+        parent_dialog.reject()
+
+        # Emit signal to open builder tab with subposition document type
+        # Parent (staff_tab) should handle this signal
+        self.subposition_via_document.emit()
+
+    def _add_subposition_via_scan(self, parent_dialog: QDialog):
+        """Додає сумісництво через завантаження скану."""
+        parent_dialog.reject()
+
+        # Open scan upload dialog
+        dialog = ScanUploadDialog(self.staff_id, parent=self)
+        dialog.scan_uploaded.connect(self._on_subposition_scan_uploaded)
+        dialog.exec()
+
+    def _on_subposition_scan_uploaded(self, staff_id: int):
+        """Обробляє завантаження скану для сумісництва."""
+        # Reload data to show new position
+        self._load_data()
+        # Refresh the info section
+        self._refresh_info_section()
+
+    def _refresh_info_section(self):
+        """Оновлює секцію інформації."""
+        # Find and replace the info section
+        layout = self.layout()
+        if layout and hasattr(self, '_info_frame'):
+            # Find index of old frame
+            old_frame_index = -1
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if item and item.widget() == self._info_frame:
+                    old_frame_index = i
+                    break
+
+            if old_frame_index >= 0:
+                # Remove old frame from layout
+                layout.takeAt(old_frame_index)
+                self._info_frame.setParent(None)
+
+                # Create and insert new frame at the same position
+                self._info_frame = self._create_info_section()
+                layout.insertWidget(old_frame_index, self._info_frame)
+
+    def _add_subposition_direct(self):
+        """Додає сумісництво напряму (без документа) - для завантаженого скану."""
+        from datetime import date
+        from PyQt6.QtWidgets import QDialog, QFormLayout, QComboBox, QDoubleSpinBox, QDateEdit, QDialogButtonBox, QLabel, QHBoxLayout, QPushButton
         from backend.core.database import get_db_context
         from backend.services.staff_service import StaffService
-        from backend.models.staff import Staff
-        from datetime import date, timedelta
-        from PyQt6.QtWidgets import QDialog, QFormLayout, QComboBox, QDateEdit, QDoubleSpinBox, QSpinBox, QDialogButtonBox, QLineEdit
+        from backend.models.settings import SystemSettings
         from shared.enums import EmploymentType, WorkBasis
 
-        # Створюємо діалог для введення нових даних
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"Відновлення: {self.staff_data['pib_nom']}")
-        dialog.setMinimumWidth(500)
+        dialog.setWindowTitle(f"Додати сумісництво: {self.staff_data['pib_nom']}")
+        dialog.setMinimumWidth(400)
 
         layout = QFormLayout(dialog)
 
-        # Посада - dropdown from StaffPosition enum
-        position = QComboBox()
-        position.setEditable(True)
+        # Попередження
+        warning = QLabel("⚠️ Ставка має бути менше 1.00 для сумісництва")
+        warning.setStyleSheet("color: #666; font-style: italic;")
+        layout.addRow("", warning)
+
+        # Посада
+        position_input = QComboBox()
+        position_input.setEditable(False)
         position_items = {
             StaffPosition.HEAD_OF_DEPARTMENT: "Завідувач кафедри",
             StaffPosition.ACTING_HEAD_OF_DEPARTMENT: "В.о завідувача кафедри",
@@ -1184,86 +1393,49 @@ class EmployeeCardDialog(QDialog):
             StaffPosition.SPECIALIST: "Фахівець",
         }
         for pos_value, pos_label in position_items.items():
-            position.addItem(pos_label, pos_value)
-        # Set current position - look up by stored enum value
-        current_position = self.staff_data.get('position', '')
-        pos_index = position.findData(current_position)
-        if pos_index >= 0:
-            position.setCurrentIndex(pos_index)
-        else:
-            # Fallback: find by label if value not found
-            for pos_value, pos_label in position_items.items():
-                if pos_label.lower() == current_position.lower():
-                    position.setCurrentIndex(position.findData(pos_value))
-                    break
-            else:
-                # If still not found, show as-is
-                position.setCurrentText(current_position)
+            position_input.addItem(pos_label, pos_value)
+        layout.addRow("Посада:", position_input)
 
-        # Вчений ступінь
-        degree = QLineEdit(self.staff_data['degree'] or "")
+        # Ставка - only allow values < 1.0
+        rate_layout = QHBoxLayout()
+        rate_input = QDoubleSpinBox()
+        rate_input.setRange(0.01, 0.99)
+        rate_input.setSingleStep(0.05)
+        rate_input.setDecimals(2)
+        rate_input.setValue(0.25)
+        rate_layout.addWidget(rate_input)
 
-        # Ставка
-        rate = QDoubleSpinBox()
-        rate.setRange(0.1, 1.0)
-        rate.setSingleStep(0.1)
-        rate.setDecimals(1)
-        rate.setValue(float(self.staff_data['rate']))
+        # Quick rate buttons
+        for rate_value in [0.25, 0.5, 0.75]:
+            rate_btn = QPushButton(f"{rate_value:.2f}")
+            rate_btn.setFixedWidth(50)
+            rate_btn.clicked.connect(lambda checked, r=rate_value: rate_input.setValue(r))
+            rate_layout.addWidget(rate_btn)
+        layout.addRow("Ставка:", rate_layout)
 
-        # Тип працевлаштування - з українськими мітками
-        employment_type = QComboBox()
+        # Тип працевлаштування
+        employment_type_input = QComboBox()
         employment_type_items = {
             EmploymentType.MAIN: "Основне місце роботи",
             EmploymentType.INTERNAL: "Внутрішній сумісник",
             EmploymentType.EXTERNAL: "Зовнішній сумісник",
         }
         for et, label in employment_type_items.items():
-            employment_type.addItem(label, et)
-        # Set current employment type
-        for i in range(employment_type.count()):
-            if employment_type.itemData(i) == self.staff_data['employment_type']:
-                employment_type.setCurrentIndex(i)
-                break
+            employment_type_input.addItem(label, et)
+        # Default to internal for subposition
+        employment_type_input.setCurrentIndex(1)  # Внутрішній сумісник
+        layout.addRow("Тип працевлаштування:", employment_type_input)
 
-        # Основа роботи - з українськими мітками
-        work_basis = QComboBox()
-        work_basis_items = {
-            WorkBasis.CONTRACT: "Контракт",
-            WorkBasis.COMPETITIVE: "Конкурсна основа",
-            WorkBasis.STATEMENT: "Заява",
-        }
-        for wb, label in work_basis_items.items():
-            work_basis.addItem(label, wb)
-        # Set current work basis
-        for i in range(work_basis.count()):
-            if work_basis.itemData(i) == self.staff_data['work_basis']:
-                work_basis.setCurrentIndex(i)
-                break
+        # Контракт - дати
+        term_start_input = QDateEdit()
+        term_start_input.setCalendarPopup(True)
+        term_start_input.setDate(date.today())
+        layout.addRow("Початок контракту:", term_start_input)
 
-        # Дати контракту
-        term_start = QDateEdit()
-        term_start.setCalendarPopup(True)
-        term_start.setDate(date.today())
-
-        term_end = QDateEdit()
-        term_end.setCalendarPopup(True)
-        # За замовчуванням +1 рік від початку
-        future_date = date.today() + timedelta(days=365)
-        term_end.setDate(future_date)
-
-        vacation_balance = QSpinBox()
-        vacation_balance.setRange(0, 365)
-        vacation_balance.setValue(self.staff_data['vacation_balance'])
-
-        # Додаємо поля до форми
-        layout.addRow("Посада:", position)
-        layout.addRow("Вчений ступінь:", degree)
-        layout.addRow("Ставка:", rate)
-        layout.addRow("Тип працевлаштування:", employment_type)
-        layout.addRow("Основа:", work_basis)
-        layout.addRow("Початок контракту:", term_start)
-        layout.addRow("Кінець контракту:", term_end)
-        layout.addRow("Баланс відпустки:", vacation_balance)
+        term_end_input = QDateEdit()
+        term_end_input.setCalendarPopup(True)
+        term_end_input.setDate(date.today())
+        layout.addRow("Кінець контракту:", term_end_input)
 
         # Кнопки
         buttons = QDialogButtonBox(
@@ -1273,39 +1445,171 @@ class EmployeeCardDialog(QDialog):
         buttons.rejected.connect(dialog.reject)
         layout.addRow(buttons)
 
-        if dialog.exec():
-            # Прямо реактивуємо старий запис з новими даними
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # Валідація
+        if rate_input.value() >= 1.0:
+            QMessageBox.warning(
+                dialog,
+                "Помилка",
+                "Для сумісництва ставка має бути менше 1.00"
+            )
+            return
+
+        if term_end_input.date().toPyDate() <= term_start_input.date().toPyDate():
+            QMessageBox.warning(
+                dialog,
+                "Помилка",
+                "Дата закінчення контракту має бути пізніше за дату початку"
+            )
+            return
+
+        # Збереження
+        staff_data = {
+            "pib_nom": self.staff_data['pib_nom'],
+            "pib_dav": self.staff_data.get('pib_dav') or "",
+            "degree": self.staff_data.get('degree'),
+            "position": position_input.currentData(),
+            "rate": rate_input.value(),
+            "employment_type": employment_type_input.currentData(),
+            "work_basis": WorkBasis.CONTRACT,
+            "term_start": term_start_input.date().toPyDate(),
+            "term_end": term_end_input.date().toPyDate(),
+            "is_active": True,
+            "vacation_balance": 0,
+            "department": "",
+            "work_schedule": self.staff_data.get('work_schedule', 'standard'),
+        }
+
+        try:
             with get_db_context() as db:
                 service = StaffService(db, changed_by="USER")
+                service.create_staff(staff_data)
 
-                # Отримуємо оригінальний запис
-                old_staff = db.query(Staff).filter(Staff.id == self.staff_id).first()
-                if not old_staff:
-                    QMessageBox.critical(self, "Помилка", "Запис не знайдено")
-                    return
+            QMessageBox.information(
+                self,
+                "Успіх",
+                f"Сумісництво додано: {get_position_label(staff_data['position'])} ({staff_data['rate']})"
+            )
 
-                # Нові дані для оновлення
-                new_data = {
-                    "pib_nom": self.staff_data['pib_nom'],  # Ім'я не змінюється
-                    "degree": degree.text() or None,
-                    "position": position.currentData(),
-                    "rate": rate.value(),
-                    "employment_type": employment_type.currentData(),
-                    "work_basis": work_basis.currentData(),
-                    "term_start": term_start.date().toPyDate(),
-                    "term_end": term_end.date().toPyDate(),
-                    "vacation_balance": vacation_balance.value(),
-                    "is_active": True,  # Реактивуємо
-                }
+            # Повідомляємо батьківський вікно про зміни
+            self.staff_changed.emit()
+            self.accept()
 
-                try:
-                    service.restore_staff(old_staff, new_data)
-                    QMessageBox.information(
-                        self, "Успішно", f"Запис відновлено з новими даними"
-                    )
-                    self.accept()
-                except Exception as e:
-                    QMessageBox.critical(self, "Помилка", f"Не вдалося відновити запис: {e}")
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося додати сумісництво: {e}")
+
+    def _restore_staff(self):
+        """Відновлює співробітника - пропонує створити документ або завантажити скан."""
+        from datetime import date, timedelta
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QFrame
+        from desktop.ui.scan_upload_dialog import ScanUploadDialog
+
+        # Створюємо діалог з вибором способу реактивації
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Реактивація: {self.staff_data['pib_nom']}")
+        dialog.setMinimumWidth(550)
+
+        layout = QVBoxLayout(dialog)
+
+        # Інформація про співробітника
+        info_frame = QFrame()
+        info_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        info_layout = QVBoxLayout(info_frame)
+
+        info_layout.addWidget(QLabel(f"<b>Співробітник:</b> {self.staff_data['pib_nom']}"))
+        info_layout.addWidget(QLabel(f"<b>Попередня посада:</b> {get_position_label(self.staff_data['position'])}"))
+        info_layout.addWidget(QLabel(f"<b>Ставка:</b> {self.staff_data['rate']}"))
+        info_layout.addWidget(QLabel(f"<b>Тип працевлаштування:</b> {self._get_employment_type_label(self.staff_data['employment_type'])}"))
+        info_layout.addWidget(QLabel(""))
+
+        info_text = QLabel(
+            "<i>Для реактивації співробітника оберіть один із способів:</i><br><br>"
+            "• <b>Створити документ</b> - перехід до конструктора заяв з попередньо заповненими даними<br>"
+            "• <b>Завантажити скан</b> - завантажити скан договору для створення нового запису"
+        )
+        info_text.setWordWrap(True)
+        info_layout.addWidget(info_text)
+        layout.addWidget(info_frame)
+
+        # Кнопки вибору способу
+        button_layout = QHBoxLayout()
+
+        create_doc_btn = QPushButton("📄 Створити документ (продовження контракту)")
+        create_doc_btn.setMinimumHeight(60)
+        create_doc_btn.clicked.connect(lambda: self._restore_via_document(dialog))
+        button_layout.addWidget(create_doc_btn)
+
+        upload_scan_btn = QPushButton("📎 Завантажити скан договору")
+        upload_scan_btn.setMinimumHeight(60)
+        upload_scan_btn.clicked.connect(lambda: self._restore_via_scan(dialog))
+        button_layout.addWidget(upload_scan_btn)
+
+        layout.addLayout(button_layout)
+        dialog.exec()
+
+    def _get_employment_type_label(self, emp_type: str) -> str:
+        """Отримує українську мітку для типу працевлаштування."""
+        # Handle both enum objects and string values
+        type_value = emp_type.value if hasattr(emp_type, 'value') else emp_type
+        labels = {
+            "main": "Основне місце роботи",
+            "internal": "Внутрішній сумісник",
+            "external": "Зовнішній сумісник",
+        }
+        return labels.get(type_value, type_value)
+
+    def _restore_via_document(self, dialog: QDialog):
+        """Реактивує через створення документа - переходить до конструктора заяв."""
+        # Закриваємо спочатку діалог вибору способу реактивації
+        dialog.done(QDialog.DialogCode.Accepted)
+
+        # Зберігаємо дані для попереднього заповнення
+        from desktop.ui.builder_tab import BuilderTab
+        BuilderTab._reactivation_data = {
+            'staff_id': self.staff_id,
+            'pib_nom': self.staff_data['pib_nom'],
+            'position': self.staff_data['position'],
+            'rate': self.staff_data['rate'],
+            'employment_type': self.staff_data['employment_type'],
+            'work_basis': self.staff_data['work_basis'],
+            'degree': self.staff_data.get('degree'),
+            'vacation_balance': self.staff_data.get('vacation_balance', 0),
+        }
+
+        # Знаходимо головне вікно через ланцюжок батьків ПЕРЕД закриттям діалогу
+        main_window = self
+        while main_window.parent() is not None:
+            main_window = main_window.parent()
+
+        if hasattr(main_window, 'navigate_to_builder'):
+            # Закриваємо картку співробітника
+            self.done(QDialog.DialogCode.Accepted)
+            # Переходимо до конструктора з новим документом
+            main_window.navigate_to_builder(staff_id=self.staff_id)
+        else:
+            QMessageBox.warning(self, "Помилка", "Не вдалося знайти головне вікно")
+
+    def _restore_via_scan(self, dialog: QDialog):
+        """Реактивує через завантаження скану."""
+        dialog.accept()
+
+        # Відкриваємо діалог завантаження скану з попередньо заповненими даними
+        scan_dialog = ScanUploadDialog(parent=self, staff_id=self.staff_id)
+
+        # Передаємо дані для попереднього заповнення
+        # (можна додати спеціальні методи до ScanUploadDialog для цього)
+        result = scan_dialog.exec()
+
+        if result == QDialog.DialogCode.Accepted:
+            # Якщо скан завантажено успішно, оновлюємо дані
+            QMessageBox.information(
+                self, "Успішно",
+                f"Скан завантажено для {self.staff_data['pib_nom']}.\n"
+                f"Запис про працевлаштування створено."
+            )
+            self.accept()
 
     def _hard_delete_staff(self):
         """Повністю видаляє співробітника (hard delete)."""

@@ -45,6 +45,8 @@ from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import joinedload
 
 from shared.enums import DocumentType, DocumentStatus, get_position_label
+from backend.core.database import get_db_context
+from backend.models.settings import SystemSettings
 from desktop.ui.wysiwyg_bridge import WysiwygBridge, WysiwygEditorState
 
 logger = logging.getLogger(__name__)
@@ -203,6 +205,9 @@ class BuilderTab(QWidget):
     document_created = pyqtSignal()
     document_updated = pyqtSignal(int)  # document_id
 
+    # Статичний змінний для передачі даних реактивації з EmployeeCardDialog
+    _reactivation_data: dict | None = None
+
     def __init__(self):
         """Ініалізує вкладку конструктора."""
         super().__init__()
@@ -215,6 +220,8 @@ class BuilderTab(QWidget):
         self._current_document_id: int | None = None
         self.booked_dates: set[date] = set()  # Заблоковані дати відпусток
         self.locked_info: list[dict] = []  # Інформація про заблоковані відпустки
+        self._is_new_employee_mode: bool = False  # New employee mode flag
+        self._new_employee_data: dict | None = None  # Store new employee data
         self._setup_ui()
         self._setup_focus_handlers()
 
@@ -255,9 +262,82 @@ class BuilderTab(QWidget):
         Args:
             staff_id: ID співробітника
         """
+        from backend.models.staff import Staff
+        from backend.core.database import get_db_context
+
         self._current_document_id = None
-        self.select_staff_by_id(staff_id)
         self._clear_form()
+
+        # Reset mode for standard form always when creating a document for existing staff
+        self._is_new_employee_mode = False
+        self._discover_document_templates()
+        self._toggle_employment_mode()
+
+        # Перевіряємо, чи це реактивація (співробітник може бути неактивним)
+        is_reactivation = False
+        reactivation_data = None
+        if self._reactivation_data and self._reactivation_data.get('staff_id') == staff_id:
+            is_reactivation = True
+            reactivation_data = self._reactivation_data
+
+        # Для реактивації завантажуємо неактивних співробітників
+        if is_reactivation:
+            with get_db_context() as db:
+                staff = db.query(Staff).filter(Staff.id == staff_id).first()
+                if staff:
+                    # Додаємо неактивного співробітника до словника
+                    pib = staff.pib_nom
+                    if pib not in self._staff_by_pib:
+                        self._staff_by_pib[pib] = []
+                    if staff not in self._staff_by_pib[pib]:
+                        self._staff_by_pib[pib].append(staff)
+
+                    # Зберігаємо поточний вибір
+                    current_pib = self.staff_input.currentData()
+
+                    # Повністю оновлюємо dropdown
+                    self.staff_input.clear()
+                    for pib_name in sorted(self._staff_by_pib.keys()):
+                        self.staff_input.addItem(pib_name, pib_name)
+
+                    # Знаходимо та вибираємо потрібного співробітника
+                    for i in range(self.staff_input.count()):
+                        if self.staff_input.itemData(i) == pib:
+                            self.staff_input.setCurrentIndex(i)
+                            break
+
+                    # Тепер вибираємо правильну позицію (конкретний staff_id)
+                    if self.position_input.isVisible():
+                        for i in range(self.position_input.count()):
+                            if self.position_input.itemData(i) == staff_id:
+                                self.position_input.setCurrentIndex(i)
+                                break
+
+        # Для звичайних документів або якщо реактивація не знайшла staff
+        if not is_reactivation or not reactivation_data:
+            self.select_staff_by_id(staff_id)
+
+        # Встановлюємо правильний тип документа для реактивації
+        if is_reactivation and reactivation_data:
+            work_basis = reactivation_data.get('work_basis', '')
+
+            # Встановлюємо тип документа на основі work_basis
+            doc_type_map = {
+                "contract": "Продовження (контракт)",
+                "competitive": "Продовження (конкурс)",
+                "statement": "Продовження (сумісництво)",
+            }
+
+            target_doc_type = doc_type_map.get(work_basis, "Продовження (контракт)")
+
+            for i in range(self.doc_type_combo.count()):
+                if target_doc_type in self.doc_type_combo.itemText(i):
+                    self.doc_type_combo.setCurrentIndex(i)
+                    break
+
+            # Очищаємо дані реактивації після використання
+            self._reactivation_data = None
+
         self._update_preview()
 
     def set_vacation_dates(self, start_date: date, end_date: date):
@@ -441,7 +521,7 @@ class BuilderTab(QWidget):
         layout = QVBoxLayout(panel)
 
         # Вибір співробітника
-        staff_group = QGroupBox("👤 Співробітник")
+        self.staff_group = QGroupBox("👤 Співробітник")
         staff_layout = QFormLayout()
 
         self.staff_input = QComboBox()
@@ -461,8 +541,94 @@ class BuilderTab(QWidget):
         # Load staff after creating the label
         self._load_staff()
 
-        staff_group.setLayout(staff_layout)
-        layout.addWidget(staff_group)
+        self.staff_group.setLayout(staff_layout)
+        layout.addWidget(self.staff_group)
+
+        # Новий співробітник (приховане за замовчуванням)
+        self.new_employee_group = QGroupBox("Новий співробітник")
+        new_employee_layout = QFormLayout()
+
+        self.new_employee_pib = QLineEdit()
+        self.new_employee_pib.setPlaceholderText("Прізвище Ім'я По батькові")
+        new_employee_layout.addRow("ПІБ:", self.new_employee_pib)
+
+        self.new_employee_position = QComboBox()
+        # Store positions and their enum values
+        self._position_values = [
+            ("Завідувач кафедри", "head_of_department"),
+            ("В.о. завідувача кафедри", "acting_head"),
+            ("Професор", "professor"),
+            ("Доцент", "associate_professor"),
+            ("Старший викладач", "senior_lecturer"),
+            ("Асистент", "lecturer"),
+            ("Фахівець", "specialist"),
+        ]
+        for display, value in self._position_values:
+            self.new_employee_position.addItem(display)
+        self.new_employee_position.setCurrentIndex(4)  # Default to lecturer
+        new_employee_layout.addRow("Посада:", self.new_employee_position)
+
+        self.new_employee_rate = QComboBox()
+        self.new_employee_rate.addItems(["0.25", "0.5", "0.75", "1.0"])
+        self.new_employee_rate.setCurrentIndex(3)  # Default to 1.0
+        new_employee_layout.addRow("Ставка:", self.new_employee_rate)
+
+        self.new_employee_employment_type = QComboBox()
+        self.new_employee_employment_type.addItems([
+            "Основне місце роботи",
+            "Зовнішній сумісник",
+            "Внутрішній сумісник",
+        ])
+        self._employment_type_values = ["main", "external", "internal"]
+        self.new_employee_employment_type.setCurrentIndex(0)  # Default to main
+        new_employee_layout.addRow("Тип працевлаштування:", self.new_employee_employment_type)
+
+        self.new_employee_work_basis = QComboBox()
+        self.new_employee_work_basis.addItems([
+            "Контракт",
+            "Конкурс",
+        ])
+        self._work_basis_values = ["contract", "competitive"]
+        self.new_employee_work_basis.setCurrentIndex(0)  # Default to contract
+        new_employee_layout.addRow("Основа:", self.new_employee_work_basis)
+
+        self.new_employee_term_start = QDateEdit()
+        self.new_employee_term_start.setCalendarPopup(True)
+        self.new_employee_term_start.setDate(QDate.currentDate())
+        new_employee_layout.addRow("Дата початку:", self.new_employee_term_start)
+
+        self.new_employee_term_end = QDateEdit()
+        self.new_employee_term_end.setCalendarPopup(True)
+        self.new_employee_term_end.setDate(QDate.currentDate().addMonths(12))
+        new_employee_layout.addRow("Дата закінчення:", self.new_employee_term_end)
+
+        self.new_employee_email = QLineEdit()
+        self.new_employee_email.setPlaceholderText("email@example.com")
+        new_employee_layout.addRow("Email:", self.new_employee_email)
+
+        self.new_employee_phone = QLineEdit()
+        self.new_employee_phone.setPlaceholderText("+380XXXXXXXXX")
+        new_employee_layout.addRow("Телефон:", self.new_employee_phone)
+
+        # Validation status label
+        self.validation_status_label = QLabel("")
+        self.validation_status_label.setStyleSheet("font-weight: bold; padding: 10px;")
+        new_employee_layout.addRow("", self.validation_status_label)
+
+        # Connect new employee form signals to update preview
+        self.new_employee_pib.textChanged.connect(self._on_field_changed)
+        self.new_employee_position.currentIndexChanged.connect(self._on_field_changed)
+        self.new_employee_rate.currentIndexChanged.connect(self._on_field_changed)
+        self.new_employee_employment_type.currentIndexChanged.connect(self._on_field_changed)
+        self.new_employee_work_basis.currentIndexChanged.connect(self._on_field_changed)
+        self.new_employee_term_start.dateChanged.connect(self._on_field_changed)
+        self.new_employee_term_end.dateChanged.connect(self._on_field_changed)
+        self.new_employee_email.textChanged.connect(self._on_field_changed)
+        self.new_employee_phone.textChanged.connect(self._on_field_changed)
+
+        self.new_employee_group.setLayout(new_employee_layout)
+        self.new_employee_group.setVisible(False)
+        layout.addWidget(self.new_employee_group)
 
         # Тип документа
         doc_group = QGroupBox("📋 Тип документа")
@@ -754,12 +920,13 @@ class BuilderTab(QWidget):
         # Register bridge
         web_channel.registerObject("pybridge", bridge)
         web_view.page().setWebChannel(web_channel)
-        
+
         # Connect console logging
         web_view.page().javaScriptConsoleMessage = self._on_js_console_message
 
-        # Create tab name
-        tab_name = f"{position}"
+        # Create tab name (translate position enum to Ukrainian label)
+        position_label = get_position_label(position)
+        tab_name = f"{position_label}"
         if is_internal:
             tab_name = f"внутрішній сумісник ({position})"
 
@@ -1087,6 +1254,10 @@ class BuilderTab(QWidget):
             "term_extension_contract": "Продовження (контракт)",
             "term_extension_competition": "Продовження (конкурс)",
             "term_extension_pdf": "Продовження (сумісництво)",
+            # Прийом на роботу
+            "employment_contract": "Прийом (контракт)",
+            "employment_competition": "Прийом (конкурс)",
+            "employment_pdf": "Прийом (PDF)",
         }
 
         # Templates that require rate > 1.0 (external совместительство)
@@ -1102,6 +1273,15 @@ class BuilderTab(QWidget):
 
             # Skip templates that require rate > 1.0 for internal employees
             if template_name in requires_external and not is_external:
+                continue
+
+            # Skip employment templates if NOT in new employee mode (default mode)
+            is_employment_template = template_name.startswith("employment_")
+            if not self._is_new_employee_mode and is_employment_template:
+                continue
+
+            # Skip NON-employment templates if IN new employee mode
+            if self._is_new_employee_mode and not is_employment_template:
                 continue
 
             # Get display name
@@ -1151,12 +1331,62 @@ class BuilderTab(QWidget):
             "term_extension_contract": DocumentType.TERM_EXTENSION_CONTRACT,
             "term_extension_competition": DocumentType.TERM_EXTENSION_COMPETITION,
             "term_extension_pdf": DocumentType.TERM_EXTENSION_PDF,
+            # Прийом на роботу
+            "employment_contract": DocumentType.EMPLOYMENT_CONTRACT,
+            "employment_competition": DocumentType.EMPLOYMENT_COMPETITION,
+            "employment_pdf": DocumentType.EMPLOYMENT_PDF,
         }
 
         return type_mapping.get(template_name, DocumentType.VACATION_PAID)
 
+    def _is_employment_doc_type(self) -> bool:
+        """Перевіряє, чи обраний тип документа є прийомом на роботу."""
+        doc_type = self._get_doc_type()
+        return doc_type.value.startswith("employment_")
+
+    def _get_new_employee_data(self) -> dict | None:
+        """Отримує дані нового співробітника з форми."""
+        # Always try to get data from form, regardless of mode
+        pib = self.new_employee_pib.text().strip()
+
+        # Get position value from the mapped list
+        position_index = self.new_employee_position.currentIndex()
+        if hasattr(self, '_position_values') and 0 <= position_index < len(self._position_values):
+            # _position_values contains tuples (Display Label, Enum Value)
+            # We want the Enum Value at index 1
+            position_value = self._position_values[position_index][1]
+        else:
+            position_value = "lecturer"
+
+        # Get employment type value
+        employment_type_index = self.new_employee_employment_type.currentIndex()
+        employment_type_value = self._employment_type_values[employment_type_index] if hasattr(self, '_employment_type_values') else "main"
+
+        # Get work basis value
+        work_basis_index = self.new_employee_work_basis.currentIndex()
+        work_basis_value = self._work_basis_values[work_basis_index] if hasattr(self, '_work_basis_values') else "contract"
+
+        # Get formatted date strings
+        term_start = self.new_employee_term_start.date().toPyDate()
+        term_end = self.new_employee_term_end.date().toPyDate()
+
+        return {
+            "pib_nom": pib,
+            "position": position_value,
+            "position_label": self.new_employee_position.currentText(),
+            "rate": float(self.new_employee_rate.currentText()),
+            "employment_type": employment_type_value,
+            "work_basis": work_basis_value,
+            "term_start": term_start.strftime("%d.%m.%Y"),
+            "term_end": term_end.strftime("%d.%m.%Y"),
+            "email": self.new_employee_email.text().strip() or None,
+            "phone": self.new_employee_phone.text().strip() or None,
+        }
+
     def _on_field_changed(self):
         """Обробляє зміну будь-якого поля."""
+        import re
+
         # Check if document type changed and handle dates accordingly
         if hasattr(self, '_last_doc_type'):
             current_doc_type = self._get_doc_type()
@@ -1165,10 +1395,15 @@ class BuilderTab(QWidget):
                 if self._last_doc_type == DocumentType.TERM_EXTENSION:
                     self._date_ranges = []
                     self._parsed_dates = []
+
+                # Toggle between staff selector and new employee form
+                self._toggle_employment_mode()
             self._last_doc_type = current_doc_type
         else:
             # First time - initialize
             self._last_doc_type = self._get_doc_type()
+            # Check initial employment mode
+            self._toggle_employment_mode()
 
         # Update ranges list and dates info FIRST (before any checks that depend on dates)
         if hasattr(self, '_ranges_layout'):
@@ -1177,12 +1412,76 @@ class BuilderTab(QWidget):
 
         if hasattr(self, 'staff_info_label'):
             self._update_staff_info()
+
+        # Validate new employee fields if in employment mode
+        is_employment = self._is_employment_doc_type()
+        if is_employment and hasattr(self, 'validation_status_label'):
+            employee_data = self._get_new_employee_data()
+            pib = employee_data.get("pib_nom", "").strip()
+            validation_errors = []
+
+            # PIB validation (same as StaffDialog)
+            if not pib:
+                validation_errors.append("Введіть ПІБ співробітника")
+            else:
+                pib_parts = pib.split()
+                if len(pib_parts) != 3:
+                    validation_errors.append("ПІБ має бути у форматі: Прізвище Ім'я По батькові")
+                else:
+                    # Check each part starts with uppercase Ukrainian letter
+                    ukrainian_pattern = r"^[А-ЩЬЮЯЇІЄҐ][а-щьюяїієҐ\-]+$"
+                    for part in pib_parts:
+                        if not re.match(ukrainian_pattern, part):
+                            validation_errors.append(f"Некоректна частина ПІБ: {part}")
+                            break
+
+            # Date validation
+            if employee_data.get("term_end") <= employee_data.get("term_start"):
+                validation_errors.append("Дата закінчення контракту має бути пізніше за дату початку")
+
+            # Show validation status
+            if validation_errors:
+                self.validation_status_label.setText("⚠️ " + "; ".join(validation_errors))
+                self.validation_status_label.setStyleSheet("color: #B91C1C; font-weight: bold;")
+            else:
+                self.validation_status_label.setText("✓ Дані заповнено коректно")
+                self.validation_status_label.setStyleSheet("color: #10B981; font-weight: bold;")
+
         # Оновлюємо прев'ю при зміні
         if hasattr(self, 'web_view'):
             self._update_preview()
         # Перевіряємо дотримання термінів подання заяви
         if hasattr(self, 'timing_warning_label'):
             self._check_application_timing()
+
+    def _toggle_employment_mode(self):
+        """Перемикає між режимом вибору співробітника та режимом нового співробітника."""
+        if not hasattr(self, 'new_employee_group'):
+            return
+
+        is_employment = self._is_employment_doc_type()
+        self._is_new_employee_mode = is_employment
+
+        # Show/hide appropriate groups
+        if hasattr(self, 'staff_group'):
+            self.staff_group.setVisible(not is_employment)
+        self.new_employee_group.setVisible(is_employment)
+
+        # Update date group visibility for employment documents
+        if hasattr(self, 'date_group'):
+            self.date_group.setVisible(not is_employment)
+
+        # Hide extension dates widget for employment documents
+        if hasattr(self, 'extension_dates_widget'):
+            self.extension_dates_widget.setVisible(False)
+
+        # Hide admin override for employment documents
+        if hasattr(self, 'admin_override_group'):
+            self.admin_override_group.setVisible(False)
+
+        # Update preview
+        if hasattr(self, 'web_view'):
+            self._update_preview()
 
     def _update_payment_period(self):
         """Період оплати завжди автоматичний (застарілий метод)."""
@@ -1334,6 +1633,85 @@ class BuilderTab(QWidget):
         dept_name = ""
         signatories = []
 
+        # Always fetch system settings (needed for both staff and new employee documents)
+        with get_db_context() as db:
+            rector_name_dative = SystemSettings.get_value(db, "rector_name_dative", "")
+            rector_name_nominative = SystemSettings.get_value(db, "rector_name_nominative", "")
+            dept_name_raw = SystemSettings.get_value(db, "dept_name", "")
+            dept_abbr_raw = SystemSettings.get_value(db, "dept_abbr", "")
+            university_name_raw = SystemSettings.get_value(db, "university_name", "")
+
+            # Format rector name
+            if rector_name_nominative:
+                parts = rector_name_nominative.split()
+                if len(parts) == 2:
+                    first_name = grammar.to_dative(parts[0])
+                    last_name = parts[1].upper()
+                    rector_name = f"{first_name} {last_name}"
+                elif len(parts) >= 3:
+                    if parts[0].endswith(('а', 'я', 'я')):
+                        first_name = grammar.to_dative(parts[0])
+                        last_name = parts[-1].upper()
+                        rector_name = f"{first_name} {last_name}"
+                    else:
+                        for i, part in enumerate(parts[1:], 1):
+                            if part.endswith(('а', 'я', 'я')) and not part.endswith(('вна', 'вич', 'ська', 'цька')):
+                                first_name = grammar.to_dative(part)
+                                last_name = parts[0].upper()
+                                rector_name = f"{first_name} {last_name}"
+                                break
+                        else:
+                            rector_name = rector_name_dative
+            else:
+                rector_name = rector_name_dative
+
+            university_name = university_name_raw
+            dept_name = dept_name_raw
+
+            # Get approvers (department head is NOT in Approvers table - added separately)
+            approvers = (
+                db.query(Approvers)
+                .order_by(Approvers.order_index)
+                .all()
+            )
+
+            for approver in approvers:
+                display_name = self._format_signatory_name(approver.full_name_nom or approver.full_name_dav)
+                position = approver.position_name
+                position_multiline = ""
+                signatories.append({
+                    "position": position,
+                    "position_multiline": position_multiline,
+                    "name": display_name
+                })
+            # Add department head for all documents (ensuring no duplicates)
+            dept_head_id_raw = SystemSettings.get_value(db, "dept_head_id", None)
+
+            # Handle various "null" representations
+            dept_head_id = None
+            if dept_head_id_raw not in (None, "", "None", "null"):
+                try:
+                    dept_head_id = int(dept_head_id_raw)
+                except (ValueError, TypeError):
+                    pass
+
+            if dept_head_id:
+                head = db.query(Staff).filter(Staff.id == dept_head_id).first()
+                if head:
+                    head_name_formatted = self._format_signatory_name(head.pib_nom)
+                    already_exists = any(s.get("name") == head_name_formatted for s in signatories)
+                    if not already_exists:
+                        position = get_position_label(head.position)
+                        position_multiline = ""
+                        if dept_abbr_raw and dept_abbr_raw.lower() not in position.lower():
+                            position_multiline = dept_abbr_raw
+                        signatories.insert(0, {
+                            "position": position,
+                            "position_multiline": position_multiline,
+                            "name": head_name_formatted
+                        })
+
+        # Handle staff-specific logic (name formatting and removing staff from signatories)
         if staff:
             staff_name = staff.pib_nom  # Will be formatted to genitive below
             staff_position = get_position_label(staff.position)  # Ukrainian label for genitive
@@ -1341,110 +1719,30 @@ class BuilderTab(QWidget):
             staff_position_nom = get_position_label(staff.position)  # Ukrainian label for nominative
 
             with get_db_context() as db:
+                # Check if current staff IS the department head (compare by ПІБ, not ID)
+                # This handles cases where staff has multiple positions
+                dept_head_id_raw = SystemSettings.get_value(db, "dept_head_id", None)
+                dept_head_id = None
+                if dept_head_id_raw not in (None, "", "None", "null"):
+                    try:
+                        dept_head_id = int(dept_head_id_raw)
+                    except (ValueError, TypeError):
+                        pass
 
-                # Отримуємо налаштування
-                rector_name_dative = SystemSettings.get_value(db, "rector_name_dative", "")
-                rector_name_nominative = SystemSettings.get_value(db, "rector_name_nominative", "")
-                dept_name_raw = SystemSettings.get_value(db, "dept_name", "")
-                dept_abbr_raw = SystemSettings.get_value(db, "dept_abbr", "")
-                university_name_raw = SystemSettings.get_value(db, "university_name", "")
-
-
-                # Форматуємо ім'я ректора: "Олені ФІЛОНИЧ" (ім'я в давальному + ПРІЗВИЩЕ в називному caps)
-                if rector_name_nominative:
-                    parts = rector_name_nominative.split()
-                    # Обробляємо різні формати імен
-                    if len(parts) == 2:
-                        # "Ім'я Прізвище"
-                        first_name = grammar.to_dative(parts[0])
-                        last_name = parts[1].upper()
-                        rector_name = f"{first_name} {last_name}"
-                    elif len(parts) >= 3:
-                        # "Ім'я По-батькові Прізвище" або "Прізвище Ім'я По-батькові"
-                        # Припускаємо, що якщо перше слово закінчується на -а, -я, -я - це жіноче ім'я
-                        if parts[0].endswith(('а', 'я', 'я')):
-                            # "Вікторія Іванівна Філонич" - First Middle Last
-                            first_name = grammar.to_dative(parts[0])
-                            last_name = parts[-1].upper()  # Last word is surname
-                            rector_name = f"{first_name} {last_name}"
-                        else:
-                            # "Філонич Вікторія Іванівна" - Last First Middle
-                            # Find the first name (usually second word, ends with а/я)
-                            for i, part in enumerate(parts[1:], 1):
-                                if part.endswith(('а', 'я', 'я')) and not part.endswith(('вна', 'вич', 'ська', 'цька')):
-                                    first_name = grammar.to_dative(part)
-                                    last_name = parts[0].upper()
-                                    rector_name = f"{first_name} {last_name}"
-                                    break
-                            else:
-                                # Fallback - use dative from settings
-                                rector_name = rector_name_dative
+                if dept_head_id:
+                    head = db.query(Staff).filter(Staff.id == dept_head_id).first()
+                    if head and staff.pib_nom == head.pib_nom:
+                        # Remove department head from signatories if current staff is the head
+                        head_name_formatted = self._format_signatory_name(head.pib_nom)
+                        signatories = [s for s in signatories if s.get("name") != head_name_formatted]
                     else:
-                        rector_name = rector_name_dative
+                        # Remove staff from signatories if they are in the list
+                        staff_name_formatted = self._format_signatory_name(staff.pib_nom)
+                        signatories = [s for s in signatories if s.get("name") != staff_name_formatted]
                 else:
-                    rector_name = rector_name_dative
-
-                # University name - use as stored in settings (should be genitive)
-                university_name = university_name_raw
-
-                # Dept name - keep as is
-                dept_name = dept_name_raw
-
-
-                # Отримуємо погоджувачів з таблиці Approvers
-                approvers = (
-                    db.query(Approvers)
-                    .order_by(Approvers.order_index)
-                    .all()
-                )
-
-                for approver in approvers:
-                    # Format the signatory name: "Ім'я ПРІЗВИЩЕ" or "Ім'я По-батькові ПРІЗВИЩЕ"
-                    # Приклад: "Василь САВИК" or "Сергій ГАВРИК"
-                    display_name = self._format_signatory_name(approver.full_name_nom or approver.full_name_dav)
-
-                    # Use position as stored in settings (user enters full position)
-                    position = approver.position_name
-                    position_multiline = ""
-
-                    signatories.append({
-                        "position": position,
-                        "position_multiline": position_multiline,
-                        "name": display_name
-                    })
-
-
-                # Видаляємо поточного співробітника зі списку погоджувачів (якщо він там є)
-                if staff:
+                    # No department head set, just remove staff
                     staff_name_formatted = self._format_signatory_name(staff.pib_nom)
                     signatories = [s for s in signatories if s.get("name") != staff_name_formatted]
-
-                # Завідувач кафедри - додаємо автоматично, якщо є і ще не в списку
-                dept_head_id = SystemSettings.get_value(db, "dept_head_id", None)
-                if dept_head_id and staff:
-                    head = db.query(Staff).filter(Staff.id == dept_head_id).first()
-                    if head:
-                        # Check if current staff IS the department head (compare by ПІБ, not ID)
-                        # This handles cases where staff has multiple positions
-                        is_dept_head = staff.pib_nom == head.pib_nom
-
-                        if not is_dept_head:
-                            # Перевіряємо, чи вже не є в списку (порівнюємо відформатовані імена)
-                            head_name_formatted = self._format_signatory_name(head.pib_nom)
-                            already_exists = any(s.get("name") == head_name_formatted for s in signatories)
-                            if not already_exists:
-                                # Format position with abbreviation if available
-                                position = head.position
-                                position_multiline = ""
-                                # Only add department abbreviation if position doesn't already contain it
-                                if dept_abbr_raw and dept_abbr_raw.lower() not in position.lower():
-                                    position_multiline = dept_abbr_raw
-
-                                signatories.insert(0, {
-                                    "position": position,
-                                    "position_multiline": position_multiline,
-                                    "name": head_name_formatted
-                                })
 
 
         # Форматуємо дані заявника (давальний/родовий відмінок)
@@ -1644,6 +1942,9 @@ class BuilderTab(QWidget):
             "department_dative": grammar.to_dative(dept_clean) if dept_clean else "",
             # Для продовження контракту
             "old_contract_end_date": self.old_contract_date_edit.date().toPyDate().strftime("%d.%m.%Y") if hasattr(self, 'old_contract_date_edit') else "",
+            # Для прийому на роботу - нові дані співробітника
+            "is_new_employee": self._is_new_employee_mode,
+            "new_employee_data": self._get_new_employee_data(),
         }
 
     def _get_status_label(self) -> str:
@@ -1741,43 +2042,49 @@ class BuilderTab(QWidget):
         from pathlib import Path
 
         # Валідація (така сама як в _generate_document)
-        staff = self._get_selected_staff()
-        if not staff:
-            QMessageBox.warning(self, "Помилка", "Не обрано співробітника")
-            return
+        is_employment = self._is_employment_doc_type()
 
-        if not self._parsed_dates:
-            QMessageBox.warning(self, "Помилка", "Не введено дати відпустки")
-            return
+        if not is_employment:
+            staff = self._get_selected_staff()
+            if not staff:
+                QMessageBox.warning(self, "Помилка", "Не обрано співробітника")
+                return
 
-        doc_type = self._get_doc_type()
+            if not self._parsed_dates:
+                QMessageBox.warning(self, "Помилка", "Не введено дати відпустки")
+                return
 
-        # Check contract validity for paid vacation
-        if doc_type == DocumentType.VACATION_PAID:
-            if not self._can_create_vacation():
-                reply = QMessageBox.question(
-                    self,
-                    "Контракт закінчується",
-                    "Дати відпустки виходять за межі контракту (менш ніж 2 тижні до закінчення).\n"
-                    "Спочатку оформіть продовження контракту.\n\n"
-                    "Продовжити все одно?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if reply == QMessageBox.StandardButton.No:
-                    return
+            doc_type = self._get_doc_type()
 
-        start = self._parsed_dates[0]
-        end = self._parsed_dates[-1]
+            # Check contract validity for paid vacation
+            if doc_type == DocumentType.VACATION_PAID:
+                if not self._can_create_vacation():
+                    reply = QMessageBox.question(
+                        self,
+                        "Контракт закінчується",
+                        "Дати відпустки виходять за межі контракту (менш ніж 2 тижні до закінчення).\n"
+                        "Спочатку оформіть продовження контракту.\n\n"
+                        "Продовжити все одно?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.No:
+                        return
+
+            start = self._parsed_dates[0]
+            end = self._parsed_dates[-1]
+            days_count = len(self._parsed_dates)
+        else:
+            start = None
+            end = None
+            days_count = 0
 
         with get_db_context() as db:
             from backend.models.staff import Staff as StaffModel
-            staff_db = db.query(StaffModel).filter(StaffModel.id == staff.id).first()
-            if not staff_db:
-                QMessageBox.warning(self, "Помилка", "Співробітника не знайдено")
-                return
-
-            # Для відпустки рахуємо кількість обраних дат (для несуміжних дат)
-            days_count = len(self._parsed_dates)
+            if not is_employment:
+                staff_db = db.query(StaffModel).filter(StaffModel.id == staff.id).first()
+                if not staff_db:
+                    QMessageBox.warning(self, "Помилка", "Співробітника не знайдено")
+                    return
 
             # For term extension, validate that new date is after current contract end
             is_term_extension = doc_type in (
@@ -1830,29 +2137,66 @@ class BuilderTab(QWidget):
                         Document.id == self._current_document_id
                     ).first()
                     if document:
-                        # Update dates
-                        document.date_start = start
-                        document.date_end = end
-                        document.days_count = days_count
-                        # Оплата - завжди автоматично
-                        if start.day > 15:
-                            document.payment_period = "У другій половині місяця"
+                        if is_employment:
+                            # For employment documents, update from employee_data
+                            from datetime import datetime
+                            term_start_date = datetime.strptime(employee_data["term_start"], "%d.%m.%Y").date()
+                            term_end_date = datetime.strptime(employee_data["term_end"], "%d.%m.%Y").date()
+                            document.date_start = term_start_date
+                            document.date_end = term_end_date
+                            document.new_employee_data = employee_data
                         else:
-                            document.payment_period = "У першій половині місяця"
+                            # Update dates for non-employment documents
+                            document.date_start = start
+                            document.date_end = end
+                            document.days_count = days_count
+                            # Оплата - завжди автоматично
+                            if start and start.day > 15:
+                                document.payment_period = "У другій половині місяця"
+                            else:
+                                document.payment_period = "У першій половині місяця"
                 else:
-                    # Створюємо новий документ
-                    # Оплата - завжди автоматично
-                    payment_period = "У першій половині місяця"
-                    if start.day > 15:
-                        payment_period = "У другій половині місяця"
+                    # For employment documents, calculate dates from employee_data
+                    if is_employment:
+                        from datetime import datetime
+                        term_start_date = datetime.strptime(employee_data["term_start"], "%d.%m.%Y").date()
+                        term_end_date = datetime.strptime(employee_data["term_end"], "%d.%m.%Y").date()
+                        date_start_for_doc = term_start_date
+                        date_end_for_doc = term_end_date
+                        payment_period = "У першій половині місяця"
+                        if term_start_date.day > 15:
+                            payment_period = "У другій половині місяця"
+                    else:
+                        date_start_for_doc = start
+                        date_end_for_doc = end
+                        # Оплата - завжди автоматично
+                        payment_period = "У першій половині місяця"
+                        if start and start.day > 15:
+                            payment_period = "У другій половині місяця"
+
+                    # For employment documents, use specialist (or department head if specialist not available)
+                    if is_employment:
+                        # Get specialist or department head for employment documents
+                        specialist_id_raw = SystemSettings.get_value(db, "dept_specialist_id", None)
+                        staff_id_for_doc = None
+                        if specialist_id_raw and str(specialist_id_raw) not in ("None", "none", ""):
+                            staff_id_for_doc = int(specialist_id_raw)
+                        else:
+                            # Fallback to department head
+                            dept_head_id_raw = SystemSettings.get_value(db, "dept_head_id", None)
+                            if dept_head_id_raw and str(dept_head_id_raw) not in ("None", "none", ""):
+                                staff_id_for_doc = int(dept_head_id_raw)
+                    else:
+                        staff_id_for_doc = staff.id
 
                     document = Document(
-                        staff_id=staff.id,
+                        staff_id=staff_id_for_doc,
                         doc_type=doc_type,
-                        date_start=start,
-                        date_end=end,
+                        date_start=date_start_for_doc,
+                        date_end=date_end_for_doc,
                         days_count=days_count,
                         payment_period=payment_period,
+                        new_employee_data=employee_data if is_employment else None,
                     )
                     db.add(document)
 
@@ -1883,9 +2227,6 @@ class BuilderTab(QWidget):
 
                 loop.exec()
                 timeout.stop()
-
-                if not raw_html:
-                    print("WARNING: Could not get HTML from webview, using fallback")
 
                 # Генерація PDF
                 grammar = GrammarService()
@@ -1933,18 +2274,35 @@ class BuilderTab(QWidget):
         from shared.exceptions import ValidationError
         from PyQt6.QtCore import Qt
 
-        # Валідація
-        staff = self._get_selected_staff()
-        if not staff:
-            QMessageBox.warning(self, "Помилка", "Не обрано співробітника")
-            return
+        doc_type = self._get_doc_type()
+        is_employment = self._is_employment_doc_type()
 
-        if not self._parsed_dates:
-            QMessageBox.warning(self, "Помилка", "Не введено дати відпустки")
-            return
+        # Валідація для документів прийому на роботу
+        if is_employment:
+            employee_data = self._get_new_employee_data()
+            if not employee_data:
+                QMessageBox.warning(self, "Помилка", "Заповніть дані нового співробітника")
+                return
+
+            if not employee_data.get("pib_nom"):
+                QMessageBox.warning(self, "Помилка", "Введіть ПІБ співробітника")
+                return
+
+            if employee_data.get("term_end") <= employee_data.get("term_start"):
+                QMessageBox.warning(self, "Помилка", "Дата закінчення контракту має бути пізніше за дату початку")
+                return
+        else:
+            # Валідація для звичайних документів
+            staff = self._get_selected_staff()
+            if not staff:
+                QMessageBox.warning(self, "Помилка", "Не обрано співробітника")
+                return
+
+            if not self._parsed_dates:
+                QMessageBox.warning(self, "Помилка", "Не введено дати відпустки")
+                return
 
         # Check contract validity for paid vacation
-        doc_type = self._get_doc_type()
         if doc_type == DocumentType.VACATION_PAID:
             if not self._can_create_vacation():
                 reply = QMessageBox.question(
@@ -1958,20 +2316,26 @@ class BuilderTab(QWidget):
                 if reply == QMessageBox.StandardButton.No:
                     return
 
-        start = self._parsed_dates[0]
-        end = self._parsed_dates[-1]
+        # For employment documents, we don't use _parsed_dates
+        if is_employment:
+            start = None
+            end = None
+            days_count = 0
+        else:
+            start = self._parsed_dates[0]
+            end = self._parsed_dates[-1]
+            days_count = len(self._parsed_dates)
 
         with get_db_context() as db:
             from backend.models.staff import Staff as StaffModel
-            staff_db = db.query(StaffModel).filter(StaffModel.id == staff.id).first()
-            if not staff_db:
-                QMessageBox.warning(self, "Помилка", "Співробітника не знайдено")
-                return
+            # For employment documents, skip staff lookup
+            if not is_employment:
+                staff_db = db.query(StaffModel).filter(StaffModel.id == staff.id).first()
+                if not staff_db:
+                    QMessageBox.warning(self, "Помилка", "Співробітника не знайдено")
+                    return
 
             from backend.services.validation_service import ValidationService
-
-            # Для відпустки рахуємо кількість обраних дат (для несуміжних дат)
-            days_count = len(self._parsed_dates)
 
             # For term extension, validate that new date is after current contract end
             is_term_extension = doc_type in (
@@ -1989,54 +2353,56 @@ class BuilderTab(QWidget):
                     )
                     return
 
-            # Перевіряємо ліміти документів (макс 1 продовження, макс 3 відпустки на підписі)
-            valid, error_msg = ValidationService.validate_document_limits(
-                staff.id,
-                doc_type.value,
-                self._current_document_id,  # При редагуванні - виключаємо поточний документ
-                db
-            )
-            if not valid:
-                QMessageBox.warning(self, "Обмеження документів", error_msg)
-                return
-
-            # Перевіряємо баланс та ліміти воєнного стану
-            if doc_type == DocumentType.VACATION_PAID:
-                # Для оплачуваної відпустки - перевіряємо баланс та ліміти
-                admin_override = self.admin_override_checkbox.isChecked()
-
-                if admin_override:
-                    # Admin override - ПРОПУСКАЄМО ВСІ ПЕРЕВІРКИ
-                    # Дозволяємо створення відпустки незалежно від балансу та лімітів
-                    pass
-                else:
-                    # Стандартна валідація з лімітами
-                    valid, error_msg = ValidationService.validate_vacation_against_balance(
-                        start, end, staff, db
-                    )
-                    if not valid:
-                        QMessageBox.warning(self, "Помилка", error_msg)
-                        return
-            elif doc_type == DocumentType.VACATION_UNPAID:
-                # Для відпустки без збереження - не перевіряємо баланс
-                # Тільки попередження
-                pass
-
-            # Валідація дат
-            from backend.services.date_parser import DateParser
-            parser = DateParser()
-            is_valid, errors = parser.validate_date_range(self._parsed_dates)
-
-            if not is_valid:
-                error_msg = "\n".join(errors)
-                reply = QMessageBox.question(
-                    self,
-                    "Попередження валідації",
-                    f"Знайдено проблеми з датами:\n{error_msg}\n\nПродовжити?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            # Skip validation for employment documents (they don't use staff dates)
+            if not is_employment:
+                # Перевіряємо ліміти документів (макс 1 продовження, макс 3 відпустки на підписі)
+                valid, error_msg = ValidationService.validate_document_limits(
+                    staff.id,
+                    doc_type.value,
+                    self._current_document_id,  # При редагуванні - виключаємо поточний документ
+                    db
                 )
-                if reply == QMessageBox.StandardButton.No:
+                if not valid:
+                    QMessageBox.warning(self, "Обмеження документів", error_msg)
                     return
+
+                # Перевіряємо баланс та ліміти воєнного стану
+                if doc_type == DocumentType.VACATION_PAID:
+                    # Для оплачуваної відпустки - перевіряємо баланс та ліміти
+                    admin_override = self.admin_override_checkbox.isChecked()
+
+                    if admin_override:
+                        # Admin override - ПРОПУСКАЄМО ВСІ ПЕРЕВІРКИ
+                        # Дозволяємо створення відпустки незалежно від балансу та лімітів
+                        pass
+                    else:
+                        # Стандартна валідація з лімітами
+                        valid, error_msg = ValidationService.validate_vacation_against_balance(
+                            start, end, staff, db
+                        )
+                        if not valid:
+                            QMessageBox.warning(self, "Помилка", error_msg)
+                            return
+                elif doc_type == DocumentType.VACATION_UNPAID:
+                    # Для відпустки без збереження - не перевіряємо баланс
+                    # Тільки попередження
+                    pass
+
+                # Валідація дат
+                from backend.services.date_parser import DateParser
+                parser = DateParser()
+                is_valid, errors = parser.validate_date_range(self._parsed_dates)
+
+                if not is_valid:
+                    error_msg = "\n".join(errors)
+                    reply = QMessageBox.question(
+                        self,
+                        "Попередження валідації",
+                        f"Знайдено проблеми з датами:\n{error_msg}\n\nПродовжити?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.No:
+                        return
 
             # Прогрес-діалог
             progress = QProgressDialog("Генерація документа...", "Скасувати", 0, 100, self)
@@ -2063,14 +2429,25 @@ class BuilderTab(QWidget):
                         )
                         return
 
-                    document.date_start = start
-                    document.date_end = end
-                    document.days_count = days_count
-                    # Оплата - завжди автоматично
-                    payment_period = "У першій половині місяця"
-                    if start.day > 15:
-                        payment_period = "У другій половині місяця"
-                    document.payment_period = payment_period
+                    # Handle employment documents
+                    if is_employment:
+                        employee_data = self._get_new_employee_data()
+                        from datetime import datetime
+                        term_start_date = datetime.strptime(employee_data["term_start"], "%d.%m.%Y").date()
+                        term_end_date = datetime.strptime(employee_data["term_end"], "%d.%m.%Y").date()
+                        document.date_start = term_start_date
+                        document.date_end = term_end_date
+                        document.new_employee_data = employee_data
+                    else:
+                        document.date_start = start
+                        document.date_end = end
+                        document.days_count = days_count
+                        # Оплата - завжди автоматично
+                        if start:
+                            payment_period = "У першій половині місяця"
+                            if start.day > 15:
+                                payment_period = "У другій половині місяця"
+                            document.payment_period = payment_period
 
                     # Зберігаємо old_contract_end_date для продовження контракту
                     if is_term_extension:
@@ -2080,25 +2457,55 @@ class BuilderTab(QWidget):
                     document.reset_workflow()
                 else:
                     # Створюємо новий документ
-                    # Оплата - завжди автоматично
-                    payment_period = "У першій половині місяця"
-                    if start.day > 15:
-                        payment_period = "У другій половині місяця"
-
                     # Зберігаємо old_contract_end_date для продовження контракту
                     old_contract_end = None
                     if is_term_extension:
                         old_contract_end = self.old_contract_date_edit.date().toPyDate()
 
-                    document = Document(
-                        staff_id=staff.id,
-                        doc_type=doc_type,
-                        date_start=start,
-                        date_end=end,
-                        days_count=days_count,
-                        payment_period=payment_period,
-                        old_contract_end_date=old_contract_end,
-                    )
+                    if is_employment:
+                        # Для документів прийому на роботу - staff_id буде призначено після скану
+                        employee_data = self._get_new_employee_data()
+                        # Convert string dates to date objects
+                        from datetime import datetime
+                        term_start_date = datetime.strptime(employee_data["term_start"], "%d.%m.%Y").date()
+                        term_end_date = datetime.strptime(employee_data["term_end"], "%d.%m.%Y").date()
+                        # Оплата - визначаємо з term_start
+                        payment_period = "У першій половині місяця"
+                        if term_start_date.day > 15:
+                            payment_period = "У другій половині місяця"
+                        # Get specialist or department head for employment documents
+                        specialist_id_raw = SystemSettings.get_value(db, "dept_specialist_id", None)
+                        staff_id_for_employment = None
+                        if specialist_id_raw and str(specialist_id_raw) not in ("None", "none", ""):
+                            staff_id_for_employment = int(specialist_id_raw)
+                        else:
+                            dept_head_id_raw = SystemSettings.get_value(db, "dept_head_id", None)
+                            if dept_head_id_raw and str(dept_head_id_raw) not in ("None", "none", ""):
+                                staff_id_for_employment = int(dept_head_id_raw)
+                        document = Document(
+                            staff_id=staff_id_for_employment,
+                            doc_type=doc_type,
+                            date_start=term_start_date,
+                            date_end=term_end_date,
+                            days_count=0,  # Не використовується для прийому
+                            payment_period=payment_period,
+                            old_contract_end_date=old_contract_end,
+                            new_employee_data=employee_data,
+                        )
+                    else:
+                        # Оплата - завжди автоматично
+                        payment_period = "У першій половині місяця"
+                        if start and start.day > 15:
+                            payment_period = "У другій половині місяця"
+                        document = Document(
+                            staff_id=staff.id,
+                            doc_type=doc_type,
+                            date_start=start,
+                            date_end=end,
+                            days_count=days_count,
+                            payment_period=payment_period,
+                            old_contract_end_date=old_contract_end,
+                        )
                     db.add(document)
 
                 db.commit()
@@ -2130,9 +2537,6 @@ class BuilderTab(QWidget):
 
                 loop.exec()
                 timeout.stop()
-
-                if not raw_html:
-                    print("WARNING: Could not get HTML from webview, using fallback")
 
                 # Генерація PDF
                 grammar = GrammarService()
@@ -2188,21 +2592,17 @@ class BuilderTab(QWidget):
         try:
             timeout.start(5000)
             loop.exec()
-            print(f"DEBUG: Got content from JS, blocks={list(self._editor_state.blocks.keys())}")
         finally:
             self.wysiwyg_bridge.content_changed.disconnect(on_content)
 
         # Якщо JavaScript не повернув контент, видобуваємо з HTML веб-в'ю
         if not self._editor_state.blocks:
-            print("DEBUG: Extracting blocks from web view HTML directly")
             blocks = self._extract_blocks_from_webview()
             if blocks:
                 self._editor_state.blocks = blocks
-                print(f"DEBUG: Extracted blocks: {list(blocks.keys())}")
 
         # Зберігаємо стан редактора в базу
         content = self._editor_state.to_dict()
-        print(f"DEBUG: Saving editor state: keys={list(content.keys())}")
         content_json = json.dumps(content, ensure_ascii=False)
         document.editor_content = content_json
 
@@ -2238,7 +2638,6 @@ class BuilderTab(QWidget):
 
             if html_content[0]:
                 html = html_content[0]
-                print(f"DEBUG: Web view HTML length: {len(html)}")
 
                 # Знаходимо всі елементи з data-block
                 # Шукаємо <div data-block="xxx" ... >...</div>
@@ -2252,10 +2651,8 @@ class BuilderTab(QWidget):
                     if block_content.strip():
                         blocks[block_name] = block_content.strip()
 
-                print(f"DEBUG: Found {len(blocks)} blocks from HTML: {list(blocks.keys())}")
-
-        except Exception as e:
-            print(f"DEBUG: Error extracting blocks: {e}")
+        except Exception:
+            pass
 
         return blocks
 
@@ -2406,6 +2803,44 @@ class BuilderTab(QWidget):
             else:
                 # Staff might have been removed, trigger position selector update
                 self._on_staff_selected(self.staff_input.currentIndex())
+
+    def start_subposition_document(self):
+        """Починає процес створення документа продовження сумісництва."""
+        # First ensure UI is loaded and staff is selected
+        if not hasattr(self, 'doc_type_combo') or self.doc_type_combo.count() == 0:
+            # UI not ready, trigger staff load first
+            self._on_staff_selected(self.staff_input.currentIndex() if hasattr(self, 'staff_input') else 0)
+
+        # Select "Продовження (сумісництво)" document type
+        if hasattr(self, 'doc_type_combo'):
+            for i in range(self.doc_type_combo.count()):
+                if "сумісництво" in self.doc_type_combo.itemText(i).lower():
+                    self.doc_type_combo.setCurrentIndex(i)
+                    break
+
+        # Show dialog to select staff with main position (rate 1.0)
+        self._on_staff_selected(self.staff_input.currentIndex() if hasattr(self, 'staff_input') else 0)
+
+    def start_new_employee_document(self):
+        """
+        Починає процес створення документа для нового співробітника.
+        Вмикає відповідний режим і фільтрує список документів.
+        """
+        self._current_document_id = None
+        self._clear_form()
+        
+        # Enable new employee mode
+        self._is_new_employee_mode = True
+        
+        # Refresh templates list (will only show employment docs)
+        self._discover_document_templates()
+        
+        # Auto-select the first available template (usually Employment Contract)
+        if self.doc_type_combo.count() > 0:
+            self.doc_type_combo.setCurrentIndex(0)
+            
+        # Ensure UI is in correct state
+        self._toggle_employment_mode()
 
     def _add_date_range(self):
         """Відкриває popup для додавання діапазону дат."""
@@ -2996,7 +3431,7 @@ class BuilderTab(QWidget):
                     if additional_positions:
                         self._additional_staff_id = staff.id
                         self._additional_position_name = ", ".join(
-                            f"{s.position} ({s.rate})" for s in additional_positions
+                            f"{get_position_label(s.position)} ({s.rate})" for s in additional_positions
                         )
 
                         self.additional_position_widget.setVisible(True)

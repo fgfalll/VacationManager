@@ -126,6 +126,12 @@ class MainWindow(QMainWindow):
         """Оновлює вкладку табеля (викликається при зміні відвідуваності)."""
         self.tabel_tab.refresh(correction_info)
 
+    def switch_to_builder_for_subposition(self):
+        """Переключається на вкладку конструктора для створення документа сумісництва."""
+        self.tabs.setCurrentWidget(self.builder_tab)
+        # Trigger the subposition document creation flow in builder
+        self.builder_tab.start_subposition_document()
+
     def _show_about(self):
         """Показує інформацію про програму."""
         from PyQt6.QtWidgets import QMessageBox

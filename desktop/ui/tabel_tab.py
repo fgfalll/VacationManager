@@ -58,6 +58,8 @@ from backend.services.tabel_service import (
     DEFAULT_EDRPOU_CODE,
 )
 
+from shared.enums import get_position_label
+
 # WeasyPrint executable path
 WEASYPRINT_EXE = Path(__file__).parent.parent.parent / 'weasyprint' / 'dist' / 'weasyprint.exe'
 
@@ -1770,7 +1772,7 @@ Traceback:
                         "staff_id": 0, # Not available in EmployeeData, but not strictly needed for archive view
                         "pib": emp.pib,  # Use 'pib' to match template expectations
                         "pib_nom": emp.pib,  # Keep for backwards compatibility
-                        "position": emp.position,
+                        "position": get_position_label(emp.position),
                         "rate": float(emp.rate.replace(',', '.')) if emp.rate else 1.0,
                         "days": [],
                         "totals": emp.totals if hasattr(emp, 'totals') else {},

@@ -1,0 +1,94 @@
+<!-- Шаблон для прийому на роботу - конкурс -->
+<!-- Header + Applicant info combined block - editable -->
+<div class="header" contenteditable="true" data-block="header" style="margin-left: 50%;">
+    <div style="text-align: left;">
+    <p>Ректору<br>
+    {{ university_name }}<br>
+    {{ rector_name }}</p>
+
+    {% if new_employee_data and new_employee_data.pib_nom %}
+    <p>{{ new_employee_data.position_label }}<br>
+    {{ new_employee_data.pib_nom }}</p>
+    {% else %}
+    <p>{{ staff_position_nom }}<br>
+    {{ staff_name_gen }}</p>
+    {% endif %}
+    </div>
+</div>
+
+<!-- Title block - editable -->
+<div class="title" contenteditable="true" data-block="title">
+    Заява
+</div>
+
+<!-- Main content block - editable -->
+<div class="content" contenteditable="true" data-block="content">
+    {% if new_employee_data and new_employee_data.pib_nom %}
+    прошу Вас прийняти мене на роботу на посаду {{ new_employee_data.position_label }}
+    {% if new_employee_data.rate and new_employee_data.rate != 1.0 %}
+    на {{ new_employee_data.rate }} ставки
+    {% endif %}
+    {% if new_employee_data.employment_type == 'external' %}
+    (зовнішній сумісник)
+    {% elif new_employee_data.employment_type == 'internal' %}
+    (внутрішній сумісник)
+    {% endif %}
+    на конкурсній основі з {{ new_employee_data.term_start }} року по {{ new_employee_data.term_end }} року.
+    {% else %}
+    прошу Вас прийняти мене на роботу на посаду {{ staff_position }}
+    на конкурсній основі.
+    {% endif %}
+</div>
+
+{% if custom_text %}
+<!-- Custom text block - editable -->
+<div class="content" contenteditable="true" data-block="custom_text">
+    {{ custom_text }}
+</div>
+{% endif %}
+
+<!-- Applicant signature block - editable -->
+<div class="content" contenteditable="true" data-block="applicant_signature" style="text-indent: 0; margin-top: 30px;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="flex: 1; min-width: 0; text-align: left;">
+            {% if new_employee_data and new_employee_data.pib_nom %}
+            <span data-field="applicant_position">{{ new_employee_data.position_label }}</span>
+            {% else %}
+            <span data-field="applicant_position">{{ staff_position }}</span>
+            {% endif %}
+        </div>
+        <div style="flex: 1; text-align: center; padding: 0 10px;">
+            <span style="display: inline-block; border-bottom: 1px solid #000; width: 100%;"></span>
+        </div>
+        <div style="flex: 1; text-align: center; white-space: nowrap; padding-left: 10px;">
+            {% if new_employee_data and new_employee_data.pib_nom %}
+            <span data-field="applicant_name">{{ new_employee_data.pib_nom }}</span>
+            {% else %}
+            <span data-field="applicant_name">{{ staff_name_nom }}</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Погоджено section - editable -->
+<div class="approvals-section" contenteditable="true" data-block="approvals" style="margin-top: 50px;">
+    <p style="font-weight: bold; margin-bottom: 20px;">Погоджено:</p>
+    <div id="signatories-list" style="width: 100%;">
+        {% for signatory in signatories %}
+        <div class="signatory-row" data-signatory-id="{{ loop.index }}" style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <div style="flex: 1; min-width: 0; text-align: left;">
+                <span data-field="signatory_{{ loop.index }}_position">{{ signatory.position }}</span>
+                {% if signatory.position_multiline and signatory.position_multiline != signatory.position %}
+                <br>{{ signatory.position_multiline }}
+                {% endif %}
+            </div>
+            <div style="flex: 1; text-align: center; padding: 0 10px; position: relative;">
+                <span style="display: inline-block; border-bottom: 1px solid #000; width: 100%;"></span>
+            </div>
+            <div style="flex: 1; min-width: 0; text-align: right; white-space: nowrap;">
+                <span data-field="signatory_{{ loop.index }}_name">{{ signatory.name }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>

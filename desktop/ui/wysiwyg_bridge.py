@@ -208,8 +208,9 @@ class WysiwygBridge(QObject):
         script = """
         (function() {
             if (typeof getDocumentHtmlForPdf === 'function') {
-                getDocumentHtmlForPdf();
+                return getDocumentHtmlForPdf();
             }
+            return '';
         })();
         """
         web_view.page().runJavaScript(script, callback)

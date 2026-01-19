@@ -25,31 +25,34 @@ class SplashScreen(QSplashScreen):
 
     def _setup_ui(self):
         """Налаштовує інтерфейс сплеш-скріна."""
+        from desktop.ui.styles import WINDOW_BG, TEXT_COLOR, SECONDARY_TEXT, get_splash_stylesheet
+        
         self.setFixedSize(400, 250)
 
-        # Створюємо піксельну карту з градієнтом фоном
+        # Створюємо піксельну карту з світлим фоном
         pixmap = QPixmap(self.size())
-        pixmap.fill(QColor("#2c3e50"))
+        pixmap.fill(QColor(WINDOW_BG))
 
         # Додаємо заголовок на фон
         painter = QPainter(pixmap)
-        painter.setPen(QColor("#ecf0f1"))
+        painter.setPen(QColor(TEXT_COLOR))
 
-        # Заголовок додатку
+        # Заголовок додатку - moved up slightly to separate from version
         title_font = QFont("Segoe UI", 24, QFont.Weight.Bold)
         painter.setFont(title_font)
         painter.drawText(
-            pixmap.rect().adjusted(0, 60, 0, 0),
-            Qt.AlignmentFlag.AlignCenter,
+            pixmap.rect().adjusted(0, 50, 0, 0),
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
             "VacationManager"
         )
 
-        # Версія
+        # Версія - moved down to avoid overlap
         version_font = QFont("Segoe UI", 12)
         painter.setFont(version_font)
+        painter.setPen(QColor(SECONDARY_TEXT))
         painter.drawText(
-            pixmap.rect().adjusted(0, 90, 0, 0),
-            Qt.AlignmentFlag.AlignCenter,
+            pixmap.rect().adjusted(0, 95, 0, 0),
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
             "v6.0"
         )
         painter.end()
@@ -58,46 +61,30 @@ class SplashScreen(QSplashScreen):
 
         # Основний лейаут
         layout = QVBoxLayout()
-        layout.setContentsMargins(20, 100, 20, 40)
+        # Increased top margin to clear the painted text (was 100, now 140)
+        layout.setContentsMargins(20, 140, 20, 30)
         layout.setSpacing(10)
 
         # Лейбл статусу
         self.status_label = QLabel("Ініціалізація...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #ecf0f1;
-                font-size: 14px;
-                font-family: Segoe UI;
-            }
-        """)
-        layout.addWidget(self.status_label)
-
+        # Stylesheet is applied to container/frame usually, or directly to widgets here via get_splash_stylesheet
+        # We will apply specific styles here to ensure they stick, or rely on global sheet if set.
+        # Let's set inline for specific control derived from styles.py
+        
         # Прогрес бар
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: none;
-                border-radius: 4px;
-                background-color: rgba(255, 255, 255, 0.2);
-                text-align: center;
-                color: #ecf0f1;
-                height: 20px;
-            }
-            QProgressBar::chunk {
-                border-radius: 4px;
-                background-color: #3498db;
-            }
-        """)
+        
+        layout.addWidget(self.status_label)
         layout.addWidget(self.progress_bar)
 
         # Додаємо лейаут до головного віджету
         container = QFrame()
         container.setLayout(layout)
-        container.setStyleSheet("background: transparent;")
+        container.setStyleSheet(get_splash_stylesheet())
 
         # Встановлюємо лейаут
         main_layout = QVBoxLayout(self)

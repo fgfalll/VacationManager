@@ -24,7 +24,7 @@ from PyQt6.QtGui import QColor
 
 from desktop.widgets.status_badge import StatusBadge
 from desktop.ui.employee_card_dialog import EmployeeCardDialog
-from shared.enums import EmploymentType, WorkBasis, StaffPosition, get_position_label
+from shared.enums import EmploymentType, WorkBasis, StaffPosition, get_position_label, get_employment_type_label
 from backend.models.staff import WorkScheduleType
 
 
@@ -146,7 +146,7 @@ class StaffTab(QWidget):
 
                 # Показуємо тільки активні позиції
                 combined_rate = sum(float(s.rate) for s in active_records)
-                positions = [s.position for s in active_records]
+                positions = [get_position_label(s.position) for s in active_records]
                 active_ids = [s.id for s in active_records]
 
                 # Зберігаємо дані
@@ -173,82 +173,88 @@ class StaffTab(QWidget):
 
     def _set_row_data(self, row: int, staff_data: dict):
         """Встановлює дані в рядок таблиці."""
-        from backend.models.settings import SystemSettings
-
-        # Отримуємо поріг попередження з налаштувань
-        warning_days = 30  # За замовчуванням
         try:
-            with get_db_context() as db:
-                warning_days = SystemSettings.get_value(db, "contract_warning_days", 30)
-        except Exception:
-            pass
+            from backend.models.settings import SystemSettings
 
-        staff_records = staff_data["staff_records"]
-        pib_nom = staff_data["pib_nom"]
-        positions = staff_data["positions"]
-        combined_rate = staff_data["combined_rate"]
-        is_term_expired = staff_data["is_term_expired"]
-        days_until_term_end = staff_data["days_until_term_end"]
+            # Отримуємо поріг попередження з налаштувань
+            warning_days = 30  # За замовчуванням
+            try:
+                with get_db_context() as db:
+                    warning_days = SystemSettings.get_value(db, "contract_warning_days", 30)
+            except Exception:
+                pass
 
-        # ПІБ - з іконкою попередження якщо контракт закінчується
-        name_text = pib_nom
-        if is_term_expired:
-            name_text = "⚠️ " + name_text
-        elif days_until_term_end <= warning_days:
-            name_text = "⏰ " + name_text
+            staff_records = staff_data["staff_records"]
+            pib_nom = staff_data["pib_nom"]
+            positions = staff_data["positions"]
+            combined_rate = staff_data["combined_rate"]
+            is_term_expired = staff_data["is_term_expired"]
+            days_until_term_end = staff_data["days_until_term_end"]
 
-        self.table.setItem(row, 0, QTableWidgetItem(name_text))
+            # ПІБ - з іконкою попередження якщо контракт закінчується
+            name_text = pib_nom
+            if is_term_expired:
+                name_text = "⚠️ " + name_text
+            elif days_until_term_end <= warning_days:
+                name_text = "⏰ " + name_text
 
-        # Посади - показуємо всі позиції, якщо більше однієї
-        if len(positions) > 1:
-            position_text = " + ".join(positions)
-        else:
-            position_text = positions[0] if positions else ""
-        self.table.setItem(row, 1, QTableWidgetItem(position_text))
+            self.table.setItem(row, 0, QTableWidgetItem(name_text))
 
-        # Ставка - показуємо комбіновану, якщо > 1.0
-        rate_text = f"{combined_rate:.2f}"
-        self.table.setItem(row, 2, QTableWidgetItem(rate_text))
+            # Посади - показуємо всі позиції, якщо більше однієї
+            if len(positions) > 1:
+                position_text = " + ".join(positions)
+            else:
+                position_text = positions[0] if positions else ""
+            self.table.setItem(row, 1, QTableWidgetItem(position_text))
 
-        # Тип працевлаштування - показуємо для першого запису
-        emp_type = staff_records[0].employment_type.value if staff_records else "main"
-        self.table.setItem(row, 3, QTableWidgetItem(emp_type))
+            # Ставка - показуємо комбіновану, якщо > 1.0
+            rate_text = f"{combined_rate:.2f}"
+            self.table.setItem(row, 2, QTableWidgetItem(rate_text))
 
-        term_item = QTableWidgetItem(
-            f"{staff_data['term_start'].strftime('%d.%m.%Y')} - "
-            f"{staff_data['term_end'].strftime('%d.%m.%Y')}"
-        )
-        self.table.setItem(row, 4, term_item)
+            # Тип працевлаштування - показуємо для першого запису
+            emp_type = staff_records[0].employment_type.value if staff_records else "main"
+            self.table.setItem(row, 3, QTableWidgetItem(get_employment_type_label(emp_type)))
 
-        balance_item = QTableWidgetItem(str(staff_data["vacation_balance"]))
-        self.table.setItem(row, 5, balance_item)
+            term_item = QTableWidgetItem(
+                f"{staff_data['term_start'].strftime('%d.%m.%Y')} - "
+                f"{staff_data['term_end'].strftime('%d.%m.%Y')}"
+            )
+            self.table.setItem(row, 4, term_item)
 
-        # Дні до кінця контракту з підсвіткою
-        days_text = str(days_until_term_end)
-        if is_term_expired:
-            days_text = f"⛔ {days_text}"
-        elif days_until_term_end <= warning_days:
-            days_text = f"⚠️ {days_text}"
+            balance_item = QTableWidgetItem(str(staff_data["vacation_balance"]))
+            self.table.setItem(row, 5, balance_item)
 
-        days_item = QTableWidgetItem(days_text)
+            # Дні до кінця контракту з підсвіткою
+            days_text = str(days_until_term_end)
+            if is_term_expired:
+                days_text = f"⛔ {days_text}"
+            elif days_until_term_end <= warning_days:
+                days_text = f"⚠️ {days_text}"
 
-        # Підсвітка рядка червоним якщо контракт закінчується
-        if is_term_expired:
-            for col in range(7):
-                item = QTableWidgetItem() if col != 0 else self.table.item(row, 0)
-                if col != 0:
-                    self.table.setItem(row, col, item)
-                item.setBackground(QColor("#FFCCCC"))
-        elif days_until_term_end <= warning_days:
-            # Тільки days_item підсвітчуємо
-            days_item.setBackground(QColor("#FFEBEE"))
-            days_item.setForeground(QColor("#D32F2F"))
+            days_item = QTableWidgetItem(days_text)
 
-        self.table.setItem(row, 6, days_item)
+            # Підсвітка рядка червоним якщо контракт закінчується
+            if is_term_expired:
+                for col in range(7):
+                    item = QTableWidgetItem() if col != 0 else self.table.item(row, 0)
+                    if col != 0:
+                        self.table.setItem(row, col, item)
+                    item.setBackground(QColor("#FFCCCC"))
+            elif days_until_term_end <= warning_days:
+                # Тільки days_item підсвітчуємо
+                days_item.setBackground(QColor("#FFEBEE"))
+                days_item.setForeground(QColor("#D32F2F"))
 
-        # Зберігаємо всі ID в першому елементі (список)
-        self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole,
-            [s.id for s in staff_records])
+            self.table.setItem(row, 6, days_item)
+
+            # Зберігаємо всі ID в першому елементі (список)
+            self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole,
+                [s.id for s in staff_records])
+                
+        except Exception as e:
+            print(f"Error setting row data for row {row}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _on_search(self):
         """Фільтрує дані при пошуку."""
@@ -415,8 +421,32 @@ class StaffTab(QWidget):
     def _add_staff(self):
         """Відкриває діалог додавання співробітника."""
         dialog = StaffDialog(parent=self)
-        if dialog.exec():
+        result = dialog.exec()
+        
+        if result == QDialog.DialogCode.Accepted:
             self._load_data()
+        elif result == 2:  # Custom code for "Create Employment Document"
+            self._create_new_employee_document()
+
+    def _create_new_employee_document(self):
+        """
+        Переходить на вкладку конструктора та ініціює створення документа про прийом.
+        """
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'tabs'): # MainWindow typically has 'tabs' widget
+                # Switch to Builder tab (index 2 usually, need to verify)
+                # Better: find tab by type/name
+                tabs = parent.tabs
+                for i in range(tabs.count()):
+                    if tabs.tabText(i) == "Конструктор заяв":
+                        tabs.setCurrentIndex(i)
+                        builder_tab = tabs.widget(i)
+                        if hasattr(builder_tab, 'start_new_employee_document'):
+                            builder_tab.start_new_employee_document()
+                        break
+                return
+            parent = parent.parent()
 
     def _edit_staff(self):
         """Відкриває діалог редагування співробітника."""
@@ -829,12 +859,22 @@ class StaffTab(QWidget):
         else:
             staff_id = staff_ids
 
+        if not staff_id:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Помилка", "Не вдалося отримати ID співробітника. Спробуйте оновити таблицю.")
+            self._load_data()
+            return
+
         dialog = EmployeeCardDialog(staff_id, parent=self)
         # Connect signals for document actions
         dialog.edit_document.connect(self._on_edit_document)
         dialog.delete_document.connect(self._on_delete_document)
         # Connect signal to refresh tabel tab when attendance is modified
         dialog.attendance_modified.connect(self._on_attendance_modified)
+        # Connect signal for adding subposition via document
+        dialog.subposition_via_document.connect(self._on_subposition_via_document)
+        # Connect signal for staff changes
+        dialog.staff_changed.connect(self._load_data)
 
         # Use open() instead of exec() to allow non-blocking signal handling
         # After dialog closes, refresh the table
@@ -941,7 +981,7 @@ class StaffTab(QWidget):
                 table.setItem(row, 1, QTableWidgetItem(staff["pib_nom"]))
 
                 # Посада
-                table.setItem(row, 2, QTableWidgetItem(staff["position"]))
+                table.setItem(row, 2, QTableWidgetItem(get_position_label(staff["position"])))
 
                 # Ставка
                 table.setItem(row, 3, QTableWidgetItem(staff.get("rate", "")))
@@ -989,6 +1029,10 @@ class StaffTab(QWidget):
             card_dialog.finished.connect(lambda result: refresh_table())
             # Connect signal to refresh tabel tab when attendance is modified
             card_dialog.attendance_modified.connect(self._on_attendance_modified)
+            # Connect signal for adding subposition via document
+            card_dialog.subposition_via_document.connect(self._on_subposition_via_document)
+            # Connect signal for staff changes
+            card_dialog.staff_changed.connect(lambda: (refresh_table(), self._load_data()))
             card_dialog.open()
 
         table.itemDoubleClicked.connect(on_double_click)
@@ -1013,6 +1057,16 @@ class StaffTab(QWidget):
         while parent:
             if hasattr(parent, 'refresh_tabel_tab'):
                 parent.refresh_tabel_tab(correction_info)
+                break
+            parent = parent.parent()
+
+    def _on_subposition_via_document(self):
+        """Викликається при додаванні сумісництва через документ."""
+        # Get main window and navigate to builder tab with subposition document
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'switch_to_builder_for_subposition'):
+                parent.switch_to_builder_for_subposition()
                 break
             parent = parent.parent()
 
@@ -1142,12 +1196,36 @@ class StaffDialog(QDialog):
         # Кнопки
         from PyQt6.QtWidgets import QDialogButtonBox
 
-        buttons = QDialogButtonBox(
+        buttons_layout = QHBoxLayout()
+        
+        # New "Create Employment Application" button
+        self.create_doc_btn = QPushButton("Створити заяву про прийом")
+        self.create_doc_btn.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+        self.create_doc_btn.clicked.connect(self._on_create_document)
+        
+        # Standard buttons
+        self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        
+        buttons_layout.addWidget(self.create_doc_btn)
+        # Add spacer to separate custom button from standard ones
+        buttons_layout.addStretch()
+        buttons_layout.addWidget(self.button_box)
+        
+        layout.addRow(buttons_layout)
+        
+        # Hide custom button if editing existing staff
+        if self.staff_id is not None:
+            self.create_doc_btn.setVisible(False)
+
+    def _on_create_document(self):
+        """Handle click on Create Employment Document."""
+        # Use a special result code or mechanism to signal parent
+        # We can use done(2) for example, where 2 is a custom code
+        self.done(2)
 
     def _load_data(self):
         """Завантажує дані співробітника."""
@@ -1244,7 +1322,7 @@ class StaffDialog(QDialog):
         staff_data = {
             "pib_nom": pib,
             "degree": self.degree_input.text() or None,
-            "position": self.position_input.currentText(),
+            "position": self.position_input.currentData(),
             "rate": rate,
             "employment_type": employment_type,
             "work_basis": work_basis,
