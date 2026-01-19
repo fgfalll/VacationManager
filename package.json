@@ -1,0 +1,26 @@
+{
+  "name": "vacation-manager",
+  "version": "7.0.0",
+  "description": "Vacation Management System - Backend, Web UI, and Desktop App",
+  "scripts": {
+    "start": "python run.py --all",
+    "start:backend": "python run.py --backend",
+    "start:web": "python run.py --web",
+    "start:desktop": "python run.py --desktop",
+    "dev:web": "cd web && npm run dev",
+    "build:web": "cd web && npm run build",
+    "install:all": "npm install && cd web && npm install",
+    "lint:web": "cd web && npm run lint"
+  },
+  "keywords": [
+    "vacation",
+    "management",
+    "fastapi",
+    "react",
+    "desktop"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}
