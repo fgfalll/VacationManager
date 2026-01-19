@@ -1,8 +1,8 @@
-# VacationManager v6.0
+# VacationManager v7.2.0
 
 Система управління відпустками та табелем обліку робочого часу для університетської кафедри.
 
-## Версія Latest (v6.0) - Табель обліку та Відповідний Workflow
+## Версія Latest (v7.2.0) - Покращена архівація документів та StaffPosition enum
 
 ### Проект
 
@@ -15,7 +15,8 @@
 - Конструктор заяв з WYSIWYG-редактором та live preview
 - Генерація PDF документів з українською морфологією (WeasyPrint + Jinja2)
 - **Табель обліку робочого часу** — автоматична генерація табеля з усіма кодами відвідуваності
-- Web portal для завантаження сканів підписаних документів
+- **Web UI (React)** — сучасний веб-інтерфейс для співробітників та HR
+- **Web portal** для завантаження сканів підписаних документів
 - WebSocket синхронізація між Desktop та Web
 - **Повний workflow підписання документів**: заявник → диспетчерська → завідувач → наказ → ректор
 - **ПІБ у давальному відмінку** — автоматична генерація для документів з можливістю ручного редагування
@@ -398,6 +399,122 @@ VacationManager/
 └── alembic/               # Database migrations
 ```
 
+## API Reference
+
+Базовий URL: `http://127.0.0.1:8000/api`
+
+> **Автентифікація**: Більшість ендпоінтів вимагають JWT токен у заголовку `Authorization: Bearer <token>`. Отримайте токен через `/auth/login`.
+
+### Auth (`/auth`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/login` | - | Автентифікація користувача |
+| POST | `/logout` | ✓ | Вихід з системи |
+| POST | `/refresh` | - | Оновлення access token |
+| GET | `/me` | ✓ | Інформація про поточного користувача |
+| POST | `/register` | - | Реєстрація нового користувача |
+| POST | `/change-password` | ✓ | Зміна пароля |
+
+### Staff (`/staff`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/` | ✓ | Список співробітників (пагінація, пошук) |
+| GET | `/{id}` | HR | Деталі співробітника |
+| POST | `/` | Admin | Створити співробітника |
+| PUT | `/{id}` | HR | Оновити співробітника |
+| DELETE | `/{id}` | Admin | Видалити (soft delete) |
+| GET | `/search` | HR | Пошук за ім'ям/позицією |
+| GET | `/{id}/documents` | ✓ | Документи співробітника |
+| GET | `/{id}/schedule` | ✓ | Графік відпусток |
+| GET | `/{id}/attendance` | ✓ | Відвідуваність |
+| GET | `/expiring-contracts` | HR | Контракти, що закінчуються |
+
+### Documents (`/documents`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/` | ✓ | Список документів (фільтри, пагінація) |
+| GET | `/{id}` | ✓ | Деталі документа |
+| GET | `/{id}/context` | ✓ | Контекст для відображення |
+| POST | `/` | ✓ | Створити документ |
+| POST | `/{id}/upload-scan` | ✓ | Завантажити скан |
+| POST | `/direct-scan-upload` | ✓ | Пряме завантаження скану |
+| POST | `/preview` | ✓ | Попередній перегляд |
+| GET | `/types` | - | Типи документів |
+| GET | `/staff/{id}/blocked-days` | ✓ | Заблоковані дні співробітника |
+
+### Schedule (`/schedule`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/annual` | HR | Річний графік відпусток |
+| GET | `/{year}` | HR | Графік на рік |
+| POST | `/` | HR | Створити запис графіку |
+| PUT | `/{id}` | HR | Оновити запис |
+| DELETE | `/{id}` | HR | Видалити запис |
+| POST | `/auto-distribute` | HR | Авторозподіл відпусток |
+| GET | `/stats` | HR | Статистика графіку |
+
+### Attendance (`/attendance`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/daily` | HR | Відвідуваність за день |
+| POST | `/` | HR | Створити запис |
+| POST | `/correction` | HR | Запит на корекцію |
+| POST | `/submit` | HR | Подати табель |
+| POST | `/tabel/approve` | HR | Затвердити табель |
+| GET | `/tabel` | HR | Отримати табель за місяць |
+
+### Tabel (`/tabel`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/generate` | HR | Згенерувати HTML табеля |
+| GET | `/preview` | HR | Попередній перегляд |
+| POST | `/archive` | HR | Зберегти архів |
+| GET | `/archives` | HR | Список архівів |
+| GET | `/archives/{filename}` | HR | Деталі архіву |
+| GET | `/locked-months` | HR | Заблоковані місяці |
+| GET | `/corrections` | HR | Місяці з корекціями |
+| POST | `/approve` | HR | Погодити табель |
+| GET | `/status` | HR | Статус табеля |
+
+### Dashboard (`/dashboard`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/stats` | ✓ | Статистика (працівники, документи) |
+
+### Settings (`/settings`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/` | ✓ | Поточні налаштування |
+| PUT | `/` | ✓ | Оновити налаштування |
+
+### Upload (`/upload`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/{document_id}` | - | Завантажити скан документа |
+
+### WebSocket (`/ws`)
+
+Real-time синхронізація між Desktop та Web додатками.
+
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws');
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  // message.type: 'document_signed', 'status_changed', 'pong'
+};
+// Ping/pong для keepalive
+ws.send(JSON.stringify({ type: 'ping' }));
+```
+
 ## Документообіг
 
 ### Статуси документів
@@ -616,7 +733,7 @@ flowchart TB
 
 ## Ліцензія
 
-© 2025-2026 VacationManager v6.0
+© 2025-2026 VacationManager v7.0
 
 ---
 
@@ -624,6 +741,7 @@ flowchart TB
 
 | Версія | Дата | Зміни |
 |--------|------|-------|
+| v7.0 | Січень 2026 | Web UI (React), JWT Auth, REST API, Покращений Workflow |
 | v6.0 | Січень 2026 | Табель обліку, Attendance Tracking, Workflow |
 | v5.0 | 2025 | Базова функціональність |
 
