@@ -12,6 +12,7 @@ import {
   Dropdown,
   message,
   Popconfirm,
+  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -22,6 +23,7 @@ import {
   DownloadOutlined,
   DownOutlined,
   FilterOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -39,6 +41,9 @@ const transformDocument = (doc: any) => ({
   start_date: doc.date_start,
   end_date: doc.date_end,
   total_days: doc.days_count,
+  is_blocked: doc.is_blocked || false,
+  blocked_reason: doc.blocked_reason,
+  file_scan_path: doc.file_scan_path,
   staff: doc.staff ? {
     first_name: doc.staff.pib_nom?.split(' ')[0] || '',
     last_name: doc.staff.pib_nom?.split(' ').slice(1).join(' ') || '',
@@ -164,7 +169,10 @@ const DocumentList: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
+      width: 150,
       render: (_: unknown, record: Document) => {
+        const isBlocked = record.is_blocked;
+
         const items = [
           {
             key: 'view',
@@ -180,7 +188,8 @@ const DocumentList: React.FC = () => {
           },
         ];
 
-        if (record.status === 'draft') {
+        // Only show edit/delete for draft documents that are NOT blocked
+        if (record.status === 'draft' && !isBlocked) {
           items.push({
             key: 'edit',
             icon: <EditOutlined />,
@@ -197,15 +206,26 @@ const DocumentList: React.FC = () => {
         }
 
         return (
-          <Space>
+          <Space size="small">
             <Button
               type="text"
               icon={<EyeOutlined />}
               onClick={() => navigate(`/documents/${record.id}`)}
             />
-            <Dropdown menu={{ items }} trigger={['click']}>
-              <Button type="text" icon={<DownOutlined />} />
-            </Dropdown>
+            {isBlocked ? (
+              <Tooltip title={record.blocked_reason || 'Документ заблоковано'}>
+                <Button
+                  type="text"
+                  icon={<LockOutlined />}
+                  disabled
+                  style={{ cursor: 'not-allowed' }}
+                />
+              </Tooltip>
+            ) : (
+              <Dropdown menu={{ items }} trigger={['click']}>
+                <Button type="text" icon={<DownOutlined />} />
+              </Dropdown>
+            )}
           </Space>
         );
       },

@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin
@@ -156,6 +156,20 @@ class Document(Base, TimestampMixin):
         default=1,
         nullable=False,
         comment="Номер послідовності корекції (1, 2, 3...)",
+    )
+
+    # Blocking fields - for documents that cannot be edited/deleted
+    is_blocked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+        comment="Чи заблоковано редагування документа (завантажено скан або оброблено)",
+    )
+    blocked_reason: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Причина блокування документа",
     )
 
     # Relationships

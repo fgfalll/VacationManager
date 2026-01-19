@@ -100,6 +100,10 @@ async def list_documents(
         # Always re-render to use the correct template
         doc.rendered_html = render_document(doc, db)
 
+        # Get blocking status from database (stored field)
+        is_blocked = doc.is_blocked
+        blocked_reason = doc.blocked_reason
+
         result_items.append({
             "id": doc.id,
             "staff_id": doc.staff_id,
@@ -126,6 +130,9 @@ async def list_documents(
             "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
             "staff_name": staff.pib_nom if staff else "",
             "staff_position": staff.position if staff else "",
+            "file_scan_path": doc.file_scan_path,
+            "is_blocked": is_blocked,
+            "blocked_reason": blocked_reason,
             "progress": doc.get_workflow_progress() if hasattr(doc, 'get_workflow_progress') else {},
         })
 
@@ -350,9 +357,11 @@ async def upload_document_scan(
 
     # 6. Update document
     document.file_scan_path = file_path
+    document.is_blocked = True
+    document.blocked_reason = "Документ має завантажений скан. Редагування заблоковано."
     document.scanned_at = datetime.now()
     document.scanned_comment = f"Uploaded via Web Portal by {current_user.username or 'Unknown'}"
-    
+
     # Update status based on workflow
     document.update_status_from_workflow()
     
@@ -427,6 +436,8 @@ async def direct_scan_upload(
         raise HTTPException(status_code=500, detail=f"Помилка збереження файлу: {str(e)}")
 
     document.file_scan_path = file_path
+    document.is_blocked = True
+    document.blocked_reason = "Документ має завантажений скан. Редагування заблоковано."
     document.scanned_at = datetime.now()
     document.scanned_comment = f"Uploaded via Web Portal by {current_user.username or 'Unknown'}"
     db.commit()

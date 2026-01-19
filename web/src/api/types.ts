@@ -113,6 +113,10 @@ export interface Document {
   from_archive?: boolean;
   archive_metadata_path?: string;
   signatories?: Signatory[];
+  // Blocking support
+  is_blocked?: boolean;
+  blocked_reason?: string;
+  file_scan_path?: string | null;
 }
 
 export type DocumentStatus =
@@ -244,6 +248,8 @@ export interface DailyAttendance {
   correction_sequence?: number | null;
   table_type?: 'main' | 'correction';
   table_info?: string;
+  is_blocked?: boolean;
+  blocked_reason?: string;
   created_at: string;
 }
 

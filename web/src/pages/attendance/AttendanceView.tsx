@@ -14,11 +14,16 @@ import {
   Input,
   message,
   DatePicker,
+  Popconfirm,
+  Tooltip,
 } from 'antd';
 import dayjs from 'dayjs';
 import {
   PlusOutlined,
   FilterOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/axios';
@@ -86,11 +91,11 @@ const AttendanceView: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: async (data: { staff_id: number; date: string; code: string; notes?: string }) => {
-      await apiClient.post(endpoints.attendance.daily, data);
+      await apiClient.post(endpoints.attendance.create, data);
     },
     onSuccess: () => {
       message.success('Attendance record added');
-      queryClient.invalidateQueries({ queryKey: ['attendance-daily'] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-list'] });
       setIsAddModalOpen(false);
       form.resetFields();
     },
@@ -99,25 +104,32 @@ const AttendanceView: React.FC = () => {
     },
   });
 
-  const correctionMutation = useMutation({
-    mutationFn: async (data: {
-      staff_id: number;
-      attendance_id: number;
-      correction_type: string;
-      original_value: string;
-      new_code: string;
-      reason: string;
-    }) => {
-      await apiClient.post(endpoints.attendance.correction, data);
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, code, notes }: { id: number; code: string; notes?: string }) => {
+      await apiClient.put(endpoints.attendance.update(id), { code, notes });
     },
     onSuccess: () => {
-      message.success('Correction submitted');
-      queryClient.invalidateQueries({ queryKey: ['attendance-daily'] });
+      message.success('Attendance record updated');
+      queryClient.invalidateQueries({ queryKey: ['attendance-list'] });
       setIsCorrectionModalOpen(false);
+      setSelectedAttendance(null);
       correctionForm.resetFields();
     },
     onError: (error: Error) => {
-      message.error(error.message || 'Failed to submit correction');
+      message.error(error.message || 'Failed to update attendance');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiClient.delete(endpoints.attendance.delete(id));
+    },
+    onSuccess: () => {
+      message.success('Attendance record deleted');
+      queryClient.invalidateQueries({ queryKey: ['attendance-list'] });
+    },
+    onError: (error: Error) => {
+      message.error(error.message || 'Failed to delete attendance');
     },
   });
 
@@ -133,15 +145,16 @@ const AttendanceView: React.FC = () => {
   const handleCorrection = async () => {
     const values = await correctionForm.validateFields();
     if (selectedAttendance) {
-      correctionMutation.mutate({
-        ...values,
-        staff_id: selectedAttendance.staff_id,
-        attendance_id: selectedAttendance.id,
-        correction_type: 'status',
-        original_value: selectedAttendance.code,
-        new_code: values.code,
+      updateMutation.mutate({
+        id: selectedAttendance.id,
+        code: values.code,
+        notes: values.reason,
       });
     }
+  };
+
+  const handleDelete = async (id: number) => {
+    deleteMutation.mutate(id);
   };
 
   const columns = [
@@ -221,19 +234,59 @@ const AttendanceView: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 100,
-      render: (_: unknown, record: AttendanceRecord) => (
-        <Button
-          size="small"
-          onClick={() => {
-            setSelectedAttendance(record);
-            correctionForm.setFieldsValue({ code: record.code });
-            setIsCorrectionModalOpen(true);
-          }}
-        >
-          Edit
-        </Button>
-      ),
+      width: 150,
+      render: (_: unknown, record: AttendanceRecord) => {
+        const isBlocked = record.is_blocked;
+
+        if (isBlocked) {
+          return (
+            <Tooltip title={record.blocked_reason || 'Місяць заблоковано (погоджено з кадрами)'}>
+              <Button
+                size="small"
+                icon={<LockOutlined />}
+                disabled
+                style={{ cursor: 'not-allowed' }}
+              >
+                Locked
+              </Button>
+            </Tooltip>
+          );
+        }
+
+        return (
+          <Space size="small">
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => {
+                setSelectedAttendance(record);
+                correctionForm.setFieldsValue({
+                  code: record.code,
+                  reason: record.notes || '',
+                });
+                setIsCorrectionModalOpen(true);
+              }}
+            >
+              Edit
+            </Button>
+            <Popconfirm
+              title="Видалити запис?"
+              description="Ця дія незворотня"
+              onConfirm={() => handleDelete(record.id)}
+              okText="Так"
+              cancelText="Ні"
+            >
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+              >
+                Remove
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -390,13 +443,13 @@ const AttendanceView: React.FC = () => {
         open={isCorrectionModalOpen}
         onCancel={() => setIsCorrectionModalOpen(false)}
         onOk={handleCorrection}
-        confirmLoading={correctionMutation.isPending}
+        confirmLoading={updateMutation.isPending}
         width={500}
       >
         <Form form={correctionForm} layout="vertical">
           <Form.Item
             name="code"
-            label="New Code"
+            label="Code"
             rules={[{ required: true, message: 'Please select code' }]}
           >
             <Select placeholder="Select code">
@@ -412,10 +465,9 @@ const AttendanceView: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="reason"
-            label="Reason for change"
-            rules={[{ required: true, message: 'Please enter reason' }]}
+            label="Notes"
           >
-            <Input.TextArea rows={3} placeholder="Enter reason for correction" />
+            <Input.TextArea rows={3} placeholder="Additional notes" />
           </Form.Item>
         </Form>
       </Modal>

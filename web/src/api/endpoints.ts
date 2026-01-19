@@ -57,6 +57,9 @@ export const endpoints = {
   attendance: {
     list: '/attendance/list',
     daily: '/attendance/daily',
+    create: '/attendance',
+    update: (id: string | number) => `/attendance/${id}`,
+    delete: (id: string | number) => `/attendance/${id}`,
     correction: '/attendance/correction',
     submit: '/attendance/submit',
     tabel: '/attendance/tabel',

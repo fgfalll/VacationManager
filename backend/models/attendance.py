@@ -143,6 +143,20 @@ class Attendance(Base, TimestampMixin):
         comment="Номер послідовності корекції (1, 2, 3...)",
     )
 
+    # Blocking fields - for records that cannot be edited/deleted
+    is_blocked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+        comment="Чи заблоковано редагування запису (місяць погоджено)",
+    )
+    blocked_reason: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Причина блокування запису",
+    )
+
     # Relationships
     staff: Mapped["Staff"] = relationship(back_populates="attendance_records")
 

@@ -73,7 +73,9 @@ async def upload_scan(
         # Оновлюємо документ
         old_status = doc.status.value
         doc.file_scan_path = str(save_path)
-        
+        doc.is_blocked = True
+        doc.blocked_reason = "Документ має завантажений скан. Редагування заблоковано."
+
         # Create archive snapshot with staff/approver data
         from backend.services.document_service import save_document_archive
         try:

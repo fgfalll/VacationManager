@@ -1,6 +1,6 @@
 """API маршрути для управління відвідуваністю."""
 
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +10,7 @@ from backend.api.dependencies import DBSession
 from backend.core.dependencies import get_current_user, require_department_head
 from backend.models.attendance import Attendance
 from backend.models.staff import Staff
+from backend.services.tabel_approval_service import TabelApprovalService
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
@@ -28,7 +29,7 @@ async def list_all_attendance(
     """
     Отримати всі записи відвідуваності з пагінацією та фільтрацією.
 
-    Показує всі записи з інформацією про те, чи знаходиться вони в основному
+    Показує всі записи з інформацією про те, чи знаходяться вони в основному
     табелі або в коригувальному табелі.
     """
     query = db.query(Attendance)
@@ -78,6 +79,8 @@ async def list_all_attendance(
             "correction_month": record.correction_month,
             "correction_year": record.correction_year,
             "correction_sequence": record.correction_sequence,
+            "is_blocked": record.is_blocked,
+            "blocked_reason": record.blocked_reason,
             "created_at": record.created_at.isoformat() if record.created_at else None,
         })
 
@@ -164,6 +167,13 @@ async def create_attendance(
     from datetime import date as date_type
 
     parsed_date = date_type.fromisoformat(date) if isinstance(date, str) else date
+
+    # Check if the month is locked
+    approval_service = TabelApprovalService(db)
+    can_edit, reason = approval_service.can_edit_attendance(staff_id, parsed_date)
+    if not can_edit:
+        raise HTTPException(status_code=400, detail=reason)
+
     attendance = Attendance(
         staff_id=staff_id,
         date=parsed_date,
@@ -181,6 +191,71 @@ async def create_attendance(
         "date": attendance.date.isoformat() if attendance.date else None,
         "code": attendance.code,
     }
+
+
+@router.put("/{attendance_id}")
+async def update_attendance(
+    attendance_id: int,
+    code: str,
+    notes: Optional[str] = None,
+    db: DBSession = None,
+    current_user = Depends(require_department_head),
+):
+    """
+    Оновити запис відвідуваності.
+    """
+    attendance = db.query(Attendance).filter(
+        Attendance.id == attendance_id
+    ).first()
+
+    if not attendance:
+        raise HTTPException(status_code=404, detail="Запис не знайдено")
+
+    # Check if the month is locked
+    approval_service = TabelApprovalService(db)
+    can_edit, reason = approval_service.can_edit_attendance(attendance.staff_id, attendance.date)
+    if not can_edit:
+        raise HTTPException(status_code=400, detail=reason)
+
+    attendance.code = code
+    if notes is not None:
+        attendance.notes = notes
+    db.commit()
+
+    return {
+        "id": attendance.id,
+        "staff_id": attendance.staff_id,
+        "date": attendance.date.isoformat() if attendance.date else None,
+        "code": attendance.code,
+    }
+
+
+@router.delete("/{attendance_id}")
+async def delete_attendance(
+    attendance_id: int,
+    db: DBSession = None,
+    current_user = Depends(require_department_head),
+):
+    """
+    Видалити запис відвідуваності.
+    """
+    attendance = db.query(Attendance).filter(
+        Attendance.id == attendance_id
+    ).first()
+
+    if not attendance:
+        raise HTTPException(status_code=404, detail="Запис не знайдено")
+
+    # Check if the month is locked
+    approval_service = TabelApprovalService(db)
+    can_edit, reason = approval_service.can_edit_attendance(attendance.staff_id, attendance.date)
+    if not can_edit:
+        raise HTTPException(status_code=400, detail=reason)
+
+    db.delete(attendance)
+    db.commit()
+
+    return {"message": "Запис видалено"}
 
 
 @router.post("/correction")
