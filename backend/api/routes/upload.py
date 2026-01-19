@@ -10,9 +10,10 @@ from backend.api.dependencies import DBSession
 from backend.core.config import get_settings
 from backend.core.websocket import manager
 from backend.models.document import Document
+from backend.services.staff_service import StaffService
 from backend.schemas.responses import UploadResponse
 from shared.constants import ALLOWED_EXTENSIONS, MAX_FILE_SIZE
-from shared.enums import DocumentStatus
+from shared.enums import DocumentStatus, DocumentType
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 settings = get_settings()
@@ -31,6 +32,10 @@ async def upload_scan(
     - Максимальний розмір: 10MB
     - Дозволені формати: PDF, JPG, JPEG, PNG
     - Документ має бути в статусі 'on_signature'
+
+    Для документів прийому на роботу:
+    - Після завантаження скану створюється новий запис співробітника
+    - Документу призначається staff_id
     """
     # Отримуємо документ
     doc = db.query(Document).filter(Document.id == document_id).first()
@@ -85,16 +90,34 @@ async def upload_scan(
             # Log but don't fail - archive is optional
             import logging
             logging.warning(f"Failed to create document archive: {e}")
-        
-        doc.status = DocumentStatus.SIGNED
-        from datetime import datetime
 
-        doc.signed_at = datetime.utcnow()
+        # Handle employment documents - create new staff record
+        is_employment = doc.doc_type.value.startswith("employment_")
+        if is_employment and doc.new_employee_data:
+            service = StaffService(db, changed_by="UPLOAD_SCAN")
+            new_staff = service.create_staff_from_document(doc)
+            
+            if new_staff:
+                import logging
+                logging.info(f"Created new staff record {new_staff.id} for employment document {doc.id}")
+            else:
+                # Failed to create staff, but still mark as signed
+                doc.status = DocumentStatus.SIGNED
+        else:
+            doc.status = DocumentStatus.SIGNED
+
+        # Handle term extension documents - update staff term_end and reactivate if needed
+        is_extension = doc.doc_type.value.startswith("term_extension") or doc.doc_type == DocumentType.TERM_EXTENSION
+        if is_extension:
+            StaffService(db, changed_by="UPLOAD_SCAN").process_term_extension(doc)
+
+        from datetime import datetime
+        doc.signed_at = datetime.now()
         db.commit()
 
         # WebSocket повідомлення про завантаження скану
         await manager.notify_document_signed(document_id, str(save_path))
-        await manager.notify_document_status_changed(document_id, DocumentStatus.SIGNED.value, old_status)
+        await manager.notify_document_status_changed(document_id, doc.status.value, old_status)
 
         return UploadResponse(
             success=True,

@@ -30,6 +30,8 @@ from backend.models import (
     WorkScheduleType,
 )
 
+from shared.enums import get_position_label
+
 # WeasyPrint executable path
 WEASYPRINT_EXE = Path(__file__).parent.parent.parent / 'weasyprint' / 'dist' / 'weasyprint.exe'
 
@@ -633,7 +635,7 @@ def get_employee_data(
     
     return EmployeeData(
         pib=short_name,
-        position=staff.position.lower() if staff.position else "",
+        position=get_position_label(staff.position).lower() if staff.position else "",
         rate=formatted_rate,
         days=days,
         totals={
@@ -1219,11 +1221,15 @@ def reconstruct_tabel_html_from_archive(archive_data: dict) -> str:
     # Build employee data objects for the template
     employees = []
     for emp in employees_data:
+        # Translate position enum value to Ukrainian label if needed
+        raw_position = emp.get("position", "")
+        translated_position = get_position_label(raw_position) if raw_position else ""
+
         emp_obj = {
             "staff_id": emp.get("staff_id", 0),
             "pib": emp.get("pib", emp.get("pib_nom", "")),  # Template expects 'pib', fallback to 'pib_nom'
             "degree": emp.get("degree", ""),
-            "position": emp.get("position", ""),
+            "position": translated_position,
             "rate": emp.get("rate", 1.0),
             "days": [],
             "absence": emp.get("absence", {}),
@@ -1869,7 +1875,7 @@ def get_employees_for_tabel(
                 Staff.term_end >= month_start
             ).all()
             for staff_member in all_active_staff:
-                pos = staff_member.position.lower()
+                pos = get_position_label(staff_member.position).lower()
                 if 'фахівець' in pos and not responsible_person:
                     responsible_person = format_initials(staff_member.pib_nom)
 
@@ -1938,7 +1944,7 @@ def get_employees_for_tabel(
 
         # Find responsible person and department head
         for staff_member in staff_list:
-            pos = staff_member.position.lower()
+            pos = get_position_label(staff_member.position).lower()
             if 'фахівець' in pos and not responsible_person:
                 responsible_person = format_initials(staff_member.pib_nom)
 

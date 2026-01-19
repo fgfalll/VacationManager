@@ -1,6 +1,8 @@
 """API маршрути для управління документами."""
 
 from datetime import date, datetime, timedelta
+import os
+import shutil
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -350,8 +352,6 @@ async def upload_document_scan(
     current_user: get_current_user = Depends(require_employee),
 ):
     """Завантажити скан-копію документа."""
-    import os
-    import shutil
 
     # ... (code omitted)
 
@@ -386,8 +386,6 @@ async def direct_scan_upload(
     Пряме завантаження скану (створення документу та завантаження файлу).
     Логіка аналогічна desktop/ui/employee_card_dialog.py.
     """
-    import os
-    import shutil
     from backend.services.attendance_service import AttendanceService
     from decimal import Decimal
 
@@ -440,7 +438,14 @@ async def direct_scan_upload(
     document.blocked_reason = "Документ має завантажений скан. Редагування заблоковано."
     document.scanned_at = datetime.now()
     document.scanned_comment = f"Uploaded via Web Portal by {current_user.username or 'Unknown'}"
+    document.scanned_comment = f"Uploaded via Web Portal by {current_user.username or 'Unknown'}"
     db.commit()
+
+    # Handle term extension documents - update staff term_end and reactivate if needed
+    is_extension = doc_type == DocumentType.TERM_EXTENSION.value or "term_extension" in doc_type
+    if is_extension:
+        from backend.services.staff_service import StaffService
+        StaffService(db, changed_by="DIRECT_SCAN_UPLOAD").process_term_extension(document)
 
     # 3. Add to attendance if it's a vacation type
     is_vacation = doc_type in ["vacation_paid", "vacation_unpaid", "vacation_main", "vacation_additional",
