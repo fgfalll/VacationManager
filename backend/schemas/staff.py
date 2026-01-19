@@ -1,5 +1,6 @@
 """Pydantic схеми для співробітників."""
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -26,6 +27,30 @@ def _normalize_position(position: str) -> str:
         return POSITION_LABELS_REVERSE[position]
     # If not recognized, return as-is (could be custom position)
     return position
+
+
+def validate_pib_nom(pib: str) -> tuple[bool, str]:
+    """
+    Validate Ukrainian PIB format: Прізвище Ім'я По батькові.
+    Each part must start with uppercase letter and contain only Ukrainian/Latin letters.
+
+    Returns:
+        (is_valid, error_message)
+    """
+    pib_parts = pib.strip().split()
+
+    # Must have exactly 3 parts
+    if len(pib_parts) != 3:
+        return False, f"ПІБ має складатися з 3 частин (Прізвище Ім'я По батькові), знайдено: {len(pib_parts)}"
+
+    # Ukrainian/Latin pattern: starts with uppercase, contains only letters and hyphens
+    pattern = r"^[А-ЩЬЮЯЇІЄҐA-Z][а-щьюяїієҐa-z\-]+$"
+
+    for part in pib_parts:
+        if not re.match(pattern, part):
+            return False, f"'{part}' - кожна частина ПІБ має починатися з великої літери та містити лише українські/латинські літери"
+
+    return True, ""
 
 
 class StaffBase(BaseModel):
@@ -110,6 +135,22 @@ class StaffCreate(BaseModel):
         if isinstance(v, str):
             return _normalize_position(v)
         return v
+
+    @field_validator("pib_nom")
+    @classmethod
+    def validate_pib_format(cls, v: str) -> str:
+        """Validate PIB format - must be Прізвище Ім'я По батькові."""
+        is_valid, error_msg = validate_pib_nom(v)
+        if not is_valid:
+            raise ValueError(error_msg)
+        return v
+
+    @model_validator(mode="after")
+    def validate_term_dates(self):
+        """Ensure term_end is after term_start."""
+        if self.term_end <= self.term_start:
+            raise ValueError("Кінець договору має бути пізніше за початок")
+        return self
 
 
 class StaffUpdate(BaseModel):

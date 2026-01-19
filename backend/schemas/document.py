@@ -1,6 +1,7 @@
 """Pydantic схеми для документів."""
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -30,7 +31,7 @@ class DocumentBase(BaseModel):
 class DocumentCreate(DocumentBase):
     """Схема для створення документа."""
 
-    pass
+    new_employee_data: dict[str, Any] | None = Field(None, description="Дані нового співробітника (тільки для документів прийому)")
 
 
 class DocumentUpdate(BaseModel):
@@ -98,6 +99,9 @@ class DocumentResponse(DocumentBase):
     start_date: date | None = None  # Alias for date_start
     end_date: date | None = None  # Alias for date_end
 
+    # New employee data for employment documents
+    new_employee_data: dict[str, Any] | None = Field(None, description="Дані нового співробітника")
+
     class Config:
         from_attributes = True
 
@@ -129,3 +133,27 @@ class DocumentStatusUpdate(BaseModel):
     """Схема для оновлення статусу документа."""
 
     status: DocumentStatus = Field(..., description="Новий статус")
+
+
+class EmploymentCreate(BaseModel):
+    """Схема для даних нового співробітника при створенні документа прийому на роботу."""
+
+    pib_nom: str = Field(..., min_length=1, max_length=200, description="ПІБ у називному відмінку")
+    degree: str | None = Field(None, max_length=50, description="Вчений ступінь")
+    rate: float = Field(..., ge=0.25, le=2.0, description="Ставка (0.25, 0.5, 0.75, 1.0)")
+    position: str = Field(..., min_length=1, max_length=100, description="Посада")
+    employment_type: str = Field(..., description="Тип працевлаштування (main/external/internal)")
+    work_basis: str = Field(..., description="Основа роботи (contract/competitive/statement)")
+    term_start: date = Field(..., description="Початок контракту")
+    term_end: date = Field(..., description="Кінець контракту")
+    vacation_balance: int = Field(default=0, description="Залишок днів відпустки")
+    email: str | None = Field(None, description="Email")
+    phone: str | None = Field(None, description="Телефон")
+
+    @field_validator("term_end")
+    @classmethod
+    def end_after_start(cls, v: date, info: ValidationInfo) -> date:
+        """Перевірка, що кінець контракту не раніше за початок."""
+        if "term_start" in info.data and v <= info.data["term_start"]:
+            raise ValueError("Дата закінчення контракту має бути пізніше за дату початку")
+        return v

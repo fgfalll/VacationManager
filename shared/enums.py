@@ -7,7 +7,7 @@ from enum import Enum
 
 # Mapping dictionaries for UI labels
 EMPLOYMENT_TYPE_LABELS: dict[str, str] = {
-    "main": "Основне место роботи",
+    "main": "Основне місце роботи",
     "external": "Зовнішній сумісник",
     "internal": "Внутрішній сумісник",
 }
@@ -95,6 +95,11 @@ class DocumentType(str, Enum):
     TERM_EXTENSION_CONTRACT = "term_extension_contract"     # Продовження контракту - контрактна основа
     TERM_EXTENSION_COMPETITION = "term_extension_competition"  # Продовження контракту - конкурсна основа
     TERM_EXTENSION_PDF = "term_extension_pdf"               # Продовження контракту - PDF (вручну)
+
+    # Прийом на роботу
+    EMPLOYMENT_CONTRACT = "employment_contract"              # Прийом на роботу - контракт
+    EMPLOYMENT_COMPETITION = "employment_competition"        # Прийом на роботу - конкурс
+    EMPLOYMENT_PDF = "employment_pdf"                        # Прийом на роботу - PDF
 
 
 class DocumentStatus(str, Enum):

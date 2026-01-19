@@ -57,6 +57,16 @@ def _get_ukrainian_month(date_start, date_end) -> str:
         return f"{start_month}-{end_month}"
 
 
+def _get_employment_doc_type_label(doc_type) -> str:
+    """Повертає українську назву типу документа прийому."""
+    employment_labels = {
+        "employment_contract": "прийом_контракт",
+        "employment_competition": "прийом_конкурс",
+        "employment_pdf": "прийом_PDF",
+    }
+    return employment_labels.get(doc_type.value, "прийом")
+
+
 def _format_surname_initials(pib_nom: str) -> str:
     """Форматує ПІБ як Прізвище І.Б."""
     parts = pib_nom.split()
@@ -357,23 +367,28 @@ class DocumentService:
         months_uk = ["січня", "лютого", "березня", "квітня", "травня", "червня",
                      "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"]
 
-        start_month = months_uk[document.date_start.month - 1]
-        end_month = months_uk[document.date_end.month - 1]
-
-        if document.date_start == document.date_end:
-            formatted_dates = f"{document.date_start.day} {start_month} {document.date_start.year} року"
-        elif document.date_start.month == document.date_end.month and document.date_start.year == document.date_end.year:
-            formatted_dates = f"з {document.date_start.day} по {document.date_end.day} {start_month} {document.date_start.year} року"
-        elif document.date_start.year == document.date_end.year:
-            formatted_dates = f"з {document.date_start.day} {start_month} по {document.date_end.day} {end_month} {document.date_start.year} року"
+        # Handle None dates (for employment documents)
+        if document.date_start is None or document.date_end is None:
+            formatted_dates = ""
+            payment_period = ""
         else:
-            formatted_dates = f"{document.date_start.strftime('%d.%m.%Y')} - {document.date_end.strftime('%d.%m.%Y')}"
+            start_month = months_uk[document.date_start.month - 1]
+            end_month = months_uk[document.date_end.month - 1]
 
-        # Payment period - Ukrainian format
-        payment_month = months_uk[document.date_start.month - 1]
-        payment_year = document.date_start.year
-        payment_half = "першій" if document.date_start.day <= 15 else "другій"
-        payment_period = f"у {payment_half} половині {payment_month} {payment_year} року"
+            if document.date_start == document.date_end:
+                formatted_dates = f"{document.date_start.day} {start_month} {document.date_start.year} року"
+            elif document.date_start.month == document.date_end.month and document.date_start.year == document.date_end.year:
+                formatted_dates = f"з {document.date_start.day} по {document.date_end.day} {start_month} {document.date_start.year} року"
+            elif document.date_start.year == document.date_end.year:
+                formatted_dates = f"з {document.date_start.day} {start_month} по {document.date_end.day} {end_month} {document.date_start.year} року"
+            else:
+                formatted_dates = f"{document.date_start.strftime('%d.%m.%Y')} - {document.date_end.strftime('%d.%m.%Y')}"
+
+            # Payment period - Ukrainian format
+            payment_month = months_uk[document.date_start.month - 1]
+            payment_year = document.date_start.year
+            payment_half = "першій" if document.date_start.day <= 15 else "другій"
+            payment_period = f"у {payment_half} половині {payment_month} {payment_year} року"
 
         # Staff name in genitive case for document header (same as builder)
         # "Дмитренко Вікторія Іванівна" → "Дмитренко Вікторії Іванівни"
@@ -613,6 +628,25 @@ class DocumentService:
         bulk_subfolder = "bulk" if bulk_mode else ""
 
         # Форматуємо ім'я файлу
+        # For employment documents, use new_employee_data instead of staff
+        is_employment = document.doc_type.value.startswith("employment_")
+        if is_employment and document.new_employee_data:
+            employee_data = document.new_employee_data
+            initials = _format_surname_initials(employee_data.get("pib_nom", ""))
+            doc_type_label = _get_employment_doc_type_label(document.doc_type)
+            # For employment, use contract dates for folder naming
+            if document.date_start:
+                emp_year = document.date_start.year
+                month_ua = _get_ukrainian_month(document.date_start, document.date_start)
+            else:
+                emp_year = year
+                month_ua = ""
+            filename = f"{initials} {doc_type_label} {month_ua}.pdf"
+            if bulk_mode:
+                return self.storage_dir / str(emp_year) / "прийом" / status_folder / bulk_subfolder / filename
+            return self.storage_dir / str(emp_year) / "прийом" / status_folder / filename
+
+        # Regular staff documents
         initials = _format_surname_initials(document.staff.pib_nom)
         days = document.days_count
 
@@ -666,6 +700,7 @@ class DocumentService:
             if document.status != DocumentStatus.SIGNED:
                 raise DocumentGenerationError("Документ має бути підписаним для обробки")
 
+            # Skip vacation balance update for non-vacation documents
             if document.doc_type.value == "vacation_paid":
                 document.staff.vacation_balance -= document.days_count
 
@@ -848,6 +883,27 @@ class DocumentService:
         
         document.update_status_from_workflow()
         self.db.commit()
+
+        # Handle side effects: New Employee Creation and Term Extension
+        try:
+            from backend.services.staff_service import StaffService
+            from backend.models.document import DocumentType
+            
+            staff_service = StaffService(self.db, changed_by="DOCUMENT_SCAN")
+            
+            # 1. New Employee Creation
+            is_employment = document.doc_type.value.startswith("employment_")
+            if is_employment and document.new_employee_data:
+                staff_service.create_staff_from_document(document)
+                
+            # 2. Term Extension
+            is_extension = document.doc_type.value.startswith("term_extension") or document.doc_type == DocumentType.TERM_EXTENSION
+            if is_extension:
+                staff_service.process_term_extension(document)
+                
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to process side effects for document {document.id}: {e}")
 
     def set_tabel_added(self, document: Document, comment: str | None = None) -> None:
         """Додано до табелю."""

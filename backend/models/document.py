@@ -3,7 +3,8 @@
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum as SQLEnum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin
@@ -170,6 +171,13 @@ class Document(Base, TimestampMixin):
         String(500),
         nullable=True,
         comment="Причина блокування документа",
+    )
+
+    # Employment document fields - for storing new employee data before creation
+    new_employee_data: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="Дані нового співробітника для документів прийому на роботу",
     )
 
     # Relationships

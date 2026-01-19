@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from backend.models.document import Document
 from backend.models.staff import Staff
 from backend.models.staff_history import StaffHistory
 from shared.enums import StaffActionType
@@ -43,6 +44,25 @@ class StaffService:
         Raises:
             ValidationError: Якщо дані некоректні
         """
+        from shared.enums import StaffPosition
+
+        # Перевірка унікальності посади завідувача (можна тільки одного: завідувач або в.о.)
+        head_positions = [
+            StaffPosition.HEAD_OF_DEPARTMENT.value,
+            "acting_head",
+        ]
+        if staff_data.get("position") in head_positions:
+            existing_head = self.db.query(Staff).filter(
+                Staff.position.in_(head_positions),
+                Staff.is_active == True
+            ).first()
+            if existing_head:
+                raise ValidationError(
+                    f"Посада завідувача кафедри вже зайнята.\n\n"
+                    f"Поточний: {existing_head.pib_nom} ({existing_head.position})\n"
+                    "Спочатку деактивуйте або змініть посаду поточного запису."
+                )
+
         staff = Staff(**staff_data)
 
         # Валідація дати
@@ -75,6 +95,28 @@ class StaffService:
         Raises:
             ValidationError: Якщо дані некоректні
         """
+        from shared.enums import StaffPosition
+
+        # Перевірка унікальності посади завідувача (якщо змінюється на завідувача)
+        head_positions = [
+            StaffPosition.HEAD_OF_DEPARTMENT.value,
+            "acting_head",
+        ]
+        new_position = updates.get("position")
+        if new_position in head_positions and staff.position not in head_positions:
+            # Changing TO head position - check if one already exists
+            existing_head = self.db.query(Staff).filter(
+                Staff.position.in_(head_positions),
+                Staff.is_active == True,
+                Staff.id != staff.id
+            ).first()
+            if existing_head:
+                raise ValidationError(
+                    f"Посада завідувача кафедри вже зайнята.\n\n"
+                    f"Поточний: {existing_head.pib_nom} ({existing_head.position})\n"
+                    "Спочатку деактивуйте або змініть посаду поточного запису."
+                )
+
         # Зберігаємо старі значення
         previous_values = {}
         for key in updates:
@@ -135,7 +177,20 @@ class StaffService:
         Args:
             staff: Об'єкт Staff для видалення
         """
+        from backend.models.staff_history import StaffHistory
+        from backend.models.document import Document
+        from backend.models.attendance import Attendance
+        from backend.models.schedule import AnnualSchedule
+
         staff_id = staff.id
+
+        # Спочатку видаляємо всі залежні записи (на випадок, якщо CASCADE не працює)
+        self.db.query(StaffHistory).filter(StaffHistory.staff_id == staff_id).delete()
+        self.db.query(Document).filter(Document.staff_id == staff_id).delete()
+        self.db.query(Attendance).filter(Attendance.staff_id == staff_id).delete()
+        self.db.query(AnnualSchedule).filter(AnnualSchedule.staff_id == staff_id).delete()
+
+        # Потім видаляємо сам запис
         self.db.delete(staff)
         # Коміт буде виконаний в get_db_context()
 
@@ -249,3 +304,136 @@ class StaffService:
             comment=comment,
         )
         self.db.add(history)
+
+    def process_term_extension(self, document: Document) -> None:
+        """
+        Processes a term extension document: updates contract end date 
+        and reactivates staff if deactivated.
+        
+        Args:
+            document: Term extension document
+        """
+        try:
+            staff = document.staff
+            if not staff:
+                return
+
+            updates = {}
+            
+            # Update term_end if document has valid date_end
+            if document.date_end:
+                updates["term_end"] = document.date_end
+
+            # Reactivate if inactive
+            if not staff.is_active:
+                updates["is_active"] = True
+
+            if updates:
+                self.update_staff(
+                    staff, 
+                    updates, 
+                    comment=f"Автоматичне оновлення через документ {document.doc_type.value} (ID: {document.id})"
+                )
+                
+                import logging
+                logging.info(f"Updated staff {staff.id} via term extension document {document.id}: {updates}")
+                self.db.commit()
+                
+        except Exception as e:
+            import logging
+            import logging
+            logging.error(f"Failed to handle term extension for document {document.id}: {e}")
+            # Don't raise, just log
+
+    def create_staff_from_document(self, document: Document):
+        """
+        Creates a new staff record from an employment document's staged data.
+        Returns the created Staff object or None.
+        """
+        if not document.new_employee_data:
+            import logging
+            logging.warning(f"No new_employee_data in document {document.id}")
+            return None
+
+        try:
+            from shared.enums import EmploymentType, WorkBasis, DocumentStatus
+            from datetime import date, datetime
+
+            data = document.new_employee_data
+            
+            # Map string values to enums
+            employment_type_map = {
+                "main": EmploymentType.MAIN,
+                "external": EmploymentType.EXTERNAL,
+                "internal": EmploymentType.INTERNAL,
+            }
+            work_basis_map = {
+                "contract": WorkBasis.CONTRACT,
+                "competitive": WorkBasis.COMPETITIVE,
+                "statement": WorkBasis.STATEMENT,
+            }
+
+            # Get department from settings
+            from backend.models.settings import SystemSettings
+            department = SystemSettings.get_value(self.db, "dept_name", "") or "Кафедра"
+
+            # Parse term_start and term_end from string format (DD.MM.YYYY)
+            term_start_str = data.get("term_start", "")
+            term_end_str = data.get("term_end", "")
+            try:
+                term_start = datetime.strptime(term_start_str, "%d.%m.%Y").date() if term_start_str else date.today()
+                term_end = datetime.strptime(term_end_str, "%d.%m.%Y").date() if term_end_str else date.today()
+            except ValueError:
+                term_start = date.today()
+                term_end = date.today()
+
+            # Handle position being a list [Label, Value] or [Value, Label]
+            # Based on error log: ['Старший викладач', 'senior_lecturer'] -> Label, Value
+            position_raw = data.get("position", "")
+            position = position_raw
+            if isinstance(position_raw, list):
+                if len(position_raw) > 1:
+                    # Prefer the second item as it seems to be the enum value 'senior_lecturer'
+                    position = position_raw[1]
+                elif len(position_raw) > 0:
+                    position = position_raw[0]
+                else:
+                    position = ""
+
+            # Create staff data dict
+            staff_data = {
+                "pib_nom": data.get("pib_nom", ""),
+                "rate": data.get("rate", 1.0),
+                "position": position,
+                "department": department,
+                "employment_type": employment_type_map.get(
+                    data.get("employment_type", "main"), EmploymentType.MAIN
+                ),
+                "work_basis": work_basis_map.get(
+                    data.get("work_basis", "contract"), WorkBasis.CONTRACT
+                ),
+                "term_start": term_start,
+                "term_end": term_end,
+                "vacation_balance": data.get("vacation_balance", 0),
+                "email": data.get("email"),
+                "phone": data.get("phone"),
+                "is_active": True,
+            }
+
+            # Create staff using create_staff method (handles validation and history)
+            staff = self.create_staff(staff_data)
+            
+            # Link document to new staff
+            document.staff_id = staff.id
+            document.new_employee_data = None  # Clear staged data
+            document.status = DocumentStatus.PROCESSED
+            document.blocked_reason = "Документ оброблено - створено запис співробітника"
+            
+            self.db.commit()
+            return staff
+
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to create staff from document {document.id}: {e}")
+            self.db.rollback()
+            raise e
