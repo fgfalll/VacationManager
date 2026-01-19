@@ -1,0 +1,604 @@
+{
+  "version": "1.0",
+  "archived_at": "2026-01-18T18:08:50.587340",
+  "month": 1,
+  "year": 2026,
+  "is_correction": true,
+  "correction_month": 1,
+  "correction_year": 2026,
+  "correction_sequence": 1,
+  "is_approved": true,
+  "settings": {
+    "institution_name": "Національного університету «Полтавська політехніка імені Юрія Кондратюка»",
+    "edrpou_code": "",
+    "department_name": "Кафедра нафтогазової інженерії та технологій",
+    "department_abbr": "НГіТ"
+  },
+  "employees": [
+    {
+      "staff_id": 0,
+      "pib_nom": "Дмитренко В. І.",
+      "position": "в.о завідувача кафедри",
+      "rate": 1.0,
+      "days": [
+        {
+          "day": 1,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 2,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 3,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 4,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 5,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 6,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 7,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 8,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 9,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 10,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 11,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 12,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 13,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 14,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 15,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 16,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 17,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 18,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 19,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 20,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 21,
+          "code": "В",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 22,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 23,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 24,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 25,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 26,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 27,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 28,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 29,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 30,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 31,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        }
+      ],
+      "vacations": []
+    },
+    {
+      "staff_id": 0,
+      "pib_nom": "Лфіввфів О. Р.",
+      "position": "доцент",
+      "rate": 0.5,
+      "days": [
+        {
+          "day": 1,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 2,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 3,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 4,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 5,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 6,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 7,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 8,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 9,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 10,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 11,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 12,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 13,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 14,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 15,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 16,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 17,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 18,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 19,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 20,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 21,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 22,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 23,
+          "code": "І",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 24,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 25,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 26,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 27,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 28,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 29,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 30,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 31,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        }
+      ],
+      "vacations": []
+    },
+    {
+      "staff_id": 0,
+      "pib_nom": "Тіврцнн І. Л.",
+      "position": "ст. викладач",
+      "rate": 0.75,
+      "days": [
+        {
+          "day": 1,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 2,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 3,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 4,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 5,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 6,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 7,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 8,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 9,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 10,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 11,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 12,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 13,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 14,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 15,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 16,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 17,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 18,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 19,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 20,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 21,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 22,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 23,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 24,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 25,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 26,
+          "code": "ПР",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 27,
+          "code": "ПР",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 28,
+          "code": "ПР",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 29,
+          "code": "ПР",
+          "hours": 8.0,
+          "notes": ""
+        },
+        {
+          "day": 30,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        },
+        {
+          "day": 31,
+          "code": "",
+          "hours": 0,
+          "notes": ""
+        }
+      ],
+      "vacations": []
+    }
+  ]
+}

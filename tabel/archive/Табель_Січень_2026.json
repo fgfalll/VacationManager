@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "archived_at": "2026-01-17T10:50:13.052858",
+  "month": 1,
+  "year": 2026,
+  "is_correction": false,
+  "correction_month": null,
+  "correction_year": null,
+  "correction_sequence": 1,
+  "is_approved": true,
+  "settings": {
+    "institution_name": "Національного університету «Полтавська політехніка імені Юрія Кондратюка»",
+    "edrpou_code": "",
+    "department_name": "Кафедра нафтогазової інженерії та технологій",
+    "department_abbr": "НГіТ"
+  },
+  "employees": [
+    {
+      "staff_id": 5,
+      "pib_nom": "Дмитренко Вікторія Іванівна",
+      "degree": "",
+      "position": "В.о завідувача кафедри",
+      "rate": 1.0,
+      "days": [],
+      "vacations": []
+    },
+    {
+      "staff_id": 7,
+      "pib_nom": "Лфіввфів Орвірфв Ріфвицй",
+      "degree": "",
+      "position": "доцент",
+      "rate": 0.5,
+      "days": [],
+      "vacations": []
+    },
+    {
+      "staff_id": 8,
+      "pib_nom": "Дмитренко Вікторія Іванівна",
+      "degree": "",
+      "position": "доцент",
+      "rate": 0.7,
+      "days": [],
+      "vacations": []
+    },
+    {
+      "staff_id": 9,
+      "pib_nom": "Тіврцнн Ііврцт Ліврцо",
+      "degree": "",
+      "position": "Ст. викладач",
+      "rate": 0.75,
+      "days": [],
+      "vacations": []
+    }
+  ]
+}
