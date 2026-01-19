@@ -162,15 +162,16 @@ const AttendanceView: React.FC = () => {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 70,
+      width: 55,
     },
     {
       title: 'Staff',
       key: 'staff',
+      width: 180,
       render: (_: unknown, record: AttendanceRecord) => (
         <Space direction="vertical" size={0}>
-          <Text strong>{record.staff?.pib_nom || 'Unknown'}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text strong style={{ fontSize: 12 }}>{record.staff?.pib_nom || 'Unknown'}</Text>
+          <Text type="secondary" style={{ fontSize: 11 }}>
             {record.staff?.position} ({record.staff?.rate} ст.)
           </Text>
         </Space>
@@ -180,35 +181,44 @@ const AttendanceView: React.FC = () => {
       title: 'Date',
       dataIndex: 'date',
       key: 'date',
+      width: 95,
       render: (date: string) => dayjs(date).format('DD.MM.YYYY'),
     },
     {
       title: 'Code',
       dataIndex: 'code',
       key: 'code',
+      width: 160,
       render: (code: string) => {
         const label = getAttendanceCodeLabel(code);
         return <Tag color={code === 'Р' ? 'green' : 'blue'}>{code} - {label}</Tag>;
       },
     },
     {
-      title: 'Hours',
-      dataIndex: 'hours',
-      key: 'hours',
-      width: 80,
-      render: (hours: number) => hours?.toFixed(1) || '0.0',
+      title: 'Total Days',
+      key: 'total_days',
+      width: 85,
+      render: (_: unknown, record: AttendanceRecord) => {
+        if (record.date_end && record.date) {
+          const start = dayjs(record.date);
+          const end = dayjs(record.date_end);
+          const days = end.diff(start, 'days') + 1;
+          return days;
+        }
+        return 1;
+      },
     },
     {
       title: 'Table Type',
       dataIndex: 'table_type',
       key: 'table_type',
-      width: 120,
+      width: 110,
       render: (tableType: string, record: AttendanceRecord) => {
         if (tableType === 'correction') {
           return (
             <Space direction="vertical" size={0}>
               <Tag color="orange">Correction</Tag>
-              <Text type="secondary" style={{ fontSize: 11 }}>
+              <Text type="secondary" style={{ fontSize: 10 }}>
                 {record.table_info}
               </Text>
             </Space>
@@ -221,6 +231,7 @@ const AttendanceView: React.FC = () => {
       title: 'Notes',
       dataIndex: 'notes',
       key: 'notes',
+      width: 120,
       ellipsis: true,
       render: (notes: string | null) => notes || '-',
     },
@@ -228,13 +239,13 @@ const AttendanceView: React.FC = () => {
       title: 'Created',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 100,
+      width: 85,
       render: (date: string) => dayjs(date).format('DD.MM HH:mm'),
     },
     {
       title: 'Actions',
       key: 'actions',
-      width: 150,
+      width: 155,
       render: (_: unknown, record: AttendanceRecord) => {
         const isBlocked = record.is_blocked;
 
@@ -373,7 +384,7 @@ const AttendanceView: React.FC = () => {
               setPageSize(size || 50);
             },
           }}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 900 }}
         />
       </Card>
 
