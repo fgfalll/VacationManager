@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 )
 import os
 
-from shared.enums import StaffActionType, DocumentType, DocumentStatus
+from shared.enums import StaffActionType, DocumentType, DocumentStatus, StaffPosition, get_position_label
 from shared.absence_types import CODE_TO_ABSENCE_NAME
 from backend.services.tabel_service import MONTHS_UKR
 
@@ -1132,11 +1132,8 @@ class EmployeeCardDialog(QDialog):
         return basis_map.get(value, value)
 
     def _format_position(self, position: str) -> str:
-        """Форматує посаду - перша літера велика."""
-        if not position:
-            return position
-        # Capitalize first letter of each word
-        return position.title()
+        """Форматує посаду для відображення."""
+        return get_position_label(position)
 
     def _format_action_type(self, action_type: str) -> str:
         """Форматує тип дії для відображення."""
@@ -1174,24 +1171,34 @@ class EmployeeCardDialog(QDialog):
 
         layout = QFormLayout(dialog)
 
-        # Посада - dropdown with predefined values
+        # Посада - dropdown from StaffPosition enum
         position = QComboBox()
         position.setEditable(True)
-        position.addItems([
-            "Завідувач кафедри",
-            "В.о завідувача кафедри",
-            "професор",
-            "доцент",
-            "ст. викладач",
-            "асистент",
-            "фахівець",
-        ])
-        # Set current position
-        pos_index = position.findText(self.staff_data['position'])
+        position_items = {
+            StaffPosition.HEAD_OF_DEPARTMENT: "Завідувач кафедри",
+            StaffPosition.ACTING_HEAD_OF_DEPARTMENT: "В.о завідувача кафедри",
+            StaffPosition.PROFESSOR: "Професор",
+            StaffPosition.ASSOCIATE_PROFESSOR: "Доцент",
+            StaffPosition.SENIOR_LECTURER: "Старший викладач",
+            StaffPosition.LECTURER: "Асистент",
+            StaffPosition.SPECIALIST: "Фахівець",
+        }
+        for pos_value, pos_label in position_items.items():
+            position.addItem(pos_label, pos_value)
+        # Set current position - look up by stored enum value
+        current_position = self.staff_data.get('position', '')
+        pos_index = position.findData(current_position)
         if pos_index >= 0:
             position.setCurrentIndex(pos_index)
         else:
-            position.setCurrentText(self.staff_data['position'])
+            # Fallback: find by label if value not found
+            for pos_value, pos_label in position_items.items():
+                if pos_label.lower() == current_position.lower():
+                    position.setCurrentIndex(position.findData(pos_value))
+                    break
+            else:
+                # If still not found, show as-is
+                position.setCurrentText(current_position)
 
         # Вчений ступінь
         degree = QLineEdit(self.staff_data['degree'] or "")
@@ -1281,7 +1288,7 @@ class EmployeeCardDialog(QDialog):
                 new_data = {
                     "pib_nom": self.staff_data['pib_nom'],  # Ім'я не змінюється
                     "degree": degree.text() or None,
-                    "position": position.currentText(),
+                    "position": position.currentData(),
                     "rate": rate.value(),
                     "employment_type": employment_type.currentData(),
                     "work_basis": work_basis.currentData(),
@@ -1311,7 +1318,7 @@ class EmployeeCardDialog(QDialog):
             self,
             "ОСТОРОЖНО!",
             f"Ви впевнені, що хочете назавжди видалити\n"
-            f"{self.staff_data['pib_nom']} ({self.staff_data['position']})?\n\n"
+            f"{self.staff_data['pib_nom']} ({get_position_label(self.staff_data['position'])})?\n\n"
             f"ЦЯ ДІЯ НЕЗВОРОТНЯ! Всі дані та історія будуть втрачені.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

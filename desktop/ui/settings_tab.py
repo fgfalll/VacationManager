@@ -32,6 +32,7 @@ from PyQt6.QtCore import Qt
 from backend.models.settings import SystemSettings, Approvers
 from backend.models.staff import Staff
 from backend.core.database import get_db_context
+from shared.enums import StaffPosition, STAFF_POSITION_LABELS, get_position_label
 from shared.constants import (
     SETTING_MARTIAL_LAW_ENABLED,
     SETTING_MARTIAL_LAW_VACATION_LIMIT,
@@ -1095,7 +1096,7 @@ class SettingsDialog(QDialog):
         head_list = (
             db.query(Staff)
             .filter(Staff.is_active == True)
-            .filter(Staff.position.in_(["Завідувач кафедри", "В.о завідувача кафедри"]))
+            .filter(Staff.position.in_([StaffPosition.HEAD_OF_DEPARTMENT, StaffPosition.ACTING_HEAD_OF_DEPARTMENT]))
             .order_by(Staff.pib_nom)
             .all()
         )
@@ -1103,7 +1104,7 @@ class SettingsDialog(QDialog):
         # Тільки фахівці для фахівця кафедри
         specialist_list = (
             db.query(Staff)
-            .filter(Staff.is_active == True, Staff.position == "фахівець")
+            .filter(Staff.is_active == True, Staff.position == StaffPosition.SPECIALIST)
             .order_by(Staff.pib_nom)
             .all()
         )
@@ -1152,11 +1153,13 @@ class SettingsDialog(QDialog):
         # Очищаємо та заповнюємо список
         self.hours_calc_positions_list.clear()
         for position in saved_positions:
-            self.hours_calc_positions_list.addItem(position)
+            # Convert enum values to Ukrainian labels
+            label = get_position_label(position) if position in STAFF_POSITION_LABELS else position
+            self.hours_calc_positions_list.addItem(label)
 
-        # If nothing selected, add "фахівець" as default
+        # If nothing selected, add "Фахівець" as default
         if self.hours_calc_positions_list.count() == 0:
-            self.hours_calc_positions_list.addItem("фахівець")
+            self.hours_calc_positions_list.addItem(STAFF_POSITION_LABELS[StaffPosition.SPECIALIST])
 
         # Load HR employees for the combo box
         hr_list = (
@@ -1196,15 +1199,14 @@ class SettingsDialog(QDialog):
                     if index >= 0:
                         self.hr_employee_input.setCurrentIndex(index)
 
-        # Зберігаємо всі доступні посади для діалогу вибору
-        self._all_positions = [
-            position[0] for position in
-            db.query(Staff.position)
-            .filter(Staff.position != None, Staff.position != "")
-            .distinct()
-            .order_by(Staff.position)
-            .all()
-        ]
+        # Зберігаємо всі доступні посади для діалогу вибору (as Ukrainian labels)
+        self._all_positions = []
+        raw_positions = db.query(Staff.position).filter(
+            Staff.position != None, Staff.position != ""
+        ).distinct().order_by(Staff.position).all()
+        for pos in raw_positions:
+            label = get_position_label(pos[0]) if pos[0] in STAFF_POSITION_LABELS else pos[0]
+            self._all_positions.append(label)
 
     def _load_approvers(self, db):
         """Завантажує список погоджувачів."""

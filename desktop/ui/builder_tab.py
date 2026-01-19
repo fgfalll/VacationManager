@@ -44,7 +44,7 @@ from PyQt6.QtWebChannel import QWebChannel
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import joinedload
 
-from shared.enums import DocumentType, DocumentStatus
+from shared.enums import DocumentType, DocumentStatus, get_position_label
 from desktop.ui.wysiwyg_bridge import WysiwygBridge, WysiwygEditorState
 
 logger = logging.getLogger(__name__)
@@ -825,8 +825,9 @@ class BuilderTab(QWidget):
         positions_sorted = sorted(positions, key=lambda s: float(s.rate), reverse=True)
 
         for staff in positions_sorted:
-            # Format: "Посада (Ставка)" - capitalize first letter
-            display_text = f"{staff.position.capitalize()} ({staff.rate})"
+            # Format: "Посада (Ставка)" - use Ukrainian label
+            position_label = get_position_label(staff.position)
+            display_text = f"{position_label} ({staff.rate})"
             self.position_input.addItem(display_text, staff.id)
 
         # Show position selector if multiple positions
@@ -1335,9 +1336,9 @@ class BuilderTab(QWidget):
 
         if staff:
             staff_name = staff.pib_nom  # Will be formatted to genitive below
-            staff_position = staff.position  # Will be formatted to genitive below
+            staff_position = get_position_label(staff.position)  # Ukrainian label for genitive
             staff_name_nom = staff.pib_nom  # Keep nominative for header
-            staff_position_nom = staff.position  # Keep nominative for header
+            staff_position_nom = get_position_label(staff.position)  # Ukrainian label for nominative
 
             with get_db_context() as db:
 
@@ -3210,8 +3211,8 @@ class BuilderTab(QWidget):
             except Exception:
                 staff_name_gen = staff_name_nom
 
-        # Position with department from dict
-        staff_position = staff_data.get('position', '')
+        # Position with department from dict (use Ukrainian label)
+        staff_position = get_position_label(staff_data.get('position', ''))
         staff_position_nom_full = staff_position
 
         # University name from settings
@@ -3374,9 +3375,9 @@ class BuilderTab(QWidget):
             except Exception:
                 staff_name_gen = staff_name_nom
 
-        # Position with department
-        staff_position = staff.position
-        staff_position_nom_full = staff.position
+        # Position with department (use Ukrainian label)
+        staff_position = get_position_label(staff.position)
+        staff_position_nom_full = get_position_label(staff.position)
 
         # University name from settings
         university_name_raw = "Національний університет «Полтавська політехніка імені Юрія Кондратюка»"

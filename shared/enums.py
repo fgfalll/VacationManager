@@ -5,6 +5,45 @@ All system-wide enums are defined here.
 from enum import Enum
 
 
+# Mapping dictionaries for UI labels
+EMPLOYMENT_TYPE_LABELS: dict[str, str] = {
+    "main": "Основне место роботи",
+    "external": "Зовнішній сумісник",
+    "internal": "Внутрішній сумісник",
+}
+
+WORK_BASIS_LABELS: dict[str, str] = {
+    "contract": "Контракт",
+    "competitive": "Конкурсна основа",
+    "statement": "Заява",
+}
+
+STAFF_POSITION_LABELS: dict[str, str] = {
+    "head_of_department": "Завідувач кафедри",
+    "acting_head": "В.о завідувача кафедри",
+    "professor": "Професор",
+    "associate_professor": "Доцент",
+    "senior_lecturer": "Старший викладач",
+    "lecturer": "Асистент",
+    "specialist": "Фахівець",
+}
+
+
+def get_position_label(value: str) -> str:
+    """Get Ukrainian label for position value."""
+    return STAFF_POSITION_LABELS.get(value, value)
+
+
+def get_employment_type_label(value: str) -> str:
+    """Get Ukrainian label for employment type value."""
+    return EMPLOYMENT_TYPE_LABELS.get(value, value)
+
+
+def get_work_basis_label(value: str) -> str:
+    """Get Ukrainian label for work basis value."""
+    return WORK_BASIS_LABELS.get(value, value)
+
+
 class EmploymentType(str, Enum):
     """Тип працевлаштування"""
     MAIN = "main"                      # Основне місце роботи
@@ -17,6 +56,17 @@ class WorkBasis(str, Enum):
     CONTRACT = "contract"              # Контракт
     COMPETITIVE = "competitive"        # Конкурсна основа
     STATEMENT = "statement"            # Заява
+
+
+class StaffPosition(str, Enum):
+    """Посада співробітника"""
+    HEAD_OF_DEPARTMENT = "head_of_department"          # Завідувач кафедри
+    ACTING_HEAD_OF_DEPARTMENT = "acting_head"           # В.о завідувача кафедри
+    PROFESSOR = "professor"                             # Професор
+    ASSOCIATE_PROFESSOR = "associate_professor"         # Доцент
+    SENIOR_LECTURER = "senior_lecturer"                 # Старший викладач
+    LECTURER = "lecturer"                               # Асистент
+    SPECIALIST = "specialist"                           # Фахівець
 
 
 class DocumentType(str, Enum):

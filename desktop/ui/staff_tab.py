@@ -24,7 +24,7 @@ from PyQt6.QtGui import QColor
 
 from desktop.widgets.status_badge import StatusBadge
 from desktop.ui.employee_card_dialog import EmployeeCardDialog
-from shared.enums import EmploymentType, WorkBasis
+from shared.enums import EmploymentType, WorkBasis, StaffPosition, get_position_label
 from backend.models.staff import WorkScheduleType
 
 
@@ -381,7 +381,7 @@ class StaffTab(QWidget):
         button_group = QButtonGroup(dialog)
 
         for staff in staff_list:
-            radio = QRadioButton(f"{staff.position} ({staff.rate})")
+            radio = QRadioButton(f"{get_position_label(staff.position)} ({staff.rate})")
             radio.setProperty("staff_id", staff.id)
             button_group.addButton(radio)
             layout.addWidget(radio)
@@ -446,7 +446,7 @@ class StaffTab(QWidget):
                 with get_db_context() as db:
                     staff = db.query(Staff).filter(Staff.id == staff_id).first()
                     if staff and staff.is_active:  # Only show active positions
-                        radio = QRadioButton(f"{staff.position} ({staff.rate})")
+                        radio = QRadioButton(f"{get_position_label(staff.position)} ({staff.rate})")
                         radio.setProperty("staff_id", staff_id)
                         button_group.addButton(radio)
                         layout.addWidget(radio)
@@ -504,7 +504,7 @@ class StaffTab(QWidget):
                 with get_db_context() as db:
                     staff = db.query(Staff).filter(Staff.id == staff_id).first()
                     if staff and staff.is_active:  # Only show active positions
-                        radio = QRadioButton(f"{staff.position} ({staff.rate})")
+                        radio = QRadioButton(f"{get_position_label(staff.position)} ({staff.rate})")
                         radio.setProperty("staff_id", staff_id)
                         button_group.addButton(radio)
                         layout.addWidget(radio)
@@ -573,7 +573,7 @@ class StaffTab(QWidget):
             reply = QMessageBox.question(
                 self,
                 "Підтвердження",
-                f"Деактивувати {staff.pib_nom} ({staff.position})?",
+                f"Деактивувати {staff.pib_nom} ({get_position_label(staff.position)})?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
@@ -616,7 +616,7 @@ class StaffTab(QWidget):
                 with get_db_context() as db:
                     staff = db.query(Staff).filter(Staff.id == staff_id).first()
                     if staff and staff.is_active:  # Only show active positions
-                        radio = QRadioButton(f"{staff.position} ({staff.rate})")
+                        radio = QRadioButton(f"{get_position_label(staff.position)} ({staff.rate})")
                         radio.setProperty("staff_id", staff_id)
                         button_group.addButton(radio)
                         layout.addWidget(radio)
@@ -685,7 +685,7 @@ class StaffTab(QWidget):
             confirm = QMessageBox.warning(
                 self,
                 "ОСТОРОЖНО!",
-                f"Ви впевнені, що хочете назавжди видалити {staff.pib_nom} ({staff.position})?\n\n"
+                f"Ви впевнені, що хочете назавжди видалити {staff.pib_nom} ({get_position_label(staff.position)})?\n\n"
                 "ЦЯ ДІЯ НЕЗВОРОТНЯ! Всі дані та історія будуть втрачені.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
@@ -800,7 +800,7 @@ class StaffTab(QWidget):
                 with get_db_context() as db:
                     staff = db.query(Staff).filter(Staff.id == staff_id).first()
                     if staff and staff.is_active:  # Only show active positions
-                        radio = QRadioButton(f"{staff.position} ({staff.rate})")
+                        radio = QRadioButton(f"{get_position_label(staff.position)} ({staff.rate})")
                         radio.setProperty("staff_id", staff_id)
                         button_group.addButton(radio)
                         layout.addWidget(radio)
@@ -1051,18 +1051,20 @@ class StaffDialog(QDialog):
         self.pib_input.setPlaceholderText("Прізвище Ім'я По батькові")
         self.degree_input = QLineEdit()
 
-        # Посада - dropdown with predefined values
+        # Посада - dropdown from StaffPosition enum
         self.position_input = QComboBox()
         self.position_input.setEditable(True)
-        self.position_input.addItems([
-            "Завідувач кафедри",
-            "В.о. завідувача кафедри",
-            "Професор",
-            "Доцент",
-            "Ст. викладач",
-            "Асистент",
-            "Фахівець",
-        ])
+        position_items = {
+            StaffPosition.HEAD_OF_DEPARTMENT: "Завідувач кафедри",
+            StaffPosition.ACTING_HEAD_OF_DEPARTMENT: "В.о завідувача кафедри",
+            StaffPosition.PROFESSOR: "Професор",
+            StaffPosition.ASSOCIATE_PROFESSOR: "Доцент",
+            StaffPosition.SENIOR_LECTURER: "Старший викладач",
+            StaffPosition.LECTURER: "Асистент",
+            StaffPosition.SPECIALIST: "Фахівець",
+        }
+        for pos_value, pos_label in position_items.items():
+            self.position_input.addItem(pos_label, pos_value)
 
         # Ставка - from 1.0 to 0.1 with step 0.25 for quick selection
         rate_layout = QHBoxLayout()
@@ -1157,12 +1159,13 @@ class StaffDialog(QDialog):
             if staff:
                 self.pib_input.setText(staff.pib_nom)
                 self.degree_input.setText(staff.degree or "")
-                # Set position text in editable combobox
-                index = self.position_input.findText(staff.position)
+                # Set position by enum value in editable combobox
+                index = self.position_input.findData(staff.position)
                 if index >= 0:
                     self.position_input.setCurrentIndex(index)
                 else:
-                    self.position_input.setCurrentText(staff.position)
+                    # Fallback: show as-is
+                    self.position_input.setCurrentText(get_position_label(staff.position))
                 # Rate is now decimal (1.0 to 0.1)
                 self.rate_input.setValue(float(staff.rate))
                 # Find employment type by enum value
@@ -1254,7 +1257,7 @@ class StaffDialog(QDialog):
         }
 
         # Перевірка унікальності посади завідувача (можна тільки одного: завідувач або в.о.)
-        head_positions = ["Завідувач кафедри", "В.о завідувача кафедри"]
+        head_positions = [StaffPosition.HEAD_OF_DEPARTMENT, StaffPosition.ACTING_HEAD_OF_DEPARTMENT]
         if staff_data["position"] in head_positions:
             from backend.models.staff import Staff
             with get_db_context() as db:
