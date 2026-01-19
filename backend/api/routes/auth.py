@@ -22,6 +22,7 @@ from backend.schemas.auth import (
     UserCreate,
     UserLogin,
     UserResponse,
+    UserRole,
 )
 
 settings = get_settings()
@@ -47,13 +48,13 @@ def _get_users_db() -> dict:
                 "staff_id": None,
                 "is_active": True,
             },
-            "hr": {
-                "password_hash": get_password_hash("hr123"),
+            "head": {
+                "password_hash": get_password_hash("head123"),
                 "id": 2,
-                "email": "hr@company.com",
-                "first_name": "HR",
-                "last_name": "Manager",
-                "role": "hr",
+                "email": "head@department.com",
+                "first_name": "Department",
+                "last_name": "Head",
+                "role": "department_head",
                 "staff_id": None,
                 "is_active": True,
             },

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.database import get_db
 from backend.core.security import decode_token
-from backend.schemas.auth import TokenData
+from backend.schemas.auth import TokenData, UserRole
 
 # OAuth2 схема для отримання токена з заголовку
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -97,6 +97,15 @@ def require_role(allowed_roles: list):
 
 
 # Готові залежності для різних ролей
-require_admin = require_role(["admin"])
-require_hr = require_role(["admin", "hr"])
-require_employee = require_role(["admin", "hr", "employee"])
+# admin - повний доступ до всього
+require_admin = require_role([UserRole.ADMIN.value])
+
+# department_head - завідувач кафедри (може переглядати та затверджувати)
+require_department_head = require_role([UserRole.ADMIN.value, UserRole.DEPARTMENT_HEAD.value])
+
+# employee - звичайний співробітник (тільки перегляд своїх даних)
+require_employee = require_role([
+    UserRole.ADMIN.value,
+    UserRole.DEPARTMENT_HEAD.value,
+    UserRole.EMPLOYEE.value
+])

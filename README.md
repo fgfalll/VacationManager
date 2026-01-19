@@ -15,7 +15,7 @@
 - Конструктор заяв з WYSIWYG-редактором та live preview
 - Генерація PDF документів з українською морфологією (WeasyPrint + Jinja2)
 - **Табель обліку робочого часу** — автоматична генерація табеля з усіма кодами відвідуваності
-- **Web UI (React)** — сучасний веб-інтерфейс для співробітників та HR
+- **Web UI (React)** — сучасний веб-інтерфейс для співробітників та завідувача кафедри
 - **Web portal** для завантаження сканів підписаних документів
 - WebSocket синхронізація між Desktop та Web
 - **Повний workflow підписання документів**: заявник → диспетчерська → завідувач → наказ → ректор
@@ -520,6 +520,19 @@ VacationManager/
 
 > **Автентифікація**: Більшість ендпоінтів вимагають JWT токен у заголовку `Authorization: Bearer <token>`. Отримайте токен через `/auth/login`.
 
+### Ролі користувачів
+
+| Роль | Опис | Права доступу |
+|------|------|---------------|
+| **admin** | Адміністратор | Повний доступ до всіх функцій |
+| **department_head** | Завідувач кафедри | Перегляд всіх даних, створення/редагування, затвердження документів |
+| **employee** | Співробітник | Перегляд власних даних, створення заяв |
+
+**Легенда в таблицях API:**
+- `✓` - Всі автентифіковані користувачі
+- `Head` - department_head та вище
+- `Admin` - тільки admin
+
 ### Auth (`/auth`)
 
 | Method | Endpoint | Auth | Description |
@@ -536,15 +549,15 @@ VacationManager/
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/` | ✓ | Список співробітників (пагінація, пошук) |
-| GET | `/{id}` | HR | Деталі співробітника |
+| GET | `/{id}` | Head | Деталі співробітника |
 | POST | `/` | Admin | Створити співробітника |
-| PUT | `/{id}` | HR | Оновити співробітника |
+| PUT | `/{id}` | Head | Оновити співробітника |
 | DELETE | `/{id}` | Admin | Видалити (soft delete) |
-| GET | `/search` | HR | Пошук за ім'ям/позицією |
+| GET | `/search` | Head | Пошук за ім'ям/позицією |
 | GET | `/{id}/documents` | ✓ | Документи співробітника |
 | GET | `/{id}/schedule` | ✓ | Графік відпусток |
 | GET | `/{id}/attendance` | ✓ | Відвідуваність |
-| GET | `/expiring-contracts` | HR | Контракти, що закінчуються |
+| GET | `/expiring-contracts` | Head | Контракти, що закінчуються |
 
 ### Documents (`/documents`)
 
@@ -564,38 +577,38 @@ VacationManager/
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/annual` | HR | Річний графік відпусток |
-| GET | `/{year}` | HR | Графік на рік |
-| POST | `/` | HR | Створити запис графіку |
-| PUT | `/{id}` | HR | Оновити запис |
-| DELETE | `/{id}` | HR | Видалити запис |
-| POST | `/auto-distribute` | HR | Авторозподіл відпусток |
-| GET | `/stats` | HR | Статистика графіку |
+| GET | `/annual` | Head | Річний графік відпусток |
+| GET | `/{year}` | Head | Графік на рік |
+| POST | `/` | Head | Створити запис графіку |
+| PUT | `/{id}` | Head | Оновити запис |
+| DELETE | `/{id}` | Head | Видалити запис |
+| POST | `/auto-distribute` | Head | Авторозподіл відпусток |
+| GET | `/stats` | Head | Статистика графіку |
 
 ### Attendance (`/attendance`)
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/daily` | HR | Відвідуваність за день |
-| POST | `/` | HR | Створити запис |
-| POST | `/correction` | HR | Запит на корекцію |
-| POST | `/submit` | HR | Подати табель |
-| POST | `/tabel/approve` | HR | Затвердити табель |
-| GET | `/tabel` | HR | Отримати табель за місяць |
+| GET | `/daily` | Head | Відвідуваність за день |
+| POST | `/` | Head | Створити запис |
+| POST | `/correction` | Head | Запит на корекцію |
+| POST | `/submit` | Head | Подати табель |
+| POST | `/tabel/approve` | Head | Затвердити табель |
+| GET | `/tabel` | Head | Отримати табель за місяць |
 
 ### Tabel (`/tabel`)
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/generate` | HR | Згенерувати HTML табеля |
-| GET | `/preview` | HR | Попередній перегляд |
-| POST | `/archive` | HR | Зберегти архів |
-| GET | `/archives` | HR | Список архівів |
-| GET | `/archives/{filename}` | HR | Деталі архіву |
-| GET | `/locked-months` | HR | Заблоковані місяці |
-| GET | `/corrections` | HR | Місяці з корекціями |
-| POST | `/approve` | HR | Погодити табель |
-| GET | `/status` | HR | Статус табеля |
+| GET | `/generate` | Head | Згенерувати HTML табеля |
+| GET | `/preview` | Head | Попередній перегляд |
+| POST | `/archive` | Head | Зберегти архів |
+| GET | `/archives` | Head | Список архівів |
+| GET | `/archives/{filename}` | Head | Деталі архіву |
+| GET | `/locked-months` | Head | Заблоковані місяці |
+| GET | `/corrections` | Head | Місяці з корекціями |
+| POST | `/approve` | Head | Погодити табель |
+| GET | `/status` | Head | Статус табеля |
 
 ### Dashboard (`/dashboard`)
 

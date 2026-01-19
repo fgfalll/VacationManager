@@ -1,9 +1,17 @@
 """Схеми Pydantic для автентифікації."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+
+class UserRole(str, Enum):
+    """Ролі користувачів в системі."""
+    ADMIN = "admin"                    # Адміністратор - повний доступ
+    DEPARTMENT_HEAD = "department_head"  # Завідувач кафедри - перегляд та затвердження
+    EMPLOYEE = "employee"              # Співробітник - тільки свої дані
 
 
 class Token(BaseModel):
@@ -33,7 +41,7 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=8)
     first_name: str = Field(..., max_length=100)
     last_name: str = Field(..., max_length=100)
-    role: str = Field(default="employee")
+    role: UserRole = Field(default=UserRole.EMPLOYEE)
     staff_id: Optional[int] = None
 
 
@@ -44,7 +52,7 @@ class UserResponse(BaseModel):
     email: str
     first_name: str
     last_name: str
-    role: str
+    role: UserRole
     staff_id: Optional[int] = None
     is_active: bool
     created_at: Optional[datetime] = None
