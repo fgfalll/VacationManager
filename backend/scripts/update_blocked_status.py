@@ -26,7 +26,9 @@ from shared.enums import DocumentStatus
 def update_attendance_blocked_status(db):
     """
     Оновити статус блокування для існуючих записів відвідуваності.
-    Запис блокується, якщо місяць вже погоджений (затверджений).
+    Запис блокується, якщо:
+    - Не-корекція: місяць погоджено (затверджено)
+    - Корекція: відповідний коригувальний табель погоджено
     """
     print("Оновлення статусу блокування для записів відвідуваності...")
 
@@ -44,19 +46,37 @@ def update_attendance_blocked_status(db):
         month = attendance.date.month
         year = attendance.date.year
 
-        # Check if the month is approved
-        approval = db.query(TabelApproval).filter(
-            TabelApproval.month == month,
-            TabelApproval.year == year,
-            TabelApproval.is_correction == False,
-            TabelApproval.is_approved == True
-        ).first()
+        approval = None
 
-        if approval:
-            attendance.is_blocked = True
-            attendance.blocked_reason = f"Місяць {month:02d}.{year} погоджено з кадрами. Редагування заблоковано."
-            updated_count += 1
-            print(f"  ✓ Attendance #{attendance.id} ({attendance.date}) - заблоковано (місяць погоджено)")
+        if not attendance.is_correction:
+            # Non-correction record: check main table approval
+            approval = db.query(TabelApproval).filter(
+                TabelApproval.month == month,
+                TabelApproval.year == year,
+                TabelApproval.is_correction == False,
+                TabelApproval.is_approved == True
+            ).first()
+
+            if approval:
+                attendance.is_blocked = True
+                attendance.blocked_reason = f"Місяць {month:02d}.{year} погоджено з кадрами. Редагування заблоковано."
+                updated_count += 1
+                print(f"  [OK] Attendance #{attendance.id} ({attendance.date}) - заблоковано (основний табель погоджено)")
+        else:
+            # Correction record: check correction table approval
+            approval = db.query(TabelApproval).filter(
+                TabelApproval.month == month,
+                TabelApproval.year == year,
+                TabelApproval.is_correction == True,
+                TabelApproval.correction_sequence == attendance.correction_sequence,
+                TabelApproval.is_approved == True
+            ).first()
+
+            if approval:
+                attendance.is_blocked = True
+                attendance.blocked_reason = f"Коригувальний табель {month:02d}.{year} #{attendance.correction_sequence} погоджено. Редагування заблоковано."
+                updated_count += 1
+                print(f"  [OK] Attendance #{attendance.id} ({attendance.date}) - заблоковано (корекція #{attendance.correction_sequence} погоджено)")
 
     db.commit()
     print(f"Оновлено {updated_count} записів відвідуваності.")
@@ -85,11 +105,11 @@ def update_documents_blocked_status(db):
         if doc.file_scan_path:
             should_block = True
             blocked_reason = "Документ має завантажений скан. Редагування заблоковано."
-            print(f"  ✓ Document #{doc.id} - заблоковано (є скан)")
+            print(f"  [OK] Document #{doc.id} - заблоковано (є скан)")
         elif doc.status == DocumentStatus.PROCESSED:
             should_block = True
             blocked_reason = "Документ оброблено та додано до табелю. Редагування заблоковано."
-            print(f"  ✓ Document #{doc.id} - заблоковано (оброблено)")
+            print(f"  [OK] Document #{doc.id} - заблоковано (оброблено)")
 
         if should_block:
             doc.is_blocked = True
@@ -128,7 +148,7 @@ def main():
         print("=" * 60)
 
     except Exception as e:
-        print(f"\n❌ Помилка: {e}")
+        print(f"\n[ERROR] Помилка: {e}")
         db.rollback()
         raise
     finally:
