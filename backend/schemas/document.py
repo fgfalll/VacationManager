@@ -20,9 +20,10 @@ class DocumentBase(BaseModel):
     @field_validator("date_end")
     @classmethod
     def end_after_start(cls, v: date, info: ValidationInfo) -> date:
-        """Перевірка, що кінець відпустки пізніше за початок."""
-        if "date_start" in info.data and v <= info.data["date_start"]:
-            raise ValueError("Кінець відпустки має бути пізніше за початок")
+        """Перевірка, що кінець відпустки не раніше за початок."""
+        # Allow single day vacation (start == end), so checking strictly less than
+        if "date_start" in info.data and v < info.data["date_start"]:
+            raise ValueError("Кінець відпустки має бути не раніше за початок")
         return v
 
 
@@ -90,6 +91,13 @@ class DocumentResponse(DocumentBase):
     # Прогрес документа
     progress: DocumentProgress | None = None
 
+    # Frontend-compatible fields
+    title: str | None = None  # Document title
+    document_type: dict | None = None  # {id, name} for frontend compatibility
+    # Frontend-compatible date field aliases
+    start_date: date | None = None  # Alias for date_start
+    end_date: date | None = None  # Alias for date_end
+
     class Config:
         from_attributes = True
 
@@ -110,6 +118,11 @@ class DocumentGenerateResponse(BaseModel):
     file_path: str | None = None
     message: str
     document_id: int
+
+
+class PreviewResponse(BaseModel):
+    """Schema for document preview response."""
+    html: str
 
 
 class DocumentStatusUpdate(BaseModel):

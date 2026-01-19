@@ -837,6 +837,15 @@ class DocumentService:
                 shutil.copy2(str(scan_path), str(new_path))
                 document.file_scan_path = str(new_path)
         
+        # Create archive snapshot with staff/approver data
+        try:
+            archive_path = save_document_archive(document, self.db)
+            document.archive_metadata_path = str(archive_path)
+        except Exception as e:
+            # Log but don't fail - archive is optional
+            import logging
+            logging.warning(f"Failed to create document archive: {e}")
+        
         document.update_status_from_workflow()
         self.db.commit()
 
@@ -872,3 +881,194 @@ class DocumentService:
         
         document.update_status_from_workflow()
         self.db.commit()
+
+
+# ============================================================================
+# Document Archive Functions (standalone, outside DocumentService class)
+# ============================================================================
+
+def save_document_archive(document: Document, db: Session) -> Path:
+    """
+    Зберігає архів документа у JSON форматі при скануванні.
+    
+    Архів містить знімок усіх даних, потрібних для відтворення документа:
+    - Дані співробітника (ПІБ, посада, ступінь)
+    - Погоджувачи (посади та імена)
+    - Налаштування установи
+    - Відрендерений HTML (для pixel-perfect відтворення)
+    
+    Args:
+        document: Об'єкт документа
+        db: Сесія бази даних
+        
+    Returns:
+        Path: Шлях до збереженого архіву
+    """
+    from backend.models.settings import Approvers, SystemSettings
+    from backend.services.document_renderer import get_signatories_from_db, _format_signatory_name
+    
+    # Get storage directory - same location as scan files
+    storage_dir = settings.storage_dir / "scans"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Snapshot staff data
+    staff = document.staff
+    staff_snapshot = {
+        "id": staff.id,
+        "pib_nom": staff.pib_nom,
+        "position": staff.position,
+        "degree": staff.degree or "",
+        "employment_type": staff.employment_type or "main",
+    }
+    
+    # Snapshot approvers from database
+    approvers_snapshot = []
+    approvers = db.query(Approvers).order_by(Approvers.order_index).all()
+    for approver in approvers:
+        display_name = _format_signatory_name(approver.full_name_nom or approver.full_name_dav)
+        approvers_snapshot.append({
+            "position": approver.position_name,
+            "name": display_name,
+            "order_index": approver.order_index,
+        })
+    
+    # Also get signatories as they would appear on document (filtered)
+    signatories_snapshot = get_signatories_from_db(db, staff)
+    
+    # Snapshot settings
+    settings_snapshot = {
+        "university_name": SystemSettings.get_value(db, "university_name", ""),
+        "rector_name_nominative": SystemSettings.get_value(db, "rector_name_nominative", ""),
+        "rector_name_dative": SystemSettings.get_value(db, "rector_name_dative", ""),
+        "department_name": SystemSettings.get_value(db, "dept_name", ""),
+        "department_abbr": SystemSettings.get_value(db, "dept_abbr", ""),
+        "dept_head_id": SystemSettings.get_value(db, "dept_head_id", None),
+    }
+    
+    # Get rendered HTML if available
+    rendered_html = document.rendered_html or ""
+    
+    # Build archive data
+    archive_data = {
+        "version": "1.0",
+        "archived_at": datetime.datetime.utcnow().isoformat(),
+        "document_id": document.id,
+        "document_type": document.doc_type.value,
+        "staff": staff_snapshot,
+        "approvers": approvers_snapshot,
+        "signatories": signatories_snapshot,
+        "settings": settings_snapshot,
+        "rendered_html": rendered_html,
+        "dates": {
+            "start": document.date_start.isoformat(),
+            "end": document.date_end.isoformat(),
+            "days_count": document.days_count,
+        },
+        "workflow": {
+            "applicant_signed_at": document.applicant_signed_at.isoformat() if document.applicant_signed_at else None,
+            "department_head_at": document.department_head_at.isoformat() if document.department_head_at else None,
+            "approval_order_at": document.approval_order_at.isoformat() if document.approval_order_at else None,
+            "rector_at": document.rector_at.isoformat() if document.rector_at else None,
+            "scanned_at": document.scanned_at.isoformat() if document.scanned_at else None,
+        },
+        "files": {
+            "docx_path": document.file_docx_path,
+            "scan_path": document.file_scan_path,
+        }
+    }
+    
+    # Generate filename based on document
+    surname = staff.pib_nom.split()[0] if staff.pib_nom else "unknown"
+    filename = f"doc_{document.id}_{surname}_archive.json"
+    filepath = storage_dir / filename
+    
+    # Save archive
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(archive_data, f, ensure_ascii=False, indent=2)
+    
+    return filepath
+
+
+def reconstruct_document_from_archive(archive_path: Path) -> dict:
+    """
+    Відновлює дані документа з архіву.
+    
+    Args:
+        archive_path: Шлях до JSON архіву
+        
+    Returns:
+        dict: Словник з усіма даними для відтворення документа
+    """
+    with open(archive_path, 'r', encoding='utf-8') as f:
+        archive_data = json.load(f)
+    
+    return archive_data
+
+
+def get_document_context_for_display(document: Document, db: Session) -> dict:
+    """
+    Отримує контекст для відображення документа.
+    
+    Якщо документ має архів (archive_metadata_path) - завантажує з архіву.
+    Інакше - завантажує з бази даних (для чернеток та документів в процесі).
+    
+    Args:
+        document: Об'єкт документа
+        db: Сесія бази даних
+        
+    Returns:
+        dict: Контекст для відображення документа з полями:
+            - staff: Дані співробітника
+            - signatories: Список погоджувачів
+            - settings: Налаштування установи
+            - rendered_html: Відрендерений HTML (якщо є)
+            - from_archive: True якщо завантажено з архіву
+    """
+    from backend.models.settings import SystemSettings
+    from backend.services.document_renderer import get_signatories_from_db, _format_signatory_name
+    
+    # Check if archive exists
+    if document.archive_metadata_path:
+        archive_path = Path(document.archive_metadata_path)
+        if archive_path.exists():
+            archive_data = reconstruct_document_from_archive(archive_path)
+            return {
+                "staff": archive_data.get("staff", {}),
+                "signatories": archive_data.get("signatories", []),
+                "settings": archive_data.get("settings", {}),
+                "rendered_html": archive_data.get("rendered_html", ""),
+                "dates": archive_data.get("dates", {}),
+                "from_archive": True,
+            }
+    
+    # Load from database (for drafts or documents without archive)
+    staff = document.staff
+    staff_data = {
+        "id": staff.id,
+        "pib_nom": staff.pib_nom,
+        "position": staff.position,
+        "degree": staff.degree or "",
+        "employment_type": staff.employment_type or "main",
+    }
+    
+    signatories = get_signatories_from_db(db, staff)
+    
+    settings_data = {
+        "university_name": SystemSettings.get_value(db, "university_name", ""),
+        "rector_name_nominative": SystemSettings.get_value(db, "rector_name_nominative", ""),
+        "department_name": SystemSettings.get_value(db, "dept_name", ""),
+        "department_abbr": SystemSettings.get_value(db, "dept_abbr", ""),
+    }
+    
+    return {
+        "staff": staff_data,
+        "signatories": signatories,
+        "settings": settings_data,
+        "rendered_html": document.rendered_html or "",
+        "dates": {
+            "start": document.date_start.isoformat() if document.date_start else None,
+            "end": document.date_end.isoformat() if document.date_end else None,
+            "days_count": document.days_count,
+        },
+        "from_archive": False,
+    }

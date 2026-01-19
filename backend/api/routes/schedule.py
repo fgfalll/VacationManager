@@ -4,7 +4,6 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import DBSession, ValidationSvc
@@ -25,9 +24,9 @@ router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 @router.get("/annual")
 async def get_annual_schedule(
-    year: int,
-    month: Optional[int] = None,
-    department: Optional[str] = None,
+    year: int = Query(..., description="Year"),
+    month: int | None = Query(None, description="Month (1-12)"),
+    department: str | None = Query(None, description="Filter by department"),
     db: DBSession = None,
     current_user = Depends(require_hr),
 ):
@@ -36,14 +35,14 @@ async def get_annual_schedule(
     """
     query = db.query(AnnualSchedule).filter(AnnualSchedule.year == year)
 
-    if month:
-        # Filter by month using planned_start
-        query = query.filter(func.month(AnnualSchedule.planned_start) == month)
-
     if department:
         query = query.join(Staff).filter(Staff.department == department)
 
     entries = query.order_by(AnnualSchedule.planned_start).all()
+
+    # Filter by month in Python (SQLite doesn't support func.month)
+    if month:
+        entries = [e for e in entries if e.planned_start.month == month]
 
     result_items = []
     for entry in entries:
@@ -226,14 +225,15 @@ async def auto_distribute_vacations(
 
 @router.get("/stats")
 async def get_schedule_stats(
-    year: int,
+    year: int = Query(..., description="Year"),
+    month: int | None = Query(None, description="Month (1-12)"),
     db: DBSession = None,
     current_user = Depends(require_hr),
 ):
     """
     Отримати статистику графіка відпусток.
     """
-    total_staff = db.query(func.count(Staff.id)).filter(Staff.is_active == True).scalar()
+    total_staff = db.query(func.count(Staff.id)).filter(Staff.is_active == True).scalar() or 0
     total_working_days = 22 * total_staff
 
     department_stats = db.query(

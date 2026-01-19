@@ -1743,26 +1743,38 @@ Traceback:
 
             # Get employee data for archive
             employees_data = []
+            responsible_person = ""
+            department_head = ""
+            hr_person = ""
             with get_db_context() as db:
                 # Database context is already open
 
-                from backend.services.tabel_service import get_employees_for_tabel
+                from backend.services.tabel_service import get_employees_for_tabel, format_initials
+                from backend.models.settings import SystemSettings
+                from backend.models.staff import Staff
                 
                 # Use shared function to get EXACTLY the same data as the generated tabel
-                employees_list, _, _, _ = get_employees_for_tabel(
+                employees_list, resp_person, dept_head, hr_pers = get_employees_for_tabel(
                     db, month, year, is_correction, correction_month, correction_year
                 )
                 
+                # Save signature data from the tabel generation
+                responsible_person = resp_person if resp_person else ""
+                department_head = dept_head if dept_head else ""
+                hr_person = hr_pers if hr_pers else ""
+                
                 # Convert EmployeeData objects to dicts for JSON serialization
                 for emp in employees_list:
-                    # Convert EmployeeData to dict
+                    # Convert EmployeeData to dict - use 'pib' to match template
                     emp_dict = {
                         "staff_id": 0, # Not available in EmployeeData, but not strictly needed for archive view
-                        "pib_nom": emp.pib,
+                        "pib": emp.pib,  # Use 'pib' to match template expectations
+                        "pib_nom": emp.pib,  # Keep for backwards compatibility
                         "position": emp.position,
                         "rate": float(emp.rate.replace(',', '.')) if emp.rate else 1.0,
                         "days": [],
-                        "vacations": [] # Not stored in EmployeeData, reconstruction uses days codes
+                        "totals": emp.totals if hasattr(emp, 'totals') else {},
+                        "absence": emp.absence if hasattr(emp, 'absence') else {},
                     }
                     
                     # Convert days
@@ -1771,7 +1783,8 @@ Traceback:
                             "day": i + 1,
                             "code": day.code,
                             "hours": float(day.hours.split(':')[0]) + float(day.hours.split(':')[1])/60 if day.hours and ':' in day.hours else (float(day.hours) if day.hours else 0),
-                            "notes": "" 
+                            "notes": "",
+                            "strikethrough": getattr(day, 'strikethrough', False),
                         })
                         
                     employees_data.append(emp_dict)
@@ -1786,6 +1799,9 @@ Traceback:
                 correction_sequence=correction_sequence,
                 employees_data=employees_data,
                 is_approved=True,
+                responsible_person=responsible_person,
+                department_head=department_head,
+                hr_person=hr_person,
             )
 
             # Record tabel generation and check approval status

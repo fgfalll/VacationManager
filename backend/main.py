@@ -1,17 +1,23 @@
 """Головний файл FastAPI додатку."""
 
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
 
-from backend.api.routes import documents, schedule, staff, upload, auth, attendance, settings as settings_routes
+from backend.api.routes import documents, schedule, staff, upload, auth, attendance, settings as settings_routes, tabel, dashboard
+from backend.api.dependencies import DBSession
 from backend.core.config import get_settings
 from backend.core.logging import setup_logging
 from backend.core.websocket import manager
+from backend.models.staff import Staff
+from backend.models.document import Document
+from backend.models.schedule import AnnualSchedule
 
 settings = get_settings()
 
@@ -27,7 +33,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VacationManager API",
     description="API для системи управління відпустками",
-    version=settings.app_version,
+    version="7.0.0",
     lifespan=lifespan,
 )
 
@@ -55,6 +61,8 @@ app.include_router(schedule.router, prefix="/api")
 app.include_router(attendance.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
+app.include_router(tabel.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 
 
 @app.get("/")
@@ -71,6 +79,9 @@ async def root():
 async def health_check():
     """Перевірка здоров'я API."""
     return {"status": "healthy"}
+
+
+
 
 
 @app.get("/portal")

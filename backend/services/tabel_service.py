@@ -1081,6 +1081,9 @@ def save_tabel_archive(
     employees_data: list | None = None,
     is_approved: bool = False,
     output_dir: Path | None = None,
+    responsible_person: str = "",
+    department_head: str = "",
+    hr_person: str = "",
 ) -> Path:
     """
     Зберігає компактний архів табеля у JSON форматі.
@@ -1102,6 +1105,9 @@ def save_tabel_archive(
         employees_data: Дані працівників (список словників)
         is_approved: Чи погоджено табель (для архіву)
         output_dir: Директорія для збереження
+        responsible_person: Відповідальна особа за складання
+        department_head: Керівник структурного підрозділу
+        hr_person: Працівник кадрової служби
 
     Returns:
         Path: Шлях до збереженого архіву
@@ -1141,6 +1147,9 @@ def save_tabel_archive(
             "edrpou_code": edrpou_code,
             "department_name": department_name,
             "department_abbr": department_abbr,
+            "responsible_person": responsible_person,
+            "department_head": department_head,
+            "hr_person": hr_person,
         },
         "employees": employees_data or [],
     }
@@ -1212,16 +1221,20 @@ def reconstruct_tabel_html_from_archive(archive_data: dict) -> str:
     for emp in employees_data:
         emp_obj = {
             "staff_id": emp.get("staff_id", 0),
-            "pib_nom": emp.get("pib_nom", ""),
+            "pib": emp.get("pib", emp.get("pib_nom", "")),  # Template expects 'pib', fallback to 'pib_nom'
             "degree": emp.get("degree", ""),
             "position": emp.get("position", ""),
             "rate": emp.get("rate", 1.0),
             "days": [],
-            "absence": {},
-            "totals": {
+            "absence": emp.get("absence", {}),
+            "totals": emp.get("totals", {
                 "work_days": 0,
                 "work_hours": "0,00",
-            }
+                "first_half_work_days": 0,
+                "first_half_work_hours": "0,00",
+                "second_half_work_days": 0,
+                "second_half_work_hours": "0,00",
+            })
         }
 
         # Build days array (31 days)
@@ -1292,9 +1305,9 @@ def reconstruct_tabel_html_from_archive(archive_data: dict) -> str:
             "days": [0] * 31,
             "absence": {},
         },
-        "responsible_person": "",
-        "department_head": "",
-        "hr_person": "",
+        "responsible_person": settings.get("responsible_person", ""),
+        "department_head": settings.get("department_head", ""),
+        "hr_person": settings.get("hr_person", ""),
     }
 
     html = template.render(**template_data)

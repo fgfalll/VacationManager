@@ -73,6 +73,17 @@ async def upload_scan(
         # Оновлюємо документ
         old_status = doc.status.value
         doc.file_scan_path = str(save_path)
+        
+        # Create archive snapshot with staff/approver data
+        from backend.services.document_service import save_document_archive
+        try:
+            archive_path = save_document_archive(doc, db)
+            doc.archive_metadata_path = str(archive_path)
+        except Exception as e:
+            # Log but don't fail - archive is optional
+            import logging
+            logging.warning(f"Failed to create document archive: {e}")
+        
         doc.status = DocumentStatus.SIGNED
         from datetime import datetime
 

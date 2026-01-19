@@ -41,7 +41,7 @@ def main() -> int:
     """
     app = QApplication(sys.argv)
     app.setApplicationName("VacationManager")
-    app.setApplicationVersion("5.5.0")
+    app.setApplicationVersion("7.0.0")
     app.setOrganizationName("VacationManager")
 
     # Стиль
