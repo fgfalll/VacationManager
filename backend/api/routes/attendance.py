@@ -3,15 +3,90 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 
 from backend.api.dependencies import DBSession
-from backend.core.dependencies import get_current_user, require_hr
+from backend.core.dependencies import get_current_user, require_department_head
 from backend.models.attendance import Attendance
 from backend.models.staff import Staff
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
+
+
+@router.get("/list")
+async def list_all_attendance(
+    skip: int = Query(0, ge=0, description="Skip records for pagination"),
+    limit: int = Query(100, ge=1, le=1000, description="Limit records per page"),
+    staff_id: Optional[int] = Query(None, description="Filter by staff ID"),
+    year: Optional[int] = Query(None, description="Filter by year"),
+    month: Optional[int] = Query(None, ge=1, le=12, description="Filter by month (1-12)"),
+    is_correction: Optional[bool] = Query(None, description="Filter by correction status"),
+    db: DBSession = None,
+    current_user = Depends(require_department_head),
+):
+    """
+    Отримати всі записи відвідуваності з пагінацією та фільтрацією.
+
+    Показує всі записи з інформацією про те, чи знаходиться вони в основному
+    табелі або в коригувальному табелі.
+    """
+    query = db.query(Attendance)
+
+    # Apply filters
+    if staff_id:
+        query = query.filter(Attendance.staff_id == staff_id)
+    if year:
+        query = query.filter(func.extract("year", Attendance.date) == year)
+    if month:
+        query = query.filter(func.extract("month", Attendance.date) == month)
+    if is_correction is not None:
+        query = query.filter(Attendance.is_correction == is_correction)
+
+    # Get total count
+    total = query.count()
+
+    # Apply pagination and ordering
+    records = query.order_by(Attendance.date.desc(), Attendance.id.desc()).offset(skip).limit(limit).all()
+
+    result_items = []
+    for record in records:
+        # Determine table type and correction info
+        if record.is_correction:
+            table_type = "correction"
+            table_info = f"Корекція: {record.correction_month}.{record.correction_year} #{record.correction_sequence}"
+        else:
+            table_type = "main"
+            table_info = "Основний табель"
+
+        result_items.append({
+            "id": record.id,
+            "staff_id": record.staff_id,
+            "staff": {
+                "pib_nom": record.staff.pib_nom if record.staff else "",
+                "position": record.staff.position if record.staff else "",
+                "rate": float(record.staff.rate) if record.staff and record.staff.rate else 1.0,
+            },
+            "date": record.date.isoformat() if record.date else None,
+            "date_end": record.date_end.isoformat() if record.date_end else None,
+            "code": record.code,
+            "hours": float(record.hours) if record.hours else 0,
+            "notes": record.notes,
+            "table_type": table_type,
+            "table_info": table_info,
+            "is_correction": record.is_correction,
+            "correction_month": record.correction_month,
+            "correction_year": record.correction_year,
+            "correction_sequence": record.correction_sequence,
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+        })
+
+    return {
+        "items": result_items,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.get("/daily")
@@ -19,7 +94,7 @@ async def get_daily_attendance(
     date: str,
     department: Optional[str] = None,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Отримати відвідуваність за день.
@@ -81,7 +156,7 @@ async def create_attendance(
     code: str,
     notes: Optional[str] = None,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Створити запис відвідуваності.
@@ -114,7 +189,7 @@ async def submit_correction(
     new_code: str,
     reason: str,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Подати запит на виправлення відвідуваності.
@@ -142,7 +217,7 @@ async def submit_tabel(
     year: int,
     month: int,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Подати табель на затвердження (позначаємо місяць як поданий).
@@ -166,7 +241,7 @@ async def approve_tabel(
     year: int,
     month: int,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Затвердити табель.
@@ -179,7 +254,7 @@ async def get_tabel(
     year: int,
     month: int,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Отримати табель за місяць.

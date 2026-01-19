@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import DBSession, ValidationSvc
-from backend.core.dependencies import get_current_user, require_hr
+from backend.core.dependencies import get_current_user, require_department_head
 from backend.models.schedule import AnnualSchedule
 from backend.models.staff import Staff
 from backend.schemas.schedule import (
@@ -28,7 +28,7 @@ async def get_annual_schedule(
     month: int | None = Query(None, description="Month (1-12)"),
     department: str | None = Query(None, description="Filter by department"),
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Отримати річний графік відпусток.
@@ -76,7 +76,7 @@ async def get_annual_schedule(
 async def get_schedule(
     year: int,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Отримати графік відпусток на рік.
@@ -115,7 +115,7 @@ async def create_schedule_entry(
     entry_data: ScheduleEntryCreate,
     db: DBSession = None,
     validation: ValidationSvc = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Створити запис у графіку.
@@ -144,7 +144,7 @@ async def update_schedule_entry(
     planned_end: Optional[date] = None,
     is_used: Optional[bool] = None,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Оновити запис у графіку.
@@ -170,7 +170,7 @@ async def update_schedule_entry(
 async def delete_schedule_entry(
     entry_id: int,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Видалити запис з графіку.
@@ -189,7 +189,7 @@ async def delete_schedule_entry(
 async def auto_distribute_vacations(
     request: AutoDistributeRequest,
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Автоматично розподілити відпустки по місяцях.
@@ -228,7 +228,7 @@ async def get_schedule_stats(
     year: int = Query(..., description="Year"),
     month: int | None = Query(None, description="Month (1-12)"),
     db: DBSession = None,
-    current_user = Depends(require_hr),
+    current_user = Depends(require_department_head),
 ):
     """
     Отримати статистику графіка відпусток.

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import DBSession
-from backend.core.dependencies import get_current_user, require_hr
+from backend.core.dependencies import get_current_user, require_department_head
 from backend.services.tabel_service import (
     generate_tabel_html,
     save_tabel_archive,
@@ -29,7 +29,7 @@ async def generate_tabel(
     correction_month: Optional[int] = Query(None, ge=1, le=12, description="Correction month"),
     correction_year: Optional[int] = Query(None, ge=2020, le=2100, description="Correction year"),
     db: DBSession = None,
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Згенерувати HTML табеля для місяця/року.
@@ -66,7 +66,7 @@ async def preview_tabel(
     month: int = Query(..., ge=1, le=12, description="Month (1-12)"),
     year: int = Query(..., ge=2020, le=2100, description="Year"),
     db: DBSession = None,
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Попередній перегляд табеля без збереження.
@@ -96,7 +96,7 @@ async def create_tabel_archive(
     correction_year: Optional[int] = Query(None, ge=2020, le=2100, description="Correction year"),
     correction_sequence: int = Query(1, ge=1, description="Correction sequence number"),
     db: DBSession = None,
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Зберегти архів табеля.
@@ -127,7 +127,7 @@ async def create_tabel_archive(
 
 @router.get("/archives")
 async def get_tabel_archives(
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Отримати список архівів табелів.
@@ -144,7 +144,7 @@ async def get_tabel_archives(
 @router.get("/archives/{archive_filename}")
 async def get_archive_detail(
     archive_filename: str,
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Отримати деталі конкретного архіву та відтворити HTML.
@@ -173,7 +173,7 @@ async def get_archive_detail(
 @router.get("/locked-months")
 async def get_locked_months(
     db: DBSession = None,
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Отримати список заблокованих місяців.
@@ -188,7 +188,7 @@ async def get_locked_months(
 @router.get("/corrections")
 async def get_correction_months(
     db: DBSession = None,
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Отримати список місяців з корегуючими табелями.
@@ -209,7 +209,7 @@ async def approve_tabel(
     correction_year: Optional[int] = Query(None, ge=2020, le=2100, description="Correction year"),
     correction_sequence: int = Query(1, ge=1, description="Correction sequence number"),
     db: DBSession = None,
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Підтвердити погодження табеля з кадровою службою.
@@ -241,7 +241,7 @@ async def get_tabel_status(
     month: int = Query(..., ge=1, le=12, description="Month (1-12)"),
     year: int = Query(..., ge=2020, le=2100, description="Year"),
     db: DBSession = None,
-    current_user=Depends(require_hr),
+    current_user=Depends(require_department_head),
 ):
     """
     Отримати статус табеля (заблоковано, погоджено, тощо).

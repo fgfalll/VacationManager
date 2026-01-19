@@ -5,7 +5,7 @@ export interface User {
   email: string;
   first_name: string;
   last_name: string;
-  role: 'admin' | 'hr' | 'employee';
+  role: 'admin' | 'department_head' | 'employee';
   staff_id: number | null;
   is_active: boolean;
   created_at: string;
@@ -234,13 +234,24 @@ export interface DailyAttendance {
   staff_id: number;
   staff?: Staff;
   date: string;
+  date_end?: string | null;
   code: string;
   hours: number;
   notes: string | null;
   is_correction: boolean;
   correction_month: number | null;
   correction_year: number | null;
+  correction_sequence?: number | null;
+  table_type?: 'main' | 'correction';
+  table_info?: string;
   created_at: string;
+}
+
+export interface AttendanceListResponse {
+  items: DailyAttendance[];
+  total: number;
+  skip: number;
+  limit: number;
 }
 
 export interface Tabel {

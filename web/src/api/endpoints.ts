@@ -55,6 +55,7 @@ export const endpoints = {
 
   // Attendance
   attendance: {
+    list: '/attendance/list',
     daily: '/attendance/daily',
     correction: '/attendance/correction',
     submit: '/attendance/submit',

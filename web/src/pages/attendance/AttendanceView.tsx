@@ -4,7 +4,6 @@ import {
   Row,
   Col,
   Select,
-  DatePicker,
   Button,
   Typography,
   Table,
@@ -13,37 +12,22 @@ import {
   Modal,
   Form,
   Input,
-  Statistic,
   message,
+  DatePicker,
 } from 'antd';
 import dayjs from 'dayjs';
 import {
-  LeftOutlined,
-  RightOutlined,
   PlusOutlined,
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
+  FilterOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/axios';
 import { endpoints } from '../../api/endpoints';
-import { DailyAttendance } from '../../api/types';
+import { DailyAttendance, AttendanceListResponse } from '../../api/types';
 import { getAttendanceCodeLabel } from '../../api/constants';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
-
-// API Response type
-interface DailyAttendanceResponse {
-  items: DailyAttendance[];
-  total: number;
-  date: string;
-  present: number;
-  absent: number;
-  late: number;
-  remote: number;
-}
 
 // Extended attendance record with staff info
 interface AttendanceRecord extends DailyAttendance {
@@ -56,12 +40,19 @@ interface AttendanceRecord extends DailyAttendance {
 
 const AttendanceView: React.FC = () => {
   const queryClient = useQueryClient();
-  const [selectedDate, setSelectedDate] = useState(dayjs());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [selectedAttendance, setSelectedAttendance] = useState<DailyAttendance | null>(null);
   const [form] = Form.useForm();
   const [correctionForm] = Form.useForm();
+  const [filters, setFilters] = useState<{
+    staff_id?: number;
+    year?: number;
+    month?: number;
+    is_correction?: boolean;
+  }>({});
 
   // Fetch staff list for dropdown
   const { data: staffList } = useQuery({
@@ -72,23 +63,26 @@ const AttendanceView: React.FC = () => {
     },
   });
 
-  const { data: response, isLoading } = useQuery<DailyAttendanceResponse>({
-    queryKey: ['attendance-daily', selectedDate.format('YYYY-MM-DD')],
+  // Fetch all attendance records with pagination
+  const { data: response, isLoading } = useQuery<AttendanceListResponse>({
+    queryKey: ['attendance-list', currentPage, pageSize, filters],
     queryFn: async () => {
-      const res = await apiClient.get(endpoints.attendance.daily, {
-        params: { date: selectedDate.format('YYYY-MM-DD') },
-      });
+      const params: any = {
+        skip: (currentPage - 1) * pageSize,
+        limit: pageSize,
+      };
+      if (filters.staff_id) params.staff_id = filters.staff_id;
+      if (filters.year) params.year = filters.year;
+      if (filters.month) params.month = filters.month;
+      if (filters.is_correction !== undefined) params.is_correction = filters.is_correction;
+
+      const res = await apiClient.get(endpoints.attendance.list, { params });
       return res.data;
     },
   });
 
   const attendanceData = response?.items || [];
-  const stats = response ? {
-    present: response.present,
-    absent: response.absent,
-    late: response.late,
-    remote: response.remote,
-  } : null;
+  const totalRecords = response?.total || 0;
 
   const createMutation = useMutation({
     mutationFn: async (data: { staff_id: number; date: string; code: string; notes?: string }) => {
@@ -127,14 +121,12 @@ const AttendanceView: React.FC = () => {
     },
   });
 
-  const handlePrevDay = () => setSelectedDate(selectedDate.subtract(1, 'day'));
-  const handleNextDay = () => setSelectedDate(selectedDate.add(1, 'day'));
-
   const handleAddRecord = async () => {
     const values = await form.validateFields();
+    const dateValue = values.date || dayjs();
     createMutation.mutate({
       ...values,
-      date: selectedDate.format('YYYY-MM-DD'),
+      date: dateValue.format('YYYY-MM-DD'),
     });
   };
 
@@ -154,11 +146,17 @@ const AttendanceView: React.FC = () => {
 
   const columns = [
     {
+      title: 'ID',
+      dataIndex: 'id',
+      key: 'id',
+      width: 70,
+    },
+    {
       title: 'Staff',
       key: 'staff',
-      render: (_, record: AttendanceRecord) => (
-        <Space>
-          <Text strong>{record.staff?.pib_nom}</Text>
+      render: (_: unknown, record: AttendanceRecord) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{record.staff?.pib_nom || 'Unknown'}</Text>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {record.staff?.position} ({record.staff?.rate} ст.)
           </Text>
@@ -166,36 +164,65 @@ const AttendanceView: React.FC = () => {
       ),
     },
     {
+      title: 'Date',
+      dataIndex: 'date',
+      key: 'date',
+      render: (date: string) => dayjs(date).format('DD.MM.YYYY'),
+    },
+    {
       title: 'Code',
       dataIndex: 'code',
       key: 'code',
       render: (code: string) => {
         const label = getAttendanceCodeLabel(code);
-        return <Tag>{code} - {label}</Tag>;
+        return <Tag color={code === 'Р' ? 'green' : 'blue'}>{code} - {label}</Tag>;
       },
     },
     {
       title: 'Hours',
       dataIndex: 'hours',
       key: 'hours',
+      width: 80,
       render: (hours: number) => hours?.toFixed(1) || '0.0',
+    },
+    {
+      title: 'Table Type',
+      dataIndex: 'table_type',
+      key: 'table_type',
+      width: 120,
+      render: (tableType: string, record: AttendanceRecord) => {
+        if (tableType === 'correction') {
+          return (
+            <Space direction="vertical" size={0}>
+              <Tag color="orange">Correction</Tag>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {record.table_info}
+              </Text>
+            </Space>
+          );
+        }
+        return <Tag color="blue">Main</Tag>;
+      },
     },
     {
       title: 'Notes',
       dataIndex: 'notes',
       key: 'notes',
+      ellipsis: true,
       render: (notes: string | null) => notes || '-',
     },
     {
-      title: 'Correction',
-      dataIndex: 'is_correction',
-      key: 'is_correction',
-      render: (isCorrection: boolean) => isCorrection ? <Tag color="orange">Correction</Tag> : '-',
+      title: 'Created',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 100,
+      render: (date: string) => dayjs(date).format('DD.MM HH:mm'),
     },
     {
       title: 'Actions',
       key: 'actions',
-      render: (_, record: AttendanceRecord) => (
+      width: 100,
+      render: (_: unknown, record: AttendanceRecord) => (
         <Button
           size="small"
           onClick={() => {
@@ -203,9 +230,8 @@ const AttendanceView: React.FC = () => {
             correctionForm.setFieldsValue({ code: record.code });
             setIsCorrectionModalOpen(true);
           }}
-          disabled={record.is_correction}
         >
-          {record.is_correction ? 'Locked' : 'Correct'}
+          Edit
         </Button>
       ),
     },
@@ -214,61 +240,68 @@ const AttendanceView: React.FC = () => {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>Attendance</Title>
+        <Title level={3} style={{ margin: 0 }}>
+          Attendance Records ({totalRecords})
+        </Title>
         <Space>
-          <Button icon={<LeftOutlined />} onClick={handlePrevDay}>Previous</Button>
-          <DatePicker
-            value={selectedDate}
-            onChange={(date) => date && setSelectedDate(date)}
-            allowClear={false}
-          />
-          <Button onClick={handleNextDay}>Next<RightOutlined /></Button>
+          <Button icon={<FilterOutlined />} onClick={() => setFilters({})}>
+            Clear Filters
+          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsAddModalOpen(true)}>
             Add Record
           </Button>
         </Space>
       </div>
 
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={6}>
-          <Card>
-            <Statistic
-              title="Present"
-              value={stats?.present || 0}
-              valueStyle={{ color: '#52c41a' }}
-              prefix={<CheckCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={6}>
-          <Card>
-            <Statistic
-              title="Absent"
-              value={stats?.absent || 0}
-              valueStyle={{ color: '#ff4d4f' }}
-              prefix={<CloseCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={6}>
-          <Card>
-            <Statistic
-              title="Late"
-              value={stats?.late || 0}
-              valueStyle={{ color: '#faad14' }}
-              prefix={<ClockCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={6}>
-          <Card>
-            <Statistic
-              title="Total Records"
-              value={attendanceData.length}
-            />
-          </Card>
-        </Col>
-      </Row>
+      {/* Filters */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space wrap>
+          <Select
+            placeholder="Filter by Staff"
+            allowClear
+            style={{ width: 250 }}
+            value={filters.staff_id}
+            onChange={(value) => setFilters({ ...filters, staff_id: value || undefined })}
+            showSearch
+            optionFilterProp="children"
+          >
+            {staffList?.map((staff: any) => (
+              <Option key={staff.id} value={staff.id}>
+                {staff.pib_nom} - {staff.position}
+              </Option>
+            ))}
+          </Select>
+
+          <DatePicker.YearPicker
+            placeholder="Filter by Year"
+            value={filters.year ? dayjs().year(filters.year) : null}
+            onChange={(date) => setFilters({ ...filters, year: date?.year() || undefined })}
+          />
+
+          <Select
+            placeholder="Filter by Month"
+            allowClear
+            style={{ width: 150 }}
+            value={filters.month}
+            onChange={(value) => setFilters({ ...filters, month: value || undefined })}
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+              <Option key={m} value={m}>{dayjs().month(m - 1).format('MMMM')}</Option>
+            ))}
+          </Select>
+
+          <Select
+            placeholder="Filter by Table Type"
+            allowClear
+            style={{ width: 180 }}
+            value={filters.is_correction}
+            onChange={(value) => setFilters({ ...filters, is_correction: value })}
+          >
+            <Option value={false}>Main Table</Option>
+            <Option value={true}>Correction Table</Option>
+          </Select>
+        </Space>
+      </Card>
 
       <Card>
         <Table
@@ -276,7 +309,18 @@ const AttendanceView: React.FC = () => {
           dataSource={attendanceData}
           loading={isLoading}
           rowKey="id"
-          pagination={false}
+          pagination={{
+            current: currentPage,
+            pageSize: pageSize,
+            total: totalRecords,
+            showSizeChanger: true,
+            showTotal: (total) => `Total ${total} records`,
+            onChange: (page, size) => {
+              setCurrentPage(page);
+              setPageSize(size || 50);
+            },
+          }}
+          scroll={{ x: 1200 }}
         />
       </Card>
 
@@ -287,6 +331,7 @@ const AttendanceView: React.FC = () => {
         onCancel={() => setIsAddModalOpen(false)}
         onOk={handleAddRecord}
         confirmLoading={createMutation.isPending}
+        width={500}
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -305,6 +350,14 @@ const AttendanceView: React.FC = () => {
                 </Option>
               ))}
             </Select>
+          </Form.Item>
+          <Form.Item
+            name="date"
+            label="Date"
+            rules={[{ required: true, message: 'Please select date' }]}
+            initialValue={dayjs()}
+          >
+            <DatePicker style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item
             name="code"
@@ -331,13 +384,14 @@ const AttendanceView: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* Correction Modal */}
+      {/* Edit Modal */}
       <Modal
-        title="Attendance Correction"
+        title="Edit Attendance Record"
         open={isCorrectionModalOpen}
         onCancel={() => setIsCorrectionModalOpen(false)}
         onOk={handleCorrection}
         confirmLoading={correctionMutation.isPending}
+        width={500}
       >
         <Form form={correctionForm} layout="vertical">
           <Form.Item
@@ -358,7 +412,7 @@ const AttendanceView: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="reason"
-            label="Reason"
+            label="Reason for change"
             rules={[{ required: true, message: 'Please enter reason' }]}
           >
             <Input.TextArea rows={3} placeholder="Enter reason for correction" />

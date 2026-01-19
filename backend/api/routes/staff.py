@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import DBSession
-from backend.core.dependencies import get_current_user, require_admin, require_hr, require_employee
+from backend.core.dependencies import get_current_user, require_admin, require_department_head, require_employee
 from backend.models.staff import Staff
 from backend.models.document import Document
 from backend.models.schedule import AnnualSchedule
@@ -67,7 +67,7 @@ async def list_staff(
 async def get_staff(
     staff_id: int,
     db: DBSession,
-    current_user: get_current_user = Depends(require_hr),
+    current_user: get_current_user = Depends(require_department_head),
 ):
     """
     Отримати дані співробітника за ID.
@@ -122,7 +122,7 @@ async def update_staff(
     staff_id: int,
     staff_data: StaffUpdate,
     db: DBSession,
-    current_user: get_current_user = Depends(require_hr),
+    current_user: get_current_user = Depends(require_department_head),
 ):
     """
     Оновити дані співробітника.
@@ -171,7 +171,7 @@ async def delete_staff(
 async def get_staff_with_expiring_contracts(
     db: DBSession,
     days: int = Query(30, ge=1, le=365, description="Кількість днів для попередження"),
-    current_user: get_current_user = Depends(require_hr),
+    current_user: get_current_user = Depends(require_department_head),
 ):
     """
     Отримати список співробітників з контрактами, що закінчуються.
@@ -207,7 +207,7 @@ async def get_staff_with_expiring_contracts(
 async def search_staff(
     q: str,
     db: DBSession = None,
-    current_user: get_current_user = Depends(require_hr),
+    current_user: get_current_user = Depends(require_department_head),
 ):
     """
     Пошук співробітників за іменем або позицією.
@@ -319,7 +319,7 @@ async def get_staff_attendance(
 async def get_staff_history(
     staff_id: int,
     db: DBSession,
-    current_user: get_current_user = Depends(require_hr),
+    current_user: get_current_user = Depends(require_department_head),
 ):
     """
     Отримати історію змін співробітника.
