@@ -1,8 +1,8 @@
-# VacationManager v7.4.5
+# VacationManager v7.7.1
 
 Система управління відпустками та табелем обліку робочого часу для університетської кафедри.
 
-## Версія Latest (v7.4.5) - Новий WebUI та розширене API
+## Версія Latest (v7.7.1) - Employment Document Flow & New Employee Creation
 
 ### Проект
 
@@ -46,6 +46,37 @@
 ---
 
 ## Останні оновлення (січень 2026)
+
+### v7.7.1 - Employment Document Flow & New Employee Creation
+
+**Employment Document System:**
+- **New Document Types:** Додано три типи документів про прийом на роботу (employment_contract, employment_competition, employment_pdf)
+- **Employment Templates:** HTML шаблони для генерації документів про прийом (contract, competition, PDF)
+- **New Employee Data Staging:** Поле `new_employee_data` в Document для збереження даних нового співробітника перед створенням
+- **Automatic Staff Creation:** При завантаженні скану підписаного документа про прийом автоматично створюється запис співробітника
+- **Term Extension Processing:** Документи продовження контракту автоматично оновлюють дату закінчення та активують співробітника
+
+**Backend Improvements:**
+- **PIB Format Validation:** Валідація формату ПІБ (Прізвище Ім'я По батькові) з перевіркою українських/латинських літер
+- **Head of Department Uniqueness:** Перевірка унікальності посади завідувача кафедри
+- **Term Date Validation:** Валідація що дата закінчення контракту пізніша за дату початку
+- **Position Label Translation:** Функція `get_position_label()` для перекладу enum значень посад
+
+**Desktop UI Enhancements:**
+- **New Employee Mode:** Спеціальний режим конструктора для створення документів про прийом
+- **Smart Filtering:** Автоматичне приховування/показ типів документів про прийом залежно від режиму
+- **Employment Type Selector:** Вибор основи працевлаштування (контракт/конкурс/заява)
+- **Reactivation Handling:** Підтримка реактивації раніше звільнених співробітників
+- **Styles Module:** Новий модуль `desktop/ui/styles.py` для уніфікації стилів інтерфейсу
+- **Splash Screen:** Оновлено дизайн під Light Theme
+
+**Web UI Improvements:**
+- **Attendance View:** Додано відображення загальної кількості днів для записів з діапазоном дат
+- **Column Widths:** Оптимізовано ширину колонок для кращої видимості
+
+**Bug Fixes:**
+- Виправлено дублювання коментаря сканування
+- Виправлено накладання тексту та вирівнювання в UI
 
 ### v7.4.5 - Новий WebUI та розширене API
 
@@ -272,25 +303,19 @@
 ```
 backend/models/
 ├── attendance.py     # відмітки про явки/неявки
-├── staff.py          # ОНОВЛЕНО: +pib_dav (давальний відмінок)
+├── staff.py          # +pib_dav (давальний відмінок)
 ├── staff_history.py  # історія змін співробітників
-├── document.py       # ОНОВЛЕНО: +extension_start_date, +old_contract_end_date
-```
-
-### Нові Сервіси
-
-```
-backend/services/
-├── attendance_service.py  # НОВЕ - CRUD для відвідуваності
-├── tabel_service.py       # НОВЕ - генерація табеля (30KB)
+├── document.py       # +extension_start_date, +old_contract_end_date, +new_employee_data
 ```
 
 ### Оновлені Schemas
 
 ```
 backend/schemas/
-├── attendance.py    # НОВЕ - схеми для відвідуваності
-├── tabel.py         # НОВЕ - схеми для табеля
+├── attendance.py     # схеми для відвідуваності
+├── tabel.py          # схеми для табеля
+├── document.py       # +EmploymentCreate, +new_employee_data field
+└── staff.py          # +PIB validation, term date validation
 ```
 
 ---
@@ -430,23 +455,23 @@ VacationManager/
 │   ├── schemas/           # Pydantic schemas
 │   │   ├── schedule.py
 │   │   ├── responses.py
-│   │   ├── staff.py
-│   │   ├── document.py
+│   │   ├── staff.py          # +PIB validation, term date validation
+│   │   ├── document.py       # +EmploymentCreate, new_employee_data field
 │   │   ├── attendance.py
 │   │   ├── tabel.py
-│   │   ├── auth.py            # НОВЕ
-│   │   └── dashboard.py       # НОВЕ
+│   │   ├── auth.py
+│   │   └── dashboard.py
 │   ├── services/          # Business logic
 │   │   ├── grammar_service.py
 │   │   ├── validation_service.py
 │   │   ├── document_service.py
 │   │   ├── bulk_document_service.py
 │   │   ├── schedule_service.py
-│   │   ├── staff_service.py
+│   │   ├── staff_service.py          # +create_staff_from_document, +process_term_extension
 │   │   ├── date_parser.py
 │   │   ├── attendance_service.py
 │   │   ├── tabel_service.py
-│   │   └── document_renderer.py  # НОВЕ - HTML to PDF rendering
+│   │   └── document_renderer.py      # HTML to PDF rendering
 │   ├── api/
 │   │   ├── routes/        # FastAPI endpoints
 │   │   │   ├── documents.py
@@ -485,14 +510,20 @@ VacationManager/
 │   └── tsconfig.json
 ├── desktop/               # PyQt6 Desktop application
 │   ├── ui/                # UI components
-│   │   └── scan_upload_dialog.py
+│   │   ├── scan_upload_dialog.py
+│   │   ├── styles.py      # НОВЕ - UI styles module
+│   │   └── ...
 │   ├── widgets/           # Custom widgets
 │   │   ├── status_badge.py
-│   │   └── live_preview.py
+│   │   ├── live_preview.py
+│   │   └── splash_screen.py
 │   ├── templates/         # Jinja2 templates для PDF
 │   │   ├── tabel/         # шаблони табеля
 │   │   └── documents/     # шаблони документів
-│   └── __main__.py        # НОВЕ
+│   │       ├── employment_contract.html      # НОВЕ
+│   │       ├── employment_competition.html   # НОВЕ
+│   │       └── employment_pdf.html           # НОВЕ
+│   └── __main__.py
 ├── tabel/                 # НОВЕ - Архіви табелів
 │   └── archive/           # JSON archives with signature data
 ├── shared/                # Shared code
@@ -644,6 +675,28 @@ ws.send(JSON.stringify({ type: 'ping' }));
 ```
 
 ## Документообіг
+
+### Типи документів
+
+**Відпустки:**
+- `vacation_paid` — основна щорічна відпустка
+- `vacation_unpaid` — відпустка без збереження зарплати
+- `vacation_main` — відпустка за основним місцем роботи
+- `vacation_additional` — додаткова відпустка
+- `vacation_study` — навчальна відпустка
+- `vacation_children` — відпустка для догляду за дитиною
+- `vacation_unpaid_study` — навчальна відпустка без збереження
+
+**Продовження контракту:**
+- `term_extension` — базове продовження
+- `term_extension_contract` — продовження за контрактом
+- `term_extension_competition` — продовження за конкурсом
+- `term_extension_pdf` — продовження сумісництва (PDF)
+
+**Прийом на роботу (НОВЕ):**
+- `employment_contract` — прийом на роботу (контракт)
+- `employment_competition` — прийом на роботу (конкурс)
+- `employment_pdf` — прийом на роботу (PDF)
 
 ### Статуси документів
 
@@ -861,7 +914,7 @@ flowchart TB
 
 ## Ліцензія
 
-© 2025-2026 VacationManager v7.4.5
+© 2025-2026 VacationManager v7.7.1
 
 ---
 
@@ -869,6 +922,7 @@ flowchart TB
 
 | Версія | Дата | Зміни |
 |--------|------|-------|
+| v7.7.1 | Січень 2026 | **Employment Document Flow**, автоматичне створення співробітників з документів про прийом, валідація ПІБ, унікальність завідувача кафедри, покращення UI |
 | v7.4.5 | Січень 2026 | **Повноцінний WebUI (React/TS + Vite)**, нові API routes (auth, attendance, dashboard, settings, tabel), document renderer service, розширені шаблони |
 | v7.2.0 | Січень 2026 | Покращена архівація документів, StaffPosition enum, PIB у давальному відмінку |
 | v7.0 | Січень 2026 | Web UI (React prototype), JWT Auth, REST API, Покращений Workflow |
