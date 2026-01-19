@@ -171,8 +171,6 @@ async def create_attendance(
     # Check if the month is locked
     approval_service = TabelApprovalService(db)
     can_edit, reason = approval_service.can_edit_attendance(staff_id, parsed_date)
-    if not can_edit:
-        raise HTTPException(status_code=400, detail=reason)
 
     attendance = Attendance(
         staff_id=staff_id,
@@ -181,6 +179,18 @@ async def create_attendance(
         hours=8.0,
         notes=notes,
     )
+
+    # If month is locked, create as correction record instead of blocking
+    if not can_edit:
+        attendance.is_correction = True
+        attendance.is_blocked = True
+        attendance.correction_month = parsed_date.month
+        attendance.correction_year = parsed_date.year
+        attendance.correction_sequence = approval_service.get_or_create_correction_sequence(
+            parsed_date.month, parsed_date.year
+        )
+        attendance.blocked_reason = reason
+
     db.add(attendance)
     db.commit()
     db.refresh(attendance)
@@ -190,6 +200,8 @@ async def create_attendance(
         "staff_id": attendance.staff_id,
         "date": attendance.date.isoformat() if attendance.date else None,
         "code": attendance.code,
+        "is_correction": attendance.is_correction,
+        "is_blocked": attendance.is_blocked,
     }
 
 
@@ -211,10 +223,21 @@ async def update_attendance(
     if not attendance:
         raise HTTPException(status_code=404, detail="Запис не знайдено")
 
-    # Check if the month is locked
+    # Primary check: if the record is marked as blocked in database, prevent editing
+    if attendance.is_blocked:
+        raise HTTPException(
+            status_code=400,
+            detail=attendance.blocked_reason or "Цей запис заблоковано для редагування"
+        )
+
+    # Secondary check: verify month is not locked (double safety)
     approval_service = TabelApprovalService(db)
     can_edit, reason = approval_service.can_edit_attendance(attendance.staff_id, attendance.date)
     if not can_edit:
+        # Also update the stored is_blocked field since it should be blocked
+        attendance.is_blocked = True
+        attendance.blocked_reason = reason
+        db.commit()
         raise HTTPException(status_code=400, detail=reason)
 
     attendance.code = code
@@ -246,7 +269,14 @@ async def delete_attendance(
     if not attendance:
         raise HTTPException(status_code=404, detail="Запис не знайдено")
 
-    # Check if the month is locked
+    # Primary check: if the record is marked as blocked in database, prevent deletion
+    if attendance.is_blocked:
+        raise HTTPException(
+            status_code=400,
+            detail=attendance.blocked_reason or "Цей запис заблоковано для видалення"
+        )
+
+    # Secondary check: verify month is not locked (double safety)
     approval_service = TabelApprovalService(db)
     can_edit, reason = approval_service.can_edit_attendance(attendance.staff_id, attendance.date)
     if not can_edit:
