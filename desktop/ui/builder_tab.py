@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QCheckBox,
     QTabWidget,
+    QStackedWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl, QDate
 from PyQt6.QtGui import QColor, QTextCharFormat, QBrush
@@ -204,23 +205,31 @@ class BuilderTab(QWidget):
 
     document_created = pyqtSignal()
     document_updated = pyqtSignal(int)  # document_id
+    task_completed = pyqtSignal() # Emitted when an ephemeral task is done (print/generate)
 
     # Статичний змінний для передачі даних реактивації з EmployeeCardDialog
     _reactivation_data: dict | None = None
 
-    def __init__(self):
-        """Ініалізує вкладку конструктора."""
+    def __init__(self, is_ephemeral: bool = False):
+        """
+        Ініалізує вкладку конструктора.
+        
+        Args:
+            is_ephemeral: Якщо True, вкладка призначена для одноразової дії
+                          і повинна сигналізувати про завершення.
+        """
         super().__init__()
+        self.is_ephemeral = is_ephemeral
         self._current_document_id: int | None = None
         self._current_status = DocumentStatus.DRAFT
         self._editor_state = WysiwygEditorState()
         self._parsed_dates: list[date] = []  # Список розпізнаних дат
         self._last_staff_count = 0  # Track staff count for dynamic updates
         self._staff_by_pib: dict[str, list] = {}  # Group staff by ПІБ
-        self._current_document_id: int | None = None
         self.booked_dates: set[date] = set()  # Заблоковані дати відпусток
         self.locked_info: list[dict] = []  # Інформація про заблоковані відпустки
         self._is_new_employee_mode: bool = False  # New employee mode flag
+        self._is_subposition_mode: bool = False  # Subposition mode flag
         self._new_employee_data: dict | None = None  # Store new employee data
         self._setup_ui()
         self._setup_focus_handlers()
@@ -267,6 +276,9 @@ class BuilderTab(QWidget):
 
         self._current_document_id = None
         self._clear_form()
+        
+        # Safety reset
+        self._is_subposition_mode = False
 
         # Reset mode for standard form always when creating a document for existing staff
         self._is_new_employee_mode = False
@@ -339,6 +351,23 @@ class BuilderTab(QWidget):
             self._reactivation_data = None
 
         self._update_preview()
+
+    def start_subposition_mode_for_staff(self, staff_id: int):
+        """
+        Активує режим сумісництва для вказаного співробітника.
+        
+        Args:
+            staff_id: ID співробітника
+        """
+        # Optimize switch: avoid full new_document logic which triggers heavy DB calls
+        self._current_document_id = None
+        self._clear_form()
+        
+        # Select staff silently to avoid _on_staff_selected -> _load_locked_dates (DB hit)
+        self.select_staff_by_id(staff_id, block_signals=True)
+        
+        # Enter subposition mode directly
+        self._enter_subposition_mode()
 
     def set_vacation_dates(self, start_date: date, end_date: date):
         """
@@ -538,6 +567,11 @@ class BuilderTab(QWidget):
         self.staff_info_label.setWordWrap(True)
         staff_layout.addRow(self.staff_info_label)
 
+        self.subposition_btn = QPushButton("➕ Додати сумісництво")
+        self.subposition_btn.clicked.connect(self._enter_subposition_mode)
+        self.subposition_btn.setToolTip("Створити документ для сумісництва поточного співробітника")
+        staff_layout.addRow(self.subposition_btn)
+
         # Load staff after creating the label
         self._load_staff()
 
@@ -555,17 +589,24 @@ class BuilderTab(QWidget):
         self.new_employee_position = QComboBox()
         # Store positions and their enum values
         self._position_values = [
-            ("Завідувач кафедри", "head_of_department"),
-            ("В.о. завідувача кафедри", "acting_head"),
             ("Професор", "professor"),
             ("Доцент", "associate_professor"),
             ("Старший викладач", "senior_lecturer"),
             ("Асистент", "lecturer"),
             ("Фахівець", "specialist"),
         ]
+        # Store positions and their enum values
+        self._all_position_values = [
+            ("Професор", "professor"),
+            ("Доцент", "associate_professor"),
+            ("Старший викладач", "senior_lecturer"),
+            ("Асистент", "lecturer"),
+            ("Фахівець", "specialist"),
+        ]
+        self._position_values = list(self._all_position_values)
         for display, value in self._position_values:
             self.new_employee_position.addItem(display)
-        self.new_employee_position.setCurrentIndex(4)  # Default to lecturer
+        self.new_employee_position.setCurrentIndex(3)  # Default to lecturer
         new_employee_layout.addRow("Посада:", self.new_employee_position)
 
         self.new_employee_rate = QComboBox()
@@ -573,24 +614,50 @@ class BuilderTab(QWidget):
         self.new_employee_rate.setCurrentIndex(3)  # Default to 1.0
         new_employee_layout.addRow("Ставка:", self.new_employee_rate)
 
+        self.emp_type_stack = QStackedWidget()
+        
         self.new_employee_employment_type = QComboBox()
-        self.new_employee_employment_type.addItems([
-            "Основне місце роботи",
-            "Зовнішній сумісник",
-            "Внутрішній сумісник",
-        ])
-        self._employment_type_values = ["main", "external", "internal"]
+        self._all_employment_type_values = [
+            ("Основне місце роботи", "main"),
+            ("Зовнішній сумісник", "external"),
+            ("Внутрішній сумісник", "internal"),
+        ]
+        self._employment_type_values = [] # Current active values
+        for display, value in self._all_employment_type_values:
+            self.new_employee_employment_type.addItem(display)
+            self._employment_type_values.append(value)
         self.new_employee_employment_type.setCurrentIndex(0)  # Default to main
-        new_employee_layout.addRow("Тип працевлаштування:", self.new_employee_employment_type)
+        
+        self.emp_type_label = QLabel("Внутрішній сумісник")
+        self.emp_type_label.setStyleSheet("font-weight: bold;")
+        
+        self.emp_type_stack.addWidget(self.new_employee_employment_type)
+        self.emp_type_stack.addWidget(self.emp_type_label)
+        
+        new_employee_layout.addRow("Тип працевлаштування:", self.emp_type_stack)
+
+        self.work_basis_stack = QStackedWidget()
 
         self.new_employee_work_basis = QComboBox()
-        self.new_employee_work_basis.addItems([
-            "Контракт",
-            "Конкурс",
-        ])
-        self._work_basis_values = ["contract", "competitive"]
+        self._all_work_basis_values = [
+            ("Контракт", "contract"),
+            ("Конкурс", "competitive"),
+            ("Заява", "statement"),
+        ]
+        self._work_basis_values = [] # Current active values
+        for display, value in self._all_work_basis_values:
+            self.new_employee_work_basis.addItem(display)
+            self._work_basis_values.append(value)
+            
         self.new_employee_work_basis.setCurrentIndex(0)  # Default to contract
-        new_employee_layout.addRow("Основа:", self.new_employee_work_basis)
+        
+        self.work_basis_label = QLabel("Заява")
+        self.work_basis_label.setStyleSheet("font-weight: bold;")
+        
+        self.work_basis_stack.addWidget(self.new_employee_work_basis)
+        self.work_basis_stack.addWidget(self.work_basis_label)
+        
+        new_employee_layout.addRow("Основа:", self.work_basis_stack)
 
         self.new_employee_term_start = QDateEdit()
         self.new_employee_term_start.setCalendarPopup(True)
@@ -615,6 +682,11 @@ class BuilderTab(QWidget):
         self.validation_status_label.setStyleSheet("font-weight: bold; padding: 10px;")
         new_employee_layout.addRow("", self.validation_status_label)
 
+        self.cancel_subposition_btn = QPushButton("❌ Скасувати сумісництво")
+        self.cancel_subposition_btn.clicked.connect(self._exit_subposition_mode)
+        self.cancel_subposition_btn.setVisible(False)
+        new_employee_layout.addRow(self.cancel_subposition_btn)
+
         # Connect new employee form signals to update preview
         self.new_employee_pib.textChanged.connect(self._on_field_changed)
         self.new_employee_position.currentIndexChanged.connect(self._on_field_changed)
@@ -629,6 +701,10 @@ class BuilderTab(QWidget):
         self.new_employee_group.setLayout(new_employee_layout)
         self.new_employee_group.setVisible(False)
         layout.addWidget(self.new_employee_group)
+
+        # Тип документа
+        # ... (rest of the code)
+
 
         # Тип документа
         doc_group = QGroupBox("📋 Тип документа")
@@ -1088,12 +1164,13 @@ class BuilderTab(QWidget):
             self._last_staff_count = db.query(Staff).filter(Staff.is_active == True).count()
         self._load_staff()
 
-    def select_staff_by_id(self, staff_id: int):
+    def select_staff_by_id(self, staff_id: int, block_signals: bool = False):
         """
         Вибирає співробітника за ID у випадаючому списку.
 
         Args:
             staff_id: ID співробітника
+            block_signals: Чи блокувати сигнали (для оптимізації)
         """
         if not hasattr(self, 'staff_input'):
             return
@@ -1108,10 +1185,19 @@ class BuilderTab(QWidget):
 
             # Find ПІБ in dropdown
             pib = staff.pib_nom
+            
+            if block_signals:
+                self.staff_input.blockSignals(True)
+                
             for i in range(self.staff_input.count()):
                 if self.staff_input.itemData(i) == pib:
                     self.staff_input.setCurrentIndex(i)
                     break
+            
+            if block_signals:
+                self.staff_input.blockSignals(False)
+                # Skip position selection and info update if signals were blocked
+                return
 
             # Select the correct position
             if self.position_input.isVisible():
@@ -1174,22 +1260,27 @@ class BuilderTab(QWidget):
             staff = db.query(Staff).filter(Staff.id == staff.id).first()
             if staff:
                 for doc in staff.documents:
-                    # Блокуємо всі активні статуси: на підписі, підписано, оброблено
-                    if doc.status in ('on_signature', 'signed', 'processed'):
+                    # Блокуємо всі активні статуси крім чернетки
+                    active_statuses = (
+                        'signed_by_applicant', 'approved_by_dispatcher', 'signed_dep_head',
+                        'agreed', 'signed_rector', 'scanned', 'processed'
+                    )
+                    if doc.status in active_statuses:
                         current = doc.date_start
                         while current <= doc.date_end:
                             booked_dates.add(current)
                             current += timedelta(days=1)
                         # Формуємо статус для відображення
-                        if doc.status == 'on_signature':
-                            status_text = "на підписі"
-                            status_icon = "✍️"
-                        elif doc.status == 'signed':
-                            status_text = "підписано"
-                            status_icon = "✅"
-                        else:
-                            status_text = "оброблено"
-                            status_icon = "📋"
+                        status_map = {
+                            'signed_by_applicant': ('підписав заявник', '✍️'),
+                            'approved_by_dispatcher': ('погоджено диспетчером', '👨‍💼'),
+                            'signed_dep_head': ('підписано зав. кафедри', '📋'),
+                            'agreed': ('погоджено', '🤝'),
+                            'signed_rector': ('підписано ректором', '🎓'),
+                            'scanned': ('відскановано', '📷'),
+                            'processed': ('в табелі', '📁'),
+                        }
+                        status_text, status_icon = status_map.get(doc.status, ('оброблено', '📋'))
                         locked_info.append({
                             'dates': f"{doc.date_start.strftime('%d.%m')} - {doc.date_end.strftime('%d.%m')}",
                             'status_text': status_text,
@@ -1260,6 +1351,8 @@ class BuilderTab(QWidget):
             "employment_pdf": "Прийом (PDF)",
         }
 
+
+
         # Templates that require rate > 1.0 (external совместительство)
         requires_external = {"term_extension_pdf"}
 
@@ -1269,6 +1362,19 @@ class BuilderTab(QWidget):
 
             # Skip non-document templates (like wysiwyg_editor.html)
             if template_name in ["wysiwyg_editor"]:
+                continue
+            
+            # -----------------------------------------------------------
+            # SUBPOSITION MODE: Strict filtering
+            # -----------------------------------------------------------
+            if getattr(self, '_is_subposition_mode', False):
+                # In subposition mode, ONLY allow employment_pdf
+                if template_name != "employment_pdf":
+                    continue
+            # -----------------------------------------------------------
+
+            # Skip templates that require rate > 1.0 for internal employees
+            if template_name in requires_external and not is_external:
                 continue
 
             # Skip templates that require rate > 1.0 for internal employees
@@ -1460,6 +1566,11 @@ class BuilderTab(QWidget):
             return
 
         is_employment = self._is_employment_doc_type()
+        
+        # In subposition mode, force employment UI
+        if self._is_subposition_mode:
+            is_employment = True
+            
         self._is_new_employee_mode = is_employment
 
         # Show/hide appropriate groups
@@ -1482,6 +1593,127 @@ class BuilderTab(QWidget):
         # Update preview
         if hasattr(self, 'web_view'):
             self._update_preview()
+
+    def _enter_subposition_mode(self, *args):
+        """Входить в режим створення сумісництва для поточного співробітника."""
+        self._is_subposition_mode = True
+        self._is_new_employee_mode = True
+
+        # Prepopulate data from current staff selection
+        current_staff_name = self.staff_input.currentText().strip()
+        self.new_employee_pib.setText(current_staff_name)
+
+        # Update position list (exclude specialist)
+        self.new_employee_position.clear()
+        self._position_values = [
+            p for p in self._all_position_values
+            if p[1] != "specialist"
+        ]
+        for display, value in self._position_values:
+            self.new_employee_position.addItem(display)
+        
+        # Set default position (Lecturer/Assistant)
+        target_default = "lecturer"
+        for i, (display, value) in enumerate(self._position_values):
+            if value == target_default:
+                self.new_employee_position.setCurrentIndex(i)
+                break
+
+        # Enable custom rate input
+        self.new_employee_rate.setEditable(True)
+        self.new_employee_rate.setEditText("0.5")
+
+        # Restrict Employment Type to Internal Subposition
+        self.new_employee_employment_type.clear()
+        self._employment_type_values = [
+            ("Внутрішній сумісник", "internal")
+        ]
+        # We need to flatten this to just values for internal logic usage if needed, but currently UI uses index.
+        # However, new_employee_flow uses self._employment_type_values[index]
+        # So we must update self._employment_type_values to be a list of keys matching the combo box items.
+        temp_values = []
+        for display, value in self._employment_type_values:
+            self.new_employee_employment_type.addItem(display)
+            temp_values.append(value)
+        self._employment_type_values = temp_values
+        self.new_employee_employment_type.setCurrentIndex(0)
+        
+        # Switch to Label View
+        self.emp_type_stack.setCurrentIndex(1)
+
+        # Restrict Work Basis to Statement
+        self.new_employee_work_basis.clear()
+        self._work_basis_values_tuple = [ # distinct name to avoid confusion
+            ("Заява", "statement")
+        ]
+        temp_basis_values = []
+        for display, value in self._work_basis_values_tuple:
+            self.new_employee_work_basis.addItem(display)
+            temp_basis_values.append(value)
+        self._work_basis_values = temp_basis_values
+        self.new_employee_work_basis.setCurrentIndex(0)
+        
+        # Switch to Label View
+        self.work_basis_stack.setCurrentIndex(1)
+        
+        # Rediscover templates to strictly filter for employment_pdf
+        self._discover_document_templates()
+        
+        # Force select the only available item (should be employment_pdf)
+        if self.doc_type_combo.count() > 0:
+            self.doc_type_combo.setCurrentIndex(0)
+        
+        self.doc_type_combo.setVisible(True) # Show it, but it will only have 1 option
+        self.cancel_subposition_btn.setVisible(True)
+
+        self._toggle_employment_mode()
+
+    def _exit_subposition_mode(self):
+        """Виходить з режиму створення сумісництва."""
+        self._is_subposition_mode = False
+        # Let toggle logic handle _is_new_employee_mode based on doc selection
+        
+        # Restore positions
+        self.new_employee_position.clear()
+        self._position_values = list(self._all_position_values)
+        for display, value in self._position_values:
+            self.new_employee_position.addItem(display)
+        
+        # Restore default index
+        self.new_employee_position.setCurrentIndex(3)
+
+        # Disable rate editing
+        self.new_employee_rate.setEditable(False)
+        self.new_employee_rate.setCurrentIndex(3) # Default 1.0
+
+        # Restore Employment Type
+        self.new_employee_employment_type.clear()
+        self._employment_type_values = []
+        for display, value in self._all_employment_type_values:
+            self.new_employee_employment_type.addItem(display)
+            self._employment_type_values.append(value)
+        self.new_employee_employment_type.setCurrentIndex(0)
+        self.emp_type_stack.setCurrentIndex(0) # Switch to Combo View
+
+        # Restore Work Basis
+        self.new_employee_work_basis.clear()
+        self._work_basis_values = []
+        for display, value in self._all_work_basis_values:
+            self.new_employee_work_basis.addItem(display)
+            self._work_basis_values.append(value)
+        self.new_employee_work_basis.setCurrentIndex(0)
+        self.work_basis_stack.setCurrentIndex(0) # Switch to Combo View
+
+        # Restore templates
+        self._discover_document_templates()
+
+        # Show doc selector
+        self.doc_type_combo.setVisible(True)
+        # Reset doc type to default (Vacation Paid usually 0)
+        self.doc_type_combo.setCurrentIndex(0)
+        
+        self.cancel_subposition_btn.setVisible(False)
+        self._toggle_employment_mode()
 
     def _update_payment_period(self):
         """Період оплати завжди автоматичний (застарілий метод)."""
@@ -1951,8 +2183,12 @@ class BuilderTab(QWidget):
         """Повертає текстову мітку статусу."""
         status_labels = {
             DocumentStatus.DRAFT: "Чернетка",
-            DocumentStatus.ON_SIGNATURE: "На підписі",
-            DocumentStatus.SIGNED: "Підписано",
+            DocumentStatus.SIGNED_BY_APPLICANT: "Підписав заявник",
+            DocumentStatus.APPROVED_BY_DISPATCHER: "Погоджено диспетчером",
+            DocumentStatus.SIGNED_DEP_HEAD: "Підписано зав. кафедри",
+            DocumentStatus.AGREED: "Погоджено",
+            DocumentStatus.SIGNED_RECTOR: "Підписано ректором",
+            DocumentStatus.SCANNED: "Відскановано",
             DocumentStatus.PROCESSED: "В табелі",
         }
         return status_labels.get(self._current_status, self._current_status.value)
@@ -2250,6 +2486,9 @@ class BuilderTab(QWidget):
                         "Друк",
                         f"Документ згенеровано та відправлено на друк:\n{file_path}"
                     )
+                    
+                    if self.is_ephemeral:
+                        self.task_completed.emit()
                 else:
                     QMessageBox.warning(self, "Помилка", f"PDF файл не знайдено:\n{file_path}")
 
@@ -2421,7 +2660,7 @@ class BuilderTab(QWidget):
                         raise Exception("Документ не знайдено")
 
                     # Перевіряємо чи документ вже відскановано
-                    if document.status in (DocumentStatus.SIGNED, DocumentStatus.PROCESSED):
+                    if document.status in (DocumentStatus.SCANNED, DocumentStatus.PROCESSED):
                         QMessageBox.warning(
                             self,
                             "Помилка",
@@ -2560,6 +2799,9 @@ class BuilderTab(QWidget):
                 if self._current_document_id:
                     self.document_updated.emit(self._current_document_id)
 
+                if self.is_ephemeral:
+                    self.task_completed.emit()
+
             except Exception as e:
                 QMessageBox.critical(self, "Помилка", f"Не вдалося згенерувати документ:\n{str(e)}")
             finally:
@@ -2662,19 +2904,31 @@ class BuilderTab(QWidget):
 
         # Оновлюємо колір статусу
         colors = {
-            DocumentStatus.DRAFT: "#3B82F6",
-            DocumentStatus.ON_SIGNATURE: "#F59E0B",
-            DocumentStatus.SIGNED: "#10B981",
-            DocumentStatus.PROCESSED: "#047857",
+            DocumentStatus.DRAFT: "#8c8c8f",
+            DocumentStatus.SIGNED_BY_APPLICANT: "#1890ff",
+            DocumentStatus.APPROVED_BY_DISPATCHER: "#13c2c2",
+            DocumentStatus.SIGNED_DEP_HEAD: "#52c41a",
+            DocumentStatus.AGREED: "#faad14",
+            DocumentStatus.SIGNED_RECTOR: "#722ed1",
+            DocumentStatus.SCANNED: "#eb2f96",
+            DocumentStatus.PROCESSED: "#006d75",
         }
         self.status_label.setStyleSheet(
             f"font-weight: bold; color: {colors.get(self._current_status, '#666')};"
         )
 
         # Показуємо/ховаємо кнопку відкликання
+        # Доступно для статусів від signed_by_applicant до signed_rector
+        rollback_statuses = (
+            DocumentStatus.SIGNED_BY_APPLICANT,
+            DocumentStatus.APPROVED_BY_DISPATCHER,
+            DocumentStatus.SIGNED_DEP_HEAD,
+            DocumentStatus.AGREED,
+            DocumentStatus.SIGNED_RECTOR,
+        )
         self.rollback_btn.setVisible(
             self._current_document_id is not None and
-            self._current_status in (DocumentStatus.ON_SIGNATURE, DocumentStatus.SIGNED)
+            self._current_status in rollback_statuses
         )
 
         # Оновлюємо статус в редакторі (з затримкою для завантаження JS)
@@ -2748,7 +3002,7 @@ class BuilderTab(QWidget):
             if document.doc_type != DocumentType.TERM_EXTENSION:
                 return False
 
-            if document.status != DocumentStatus.SIGNED:
+            if document.status != DocumentStatus.SIGNED_RECTOR:
                 return False
 
             staff = db.query(Staff).filter(Staff.id == document.staff_id).first()
@@ -4069,23 +4323,28 @@ class AutoDateRangeDialog(QDialog):
             booked_dates = set()
             locked_info = []  # Інформація про заблоковані дати
             for doc in staff.documents:
-                # Блокуємо всі активні статуси: на підписі, підписано, оброблено
+                # Блокуємо всі активні статуси крім чернетки
                 # Користувач не може отримати новий відпустку на вже зайняті дати
-                if doc.status in ('on_signature', 'signed', 'processed'):
+                active_statuses = (
+                    'signed_by_applicant', 'approved_by_dispatcher', 'signed_dep_head',
+                    'agreed', 'signed_rector', 'scanned', 'processed'
+                )
+                if doc.status in active_statuses:
                     current = doc.date_start
                     while current <= doc.date_end:
                         booked_dates.add(current)
                         current += timedelta(days=1)
                     # Формуємо статус для відображення
-                    if doc.status == 'on_signature':
-                        status_text = "на підписі"
-                        status_icon = "✍️"
-                    elif doc.status == 'signed':
-                        status_text = "підписано"
-                        status_icon = "✅"
-                    else:
-                        status_text = "оброблено"
-                        status_icon = "📋"
+                    status_map = {
+                        'signed_by_applicant': ('підписав заявник', '✍️'),
+                        'approved_by_dispatcher': ('погоджено диспетчером', '👨‍💼'),
+                        'signed_dep_head': ('підписано зав. кафедри', '📋'),
+                        'agreed': ('погоджено', '🤝'),
+                        'signed_rector': ('підписано ректором', '🎓'),
+                        'scanned': ('відскановано', '📷'),
+                        'processed': ('в табелі', '📁'),
+                    }
+                    status_text, status_icon = status_map.get(doc.status, ('оброблено', '📋'))
                     locked_info.append({
                         'dates': f"{doc.date_start.strftime('%d.%m')} - {doc.date_end.strftime('%d.%m')}",
                         'status_text': status_text,

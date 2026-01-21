@@ -129,7 +129,8 @@ class WysiwygBridge(QObject):
 
         Args:
             web_view: QWebEngineView інстанс
-            status: Статус (draft, on_signature, signed, processed)
+            status: Статус (draft, signed_by_applicant, approved_by_dispatcher,
+                       signed_dep_head, agreed, signed_rector, scanned, processed)
             status_text: Текст статусу (опціонально)
         """
         script = f"""

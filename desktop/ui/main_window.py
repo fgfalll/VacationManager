@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QMenuBar,
     QMenu,
     QDialog,
+    QTabBar,
 )
 
 from desktop.ui.staff_tab import StaffTab
@@ -62,6 +63,17 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.schedule_tab, "Графік відпусток")
         self.tabs.addTab(self.builder_tab, "Конструктор заяв")
         self.tabs.addTab(self.tabel_tab, "📋 Табель")
+
+        # Enable closing tabs (for ephemeral builder tabs)
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self._on_tab_close_requested)
+
+        # Hide close buttons for persistent tabs
+        # Indices 0, 1, 2, 3 correspond to the tabs added above
+        self.tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
+        self.tabs.tabBar().setTabButton(1, QTabBar.ButtonPosition.RightSide, None)
+        self.tabs.tabBar().setTabButton(2, QTabBar.ButtonPosition.RightSide, None)
+        self.tabs.tabBar().setTabButton(3, QTabBar.ButtonPosition.RightSide, None)
 
         # Refresh data on app start (тільки якщо не використовуємо сплеш-скрін)
         if not self._show_splash:
@@ -132,6 +144,57 @@ class MainWindow(QMainWindow):
         # Trigger the subposition document creation flow in builder
         self.builder_tab.start_subposition_document()
 
+    def open_temporary_builder_tab(self, workflow_type: str, staff_id: int | None = None):
+        """
+        Відкриває тимчасову вкладку конструктора для специфічного завдання.
+        
+        Args:
+            workflow_type: Тип завдання ("new_employee" або "subposition")
+            staff_id: ID співробітника (для сумісництва)
+        """
+        # Create new builder instance
+        builder = BuilderTab(is_ephemeral=True)
+        
+        # Configure based on workflow
+        title = "Конструктор"
+        if workflow_type == "new_employee":
+            title = "Конструктор заяв (прийом)"
+            # Initialize for new employee
+            builder.start_new_employee_document()
+            
+        elif workflow_type == "subposition":
+            title = "Конструктор заяв (сумісництво)"
+            if staff_id:
+                builder.start_subposition_mode_for_staff(staff_id)
+        
+        # Connect signals
+        builder.document_created.connect(self.staff_tab.refresh_documents)
+        
+        # Auto-close logic
+        def on_completed():
+            index = self.tabs.indexOf(builder)
+            if index != -1:
+                self.tabs.removeTab(index)
+                builder.deleteLater()
+                
+        builder.task_completed.connect(on_completed)
+        
+        # Add and focus
+        index = self.tabs.addTab(builder, title)
+        self.tabs.setCurrentIndex(index)
+
+    def _on_tab_close_requested(self, index: int):
+        """
+        Обробляє запит на закриття вкладки.
+        Дозволяє закривати тільки тимчасові вкладки (is_ephemeral=True).
+        """
+        widget = self.tabs.widget(index)
+        
+        # Перевіряємо, чи це тимчасова вкладка
+        if isinstance(widget, BuilderTab) and hasattr(widget, 'is_ephemeral') and widget.is_ephemeral:
+            self.tabs.removeTab(index)
+            widget.deleteLater()
+            
     def _show_about(self):
         """Показує інформацію про програму."""
         from PyQt6.QtWidgets import QMessageBox

@@ -434,17 +434,8 @@ class StaffTab(QWidget):
         """
         parent = self.parent()
         while parent:
-            if hasattr(parent, 'tabs'): # MainWindow typically has 'tabs' widget
-                # Switch to Builder tab (index 2 usually, need to verify)
-                # Better: find tab by type/name
-                tabs = parent.tabs
-                for i in range(tabs.count()):
-                    if tabs.tabText(i) == "Конструктор заяв":
-                        tabs.setCurrentIndex(i)
-                        builder_tab = tabs.widget(i)
-                        if hasattr(builder_tab, 'start_new_employee_document'):
-                            builder_tab.start_new_employee_document()
-                        break
+            if hasattr(parent, 'open_temporary_builder_tab'):
+                parent.open_temporary_builder_tab("new_employee")
                 return
             parent = parent.parent()
 
@@ -1060,15 +1051,7 @@ class StaffTab(QWidget):
                 break
             parent = parent.parent()
 
-    def _on_subposition_via_document(self):
-        """Викликається при додаванні сумісництва через документ."""
-        # Get main window and navigate to builder tab with subposition document
-        parent = self.parent()
-        while parent:
-            if hasattr(parent, 'switch_to_builder_for_subposition'):
-                parent.switch_to_builder_for_subposition()
-                break
-            parent = parent.parent()
+
 
     def refresh_documents(self):
         """Оновлює список документів (слот для сигналу).
@@ -1081,6 +1064,24 @@ class StaffTab(QWidget):
     def refresh(self):
         """Оновлює дані вкладки."""
         self._load_data()
+
+    def _on_subposition_via_document(self):
+        """Обробляє сигнал створення документа сумісництва з картки."""
+        dialog = self.sender()  # Це має бути EmployeeCardDialog
+        if not dialog:
+            return
+            
+        staff_id = dialog.staff_id
+        dialog.close()
+        
+        # Navigate to builder and activate subposition mode
+        # Navigate to builder and activate subposition mode
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'open_temporary_builder_tab'):
+                parent.open_temporary_builder_tab("subposition", staff_id)
+                return
+            parent = parent.parent()
 
 
 class StaffDialog(QDialog):
@@ -1371,3 +1372,4 @@ class StaffDialog(QDialog):
             QMessageBox.critical(self, "Помилка", f"Помилка цілісності даних: {e}")
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося зберегти: {e}")
+

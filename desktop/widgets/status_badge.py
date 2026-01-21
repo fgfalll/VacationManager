@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtCore import Qt
 from shared.enums import DocumentStatus
-from shared.constants import STATUS_COLORS, STATUS_ICONS
+from shared.constants import STATUS_COLORS, STATUS_ICONS, STATUS_LABELS
 
 
 class StatusBadge(QLabel):
@@ -32,9 +32,10 @@ class StatusBadge(QLabel):
         Args:
             status: Новий статус
         """
-        color = STATUS_COLORS.get(status.value, "#888888")
-        icon = STATUS_ICONS.get(status.value, "📄")
-        text = status.value.replace("_", " ").title()
+        status_value = status.value
+        color = STATUS_COLORS.get(status_value, "#888888")
+        icon = STATUS_ICONS.get(status_value, "📄")
+        text = STATUS_LABELS.get(status_value, status_value.replace("_", " ").title())
 
         self.setText(f"{icon} {text}")
         self.setStyleSheet(f"""
@@ -47,3 +48,4 @@ class StatusBadge(QLabel):
                 font-size: 11px;
             }}
         """)
+

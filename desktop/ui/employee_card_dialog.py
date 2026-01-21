@@ -32,6 +32,7 @@ import os
 
 from shared.enums import StaffActionType, DocumentType, DocumentStatus, StaffPosition, get_position_label
 from shared.absence_types import CODE_TO_ABSENCE_NAME
+from shared.constants import STATUS_LABELS, STATUS_COLORS, STATUS_ICONS, STATUS_DESCRIPTIONS
 from backend.services.tabel_service import MONTHS_UKR
 
 
@@ -125,7 +126,11 @@ class EmployeeCardDialog(QDialog):
 
             signed_docs = db.query(Document).filter(
                 Document.staff_id == staff.id,
-                Document.status == DocumentStatus.SIGNED
+                Document.status.in_([
+                    DocumentStatus.SIGNED_RECTOR,
+                    DocumentStatus.SCANNED,
+                    DocumentStatus.PROCESSED,
+                ])
             ).count()
             self.has_signed_document = signed_docs > 0
 
@@ -327,13 +332,17 @@ class EmployeeCardDialog(QDialog):
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setRowCount(len(self.vacation_documents))
 
-        # Status colors
+        # Status colors from shared constants
         status_colors = {
-            "draft": QColor("#E0E0E0"),       # Сірий - чернетка
-            "on_signature": QColor("#FFE082"), # Жовтий - на підписі
-            "signed": QColor("#C8E6C9"),       # Зелений - підписано
-            "processed": QColor("#81D4FA"),    # Блакитний - оброблено
-            "not_confirmed": QColor("#FFCDD2"), # Червоний - не підтверджено (немає скану)
+            "draft": QColor("#E0E0E0"),          # Сірий - чернетка
+            "signed_by_applicant": QColor("#BBDEFB"),  # Синій - підписав заявник
+            "approved_by_dispatcher": QColor("#B3E5FC"), # Блакитний - погоджено диспетчером
+            "signed_dep_head": QColor("#C8E6C9"),       # Зелений - підписано зав. кафедри
+            "agreed": QColor("#FFE082"),               # Помаранчевий - погоджено
+            "signed_rector": QColor("#E1BEE7"),         # Фіолетовий - підписано ректором
+            "scanned": QColor("#F8BBD0"),               # Маджента - відскановано
+            "processed": QColor("#81D4FA"),             # Темно-блакитний - в табелі
+            "not_confirmed": QColor("#FFCDD2"),         # Червоний - не підтверджено (немає скану)
         }
 
         for row, doc in enumerate(self.vacation_documents):
@@ -383,9 +392,13 @@ class EmployeeCardDialog(QDialog):
             # Статус з кольором
             status_labels = {
                 "draft": "Чернетка",
-                "on_signature": "На підписі",
-                "signed": "Підписано",
-                "processed": "Оброблено",
+                "signed_by_applicant": "Підписав заявник",
+                "approved_by_dispatcher": "Погоджено диспетчером",
+                "signed_dep_head": "Підписано зав. кафедри",
+                "agreed": "Погоджено",
+                "signed_rector": "Підписано ректором",
+                "scanned": "Відскановано",
+                "processed": "В табелі",
                 "not_confirmed": "Не підтверджено",
             }
 
@@ -421,12 +434,9 @@ class EmployeeCardDialog(QDialog):
             button_layout.setContentsMargins(0, 0, 0, 0)
             button_layout.setSpacing(1) # Small spacing line
 
-            # Перевіряємо чи документ відскановано (не можна редагувати/видаляти)
-            # Logic for disabling buttons: same as before?
-            # "fully signed" and "scanned" usually means finalized.
-            is_locked = display_status_key in ('processed', 'signed') and has_scan
-            # Wait, if displayed as processed, it is locked.
-            # If draft/on_signature -> unlocked.
+            # Перевіряємо чи документ заблоковано (скановано або оброблено - не можна редагувати/видаляти)
+            locked_statuses = ('signed_rector', 'scanned', 'processed')
+            is_locked = display_status_key in locked_statuses or raw_status == 'processed'
             
             # Additional check: raw status 'processed' means applied to tabel.
             if raw_status == 'processed':
@@ -586,8 +596,14 @@ class EmployeeCardDialog(QDialog):
                 db.commit()
                 QMessageBox.information(self, "Успіх", "Документ видалено")
 
-            elif doc.status == DocumentStatus.ON_SIGNATURE:
-                # На підписі - показуємо діалог введення причини
+            elif doc.status in (
+                DocumentStatus.SIGNED_BY_APPLICANT,
+                DocumentStatus.APPROVED_BY_DISPATCHER,
+                DocumentStatus.SIGNED_DEP_HEAD,
+                DocumentStatus.AGREED,
+                DocumentStatus.SIGNED_RECTOR,
+            ):
+                # На етапах підписання - показуємо діалог введення причини
                 reason_dialog = QDialog(self)
                 reason_dialog.setWindowTitle("Причина відкату")
                 reason_dialog.setMinimumWidth(400)
@@ -620,11 +636,11 @@ class EmployeeCardDialog(QDialog):
                 doc_service.rollback_to_draft(doc, reason)
                 QMessageBox.information(self, "Успіх", "Документ повернуто в чернетку")
 
-            elif doc.status in (DocumentStatus.SIGNED, DocumentStatus.PROCESSED):
+            elif doc.status in (DocumentStatus.SCANNED, DocumentStatus.PROCESSED):
                 QMessageBox.warning(
                     self,
                     "Помилка",
-                    "Неможливо видалити підписаний або оброблений документ."
+                    "Неможливо видалити відсканований або оброблений документ."
                 )
                 return
 
@@ -1982,7 +1998,7 @@ class EmployeeCardDialog(QDialog):
                     date_end=data["date_end"],
                     days_count=data["days_count"],
                     payment_period="Скан завантажено вручну",
-                    status=DocumentStatus.SIGNED,  # Already signed by default
+                    status=DocumentStatus.SCANNED,  # Scanned document
                 )
 
                 # Set workflow timestamps to indicate it's a scanned document
