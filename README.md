@@ -1,8 +1,8 @@
-# VacationManager v7.7.1
+# VacationManager v7.7.3
 
 Система управління відпустками та табелем обліку робочого часу для університетської кафедри.
 
-## Версія Latest (v7.7.1) - Employment Document Flow & New Employee Creation
+## Версія Latest (v7.7.3) - Stale Document Tracking & Bulk Operations
 
 ### Проект
 
@@ -46,6 +46,26 @@
 ---
 
 ## Останні оновлення (січень 2026)
+
+### v7.7.3 - Stale Document Tracking & Bulk Operations
+
+**Stale Document Monitoring:**
+- **Database Fields:** Додано поля `status_changed_at`, `stale_notification_count`, `stale_explanation` до таблиці documents
+- **StaleDocumentService:** Сервіс для моніторингу документів, статус яких не змінювався більше 1 дня
+- **Automatic Detection:** Автоматичне виявлення застарілих документів з керованими статусами (DRAFT, ON_SIGNATURE, AGREED, SIGNED, SCANNED)
+- **Notification System:** Лічильник сповіщень з лімітом (3), після якого вимагається дія користувача
+- **Resolution Actions:** Можливість пояснити затримку або видалити застарілий документ
+
+**Bulk Document Operations:**
+- **Validation Endpoint:** `/api/bulk/validate` — перевірка можливості масового створення документів для списку співробітників
+- **Generate Endpoint:** `/api/bulk/generate` — масове створення документів для валідних співробітників
+- **Staff Validation:** Перевірка конфліктів дат, активності співробітників, наявності необхідних даних
+- **Department Head Access:** Можливості доступні лише завідувачам кафедри
+
+**Integration Tests:**
+- Тести для stale document tracking (test_stale_documents.py)
+- Тести для bulk operations (test_document_scenarios.py, test_new_endpoints.py)
+- Тести для desktop simulation (test_desktop_simulation.py)
 
 ### v7.7.1 - Employment Document Flow & New Employee Creation
 
@@ -456,6 +476,11 @@ VacationManager/
 │   │   ├── schedule.py
 │   │   ├── responses.py
 │   │   ├── staff.py          # +PIB validation, term date validation
+│   │   ├── document.py       # +EmploymentCreate, new_employee_data field, +BulkValidationRequest, +BulkGenerateRequest
+│   ├── schemas/           # Pydantic schemas
+│   │   ├── schedule.py
+│   │   ├── responses.py
+│   │   ├── staff.py          # +PIB validation, term date validation
 │   │   ├── document.py       # +EmploymentCreate, new_employee_data field
 │   │   ├── attendance.py
 │   │   ├── tabel.py
@@ -466,6 +491,7 @@ VacationManager/
 │   │   ├── validation_service.py
 │   │   ├── document_service.py
 │   │   ├── bulk_document_service.py
+│   │   ├── stale_document_service.py  # НОВЕ - stale document monitoring
 │   │   ├── schedule_service.py
 │   │   ├── staff_service.py          # +create_staff_from_document, +process_term_extension
 │   │   ├── date_parser.py
@@ -482,6 +508,7 @@ VacationManager/
 │   │   │   ├── tabel.py
 │   │   │   ├── auth.py         # НОВЕ - JWT auth endpoints
 │   │   │   ├── dashboard.py    # НОВЕ
+│   │   │   ├── bulk.py         # НОВЕ - bulk operations
 │   │   │   └── settings.py     # НОВЕ
 │   │   └── dependencies.py
 │   ├── templates/         # HTML templates для документів
@@ -537,9 +564,14 @@ VacationManager/
 ├── tests/
 │   ├── unit/
 │   └── integration/
+│       ├── test_desktop_simulation.py    # НОВЕ
+│       ├── test_document_scenarios.py    # НОВЕ
+│       ├── test_new_endpoints.py         # НОВЕ
+│       └── test_stale_documents.py       # НОВЕ
 ├── alembic/               # Database migrations
 │   └── versions/
-│       └── 20260117_*     # НОВЕ - remove unique constraint
+│       ├── 20260120_*     # НОВЕ - add stale tracking fields
+│       └── 20260117_*     # remove unique constraint
 ├── run.py                 # НОВЕ - Main entry point
 ├── package.json           # НОВЕ - Root package.json
 └── requirements.txt
@@ -653,6 +685,13 @@ VacationManager/
 |--------|----------|------|-------------|
 | GET | `/` | ✓ | Поточні налаштування |
 | PUT | `/` | ✓ | Оновити налаштування |
+
+### Bulk (`/bulk`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/validate` | Head | Перевірити можливість масового створення документів |
+| POST | `/generate` | Head | Масово створити документи для списку співробітників |
 
 ### Upload (`/upload`)
 
@@ -914,7 +953,7 @@ flowchart TB
 
 ## Ліцензія
 
-© 2025-2026 VacationManager v7.7.1
+© 2025-2026 VacationManager v7.7.3
 
 ---
 
@@ -922,6 +961,7 @@ flowchart TB
 
 | Версія | Дата | Зміни |
 |--------|------|-------|
+| v7.7.3 | Січень 2026 | **Stale Document Tracking** (моніторинг застарілих документів), **Bulk Operations** (масове створення документів), integration tests |
 | v7.7.1 | Січень 2026 | **Employment Document Flow**, автоматичне створення співробітників з документів про прийом, валідація ПІБ, унікальність завідувача кафедри, покращення UI |
 | v7.4.5 | Січень 2026 | **Повноцінний WebUI (React/TS + Vite)**, нові API routes (auth, attendance, dashboard, settings, tabel), document renderer service, розширені шаблони |
 | v7.2.0 | Січень 2026 | Покращена архівація документів, StaffPosition enum, PIB у давальному відмінку |
