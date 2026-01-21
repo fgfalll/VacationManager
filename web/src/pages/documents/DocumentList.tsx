@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Table,
   Card,
@@ -13,6 +13,7 @@ import {
   message,
   Popconfirm,
   Tooltip,
+  Radio,
 } from 'antd';
 import {
   PlusOutlined,
@@ -26,7 +27,7 @@ import {
   LockOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/axios';
 import { endpoints } from '../../api/endpoints';
 import { Document, DocumentStatus, PaginatedResponse } from '../../api/types';
@@ -34,6 +35,34 @@ import { format } from 'date-fns';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
+
+
+import ResolveStaleModal from './ResolveStaleModal';
+
+// Ukrainian status labels for documents - full workflow (no legacy)
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Чернетка',
+  signed_by_applicant: 'Підписав заявник',
+  approved_by_dispatcher: 'Погоджено диспетчером',
+  signed_dep_head: 'Підписано зав. кафедри',
+  agreed: 'Погоджено',
+  signed_rector: 'Підписано ректором',
+  scanned: 'Відсконовано',
+  processed: 'В табелі',
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  draft: 'default',
+  signed_by_applicant: 'blue',
+  approved_by_dispatcher: 'cyan',
+  signed_dep_head: 'green',
+  agreed: 'orange',
+  signed_rector: 'purple',
+  scanned: 'magenta',
+  processed: 'success',
+};
+
+const normalizeStatus = (status: string) => status?.toLowerCase().replace(/ /g, '_') || '';
 
 // Transform backend response to frontend format
 const transformDocument = (doc: any) => ({
@@ -52,21 +81,61 @@ const transformDocument = (doc: any) => ({
 
 const DocumentList: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | undefined>();
+  const [filterParam, setFilterParam] = useState<string | undefined>();
   const [dateRange, setDateRange] = useState<[Date, Date] | undefined>();
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
+  const [viewMode, setViewMode] = useState<'all' | 'stale'>('all');
+  const [resolveModalOpen, setResolveModalOpen] = useState(false);
+  const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+
+  // Sync status filter and filter param with URL params
+  useEffect(() => {
+    const statusParam = searchParams.get('status');
+    const filter = searchParams.get('filter');
+
+    if (statusParam) {
+      setStatusFilter(statusParam as DocumentStatus);
+      setFilterParam(undefined);
+    } else {
+      setStatusFilter(undefined);
+    }
+
+    if (filter) {
+      setFilterParam(filter);
+    }
+  }, [searchParams]);
+
+  // Update URL when status filter changes
+  const handleStatusChange = (value: DocumentStatus | undefined) => {
+    setStatusFilter(value);
+    setFilterParam(undefined);
+    setPagination({ ...pagination, current: 1 }); // Reset to first page
+
+    // Clear existing params and set new status
+    searchParams.delete('filter');
+    if (value) {
+      searchParams.set('status', value);
+    } else {
+      searchParams.delete('status');
+    }
+    setSearchParams(searchParams);
+  };
 
   const { data: documentsData, isLoading } = useQuery<PaginatedResponse<Document>>({
-    queryKey: ['documents', pagination, searchTerm, statusFilter, dateRange],
+    queryKey: ['documents', pagination, searchTerm, statusFilter, dateRange, filterParam, viewMode],
     queryFn: async () => {
-      const response = await apiClient.get(endpoints.documents.list, {
+      const endpoint = viewMode === 'stale' ? endpoints.documents.stale : endpoints.documents.list;
+      const response = await apiClient.get(endpoint, {
         params: {
           page: pagination.current,
           page_size: pagination.pageSize,
           search: searchTerm,
           status: statusFilter,
+          filter: filterParam,
           start_date: dateRange?.[0] ? format(dateRange[0], 'yyyy-MM-dd') : undefined,
           end_date: dateRange?.[1] ? format(dateRange[1], 'yyyy-MM-dd') : undefined,
         },
@@ -78,6 +147,13 @@ const DocumentList: React.FC = () => {
       };
     },
   });
+
+  // Reset pagination when view mode changes
+  const handleViewModeChange = (mode: 'all' | 'stale') => {
+    setViewMode(mode);
+    setPagination({ ...pagination, current: 1 });
+  };
+
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -93,29 +169,18 @@ const DocumentList: React.FC = () => {
   });
 
   const getStatusColor = (status: DocumentStatus) => {
-    const colors: Record<DocumentStatus, string> = {
-      draft: 'default',        // Gray
-      on_signature: 'orange',  // Orange (warning/active)
-      agreed: 'blue',          // Blue
-      signed: 'cyan',          // Cyan
-      scanned: 'purple',       // Purple
-      processed: 'green',      // Green (success)
-
-      // Legacy mappings
-      pending_hr: 'processing',
-      pending_director: 'processing',
-      pending_manager: 'processing',
-      pending_signature: 'warning',
-      pending_scan: 'warning',
-      approved: 'success',
-      rejected: 'error',
-      cancelled: 'default',
-    } as any;
-    return colors[status] || 'default';
+    const normalized = normalizeStatus(status);
+    return STATUS_COLORS[normalized] || 'default';
   };
 
   const getStatusLabel = (status: DocumentStatus) => {
-    return status.replace(/_/g, ' ').toUpperCase();
+    const normalized = normalizeStatus(status);
+    return STATUS_LABELS[normalized] || status.replace(/_/g, ' ').toUpperCase();
+  };
+
+  const handleResolve = (docId: number) => {
+    setSelectedDocId(docId);
+    setResolveModalOpen(true);
   };
 
   const columns = [
@@ -167,13 +232,47 @@ const DocumentList: React.FC = () => {
       render: (date: string) => date ? format(new Date(date), 'MMM dd, yyyy') : '-',
     },
     {
+      title: 'Created',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (date: string) => date ? format(new Date(date), 'MMM dd, yyyy') : '-',
+    },
+    ...(viewMode === 'stale' ? [{
+      title: 'Days Stale',
+      key: 'stale_info',
+      render: (_: unknown, record: Document) => (
+        <Space direction="vertical" size={0}>
+          <Tag color="error">{record.stale_info?.days_stale || 0} days</Tag>
+          {record.stale_info?.notification_count > 0 && (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {record.stale_info.notification_count} warnings
+            </Text>
+          )}
+        </Space>
+      ),
+    }] : []),
+    {
       title: 'Actions',
       key: 'actions',
       width: 150,
       render: (_: unknown, record: Document) => {
         const isBlocked = record.is_blocked;
+        const isStale = viewMode === 'stale';
 
-        const items = [
+        if (isStale) {
+          return (
+            <Button
+              type="primary"
+              danger
+              onClick={() => handleResolve(record.id)}
+            >
+              Resolve
+            </Button>
+          );
+        }
+
+        // Standard actions
+        const items: any[] = [
           {
             key: 'view',
             icon: <EyeOutlined />,
@@ -202,7 +301,7 @@ const DocumentList: React.FC = () => {
             label: 'Delete',
             danger: true,
             onClick: () => deleteMutation.mutate(record.id),
-          });
+          } as any);
         }
 
         return (
@@ -232,23 +331,31 @@ const DocumentList: React.FC = () => {
     },
   ];
 
+
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}>Documents</Title>
+        <Space>
+          <Title level={3} style={{ margin: 0 }}>Документи</Title>
+          <Radio.Group value={viewMode} onChange={(e) => handleViewModeChange(e.target.value)} buttonStyle="solid">
+            <Radio.Button value="all">Всі документи</Radio.Button>
+            <Radio.Button value="stale">Attention Needed</Radio.Button>
+          </Radio.Group>
+        </Space>
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => navigate('/documents/create')}
         >
-          Create Document
+          Створити документ
         </Button>
       </div>
 
       <Card>
         <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
           <Input
-            placeholder="Search by title"
+            placeholder="Пошук за назвою"
             prefix={<SearchOutlined />}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -256,16 +363,18 @@ const DocumentList: React.FC = () => {
             allowClear
           />
           <Select
-            placeholder="Filter by status"
+            placeholder="Фільтр за статусом"
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={handleStatusChange}
             allowClear
             style={{ width: 180 }}
           >
             <Select.Option value="draft">Draft</Select.Option>
-            <Select.Option value="on_signature">On Signature</Select.Option>
+            <Select.Option value="signed_by_applicant">Signed by Applicant</Select.Option>
+            <Select.Option value="approved_by_dispatcher">Approved by Dispatcher</Select.Option>
+            <Select.Option value="signed_dep_head">Signed by Dept Head</Select.Option>
             <Select.Option value="agreed">Agreed</Select.Option>
-            <Select.Option value="signed">Signed</Select.Option>
+            <Select.Option value="signed_rector">Signed by Rector</Select.Option>
             <Select.Option value="scanned">Scanned</Select.Option>
             <Select.Option value="processed">Processed</Select.Option>
           </Select>
@@ -294,6 +403,20 @@ const DocumentList: React.FC = () => {
           }}
         />
       </Card>
+
+      <ResolveStaleModal
+        open={resolveModalOpen}
+        onCancel={() => {
+          setResolveModalOpen(false);
+          setSelectedDocId(null);
+        }}
+        documentId={selectedDocId}
+        onSuccess={() => {
+          setResolveModalOpen(false);
+          setSelectedDocId(null);
+          queryClient.invalidateQueries({ queryKey: ['documents'] });
+        }}
+      />
     </div>
   );
 };

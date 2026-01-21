@@ -196,22 +196,14 @@ const DocumentDetail: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
-      draft: 'default',        // Gray
-      on_signature: 'orange',  // Orange (warning/active)
-      agreed: 'blue',          // Blue
-      signed: 'cyan',          // Cyan
-      scanned: 'purple',       // Purple
-      processed: 'green',      // Green (success)
-
-      // Keep legacy/other mappings just in case
-      pending_hr: 'processing',
-      pending_director: 'processing',
-      pending_manager: 'processing',
-      pending_signature: 'warning',
-      pending_scan: 'warning',
-      approved: 'success',
-      rejected: 'error',
-      cancelled: 'default',
+      draft: 'default',                   // Gray
+      signed_by_applicant: 'blue',        // Blue
+      approved_by_dispatcher: 'cyan',     // Cyan
+      signed_dep_head: 'lime',            // Green/Lime
+      agreed: 'orange',                   // Orange
+      signed_rector: 'purple',            // Purple
+      scanned: 'magenta',                 // Magenta
+      processed: 'success',               // Green
     };
     return colors[status] || 'default';
   };
@@ -248,7 +240,7 @@ const DocumentDetail: React.FC = () => {
         onClick={() => navigate('/documents')}
         style={{ marginBottom: 16, paddingLeft: 0 }}
       >
-        Back to Documents
+        Назад до документів
       </Button>
 
       <Row gutter={[16, 16]}>

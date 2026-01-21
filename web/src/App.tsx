@@ -40,6 +40,7 @@ const App: React.FC = () => {
         <Route path="/schedule" element={<ScheduleView />} />
         <Route path="/attendance" element={<AttendanceView />} />
         <Route path="/scan-upload" element={<ScanUpload />} />
+        <Route path="/documents/upload" element={<ScanUpload />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
 

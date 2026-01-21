@@ -15,10 +15,11 @@ import {
   Row,
   Col,
   Alert,
+  Tooltip,
 } from 'antd';
 import { PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ReloadOutlined, FileTextOutlined, UploadOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/axios';
 import { endpoints } from '../../api/endpoints';
 import { Staff, StaffCreateRequest, StaffUpdateRequest, PaginatedResponse } from '../../api/types';
@@ -38,6 +39,7 @@ const { Option } = Select;
 const StaffList: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReactivateModalOpen, setIsReactivateModalOpen] = useState(false);
@@ -46,16 +48,19 @@ const StaffList: React.FC = () => {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10 });
   const [form] = Form.useForm();
 
+  // Get filter from URL params
+  const filter = searchParams.get('filter');
+
   const { data: staffData, isLoading } = useQuery<PaginatedResponse<Staff>>({
-    queryKey: ['staff', pagination, searchTerm],
+    queryKey: ['staff', pagination, searchTerm, filter],
     queryFn: async () => {
-      const response = await apiClient.get(endpoints.staff.list, {
-        params: {
-          skip: (pagination.current - 1) * pagination.pageSize,
-          limit: pagination.pageSize,
-          search: searchTerm,
-        },
-      });
+      const params: Record<string, string | number | undefined> = {
+        skip: (pagination.current - 1) * pagination.pageSize,
+        limit: pagination.pageSize,
+        search: searchTerm,
+        filter: filter || undefined,
+      };
+      const response = await apiClient.get(endpoints.staff.list, { params });
       return {
         data: response.data.items || [],
         total: response.data.total || 0,
@@ -309,16 +314,20 @@ const StaffList: React.FC = () => {
       key: 'actions',
       render: (_: unknown, record: Staff) => (
         <Space>
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={() => navigate(`/staff/${record.id}`)}
-          />
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          />
+          <Tooltip title="Переглянути">
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => navigate(`/staff/${record.id}`)}
+            />
+          </Tooltip>
+          <Tooltip title="Редагувати">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            />
+          </Tooltip>
           {record.is_active ? (
             <Popconfirm
               title="Деактивувати співробітника?"
@@ -327,17 +336,19 @@ const StaffList: React.FC = () => {
               okText="Так"
               cancelText="Ні"
             >
-              <Button type="text" danger icon={<DeleteOutlined />} />
+              <Tooltip title="Деактивувати">
+                <Button type="text" danger icon={<DeleteOutlined />} />
+              </Tooltip>
             </Popconfirm>
           ) : (
-            <Button
-              type="text"
-              icon={<ReloadOutlined />}
-              onClick={() => handleReactivate(record)}
-              style={{ color: '#52c41a' }}
-            >
-              Реактивувати
-            </Button>
+            <Tooltip title="Реактивувати">
+              <Button
+                type="text"
+                icon={<ReloadOutlined />}
+                onClick={() => handleReactivate(record)}
+                style={{ color: '#52c41a' }}
+              />
+            </Tooltip>
           )}
         </Space>
       ),
@@ -347,7 +358,14 @@ const StaffList: React.FC = () => {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}>Співробітники</Title>
+        <Title level={3} style={{ margin: 0 }}>
+          Співробітники
+          {filter === 'expiring' && (
+            <Tag color="red" style={{ marginLeft: 12 }}>
+              Контракти, що скоро закінчуються
+            </Tag>
+          )}
+        </Title>
         <Button
           type="primary"
           icon={<PlusOutlined />}

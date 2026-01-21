@@ -49,7 +49,7 @@ const Sidebar: React.FC = () => {
           {
             key: '/documents',
             icon: <FileTextOutlined />,
-            label: 'Documents',
+            label: 'Документи',
             onClick: () => navigate('/documents'),
           },
           {

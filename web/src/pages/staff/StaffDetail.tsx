@@ -20,12 +20,18 @@ import {
   message,
   Divider,
   Popconfirm,
+  Tooltip,
+  Upload,
+  DatePicker,
+  ConfigProvider,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   EditOutlined,
   PlusOutlined,
   DeleteOutlined,
+  FileTextOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import apiClient from '../../api/axios';
 import { endpoints } from '../../api/endpoints';
@@ -33,9 +39,47 @@ import { Staff, Document, DailyAttendance, StaffHistoryItem } from '../../api/ty
 import { getPositionLabel, getActionTypeLabel, getAttendanceCodeLabel, EMPLOYMENT_TYPE_LABELS, WORK_BASIS_LABELS, STAFF_POSITION_LABELS } from '../../api/constants';
 import { format } from 'date-fns';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import ukUA from 'antd/locale/uk_UA';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+
+// Ukrainian status labels - full workflow
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Чернетка',
+  signed_by_applicant: 'Підписав заявник',
+  approved_by_dispatcher: 'Погоджено диспетчером',
+  signed_dep_head: 'Підписано зав. кафедри',
+  agreed: 'Погоджено',
+  signed_rector: 'Підписано ректором',
+  scanned: 'Відскановано',
+  processed: 'В табелі',
+};
+
+// Ukrainian document type labels
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  vacation_paid: 'Відпустка оплачувана',
+  vacation_main: 'Основна щорічна відпустка',
+  vacation_additional: 'Додаткова щорічна відпустка',
+  vacation_chornobyl: 'Додаткова відпустка чорнобильцям',
+  vacation_creative: 'Творча відпустка',
+  vacation_study: 'Навчальна відпустка',
+  vacation_children: 'Відпустка працівникам з дітьми',
+  vacation_maternity: 'Відпустка у зв\'язку з вагітністю та пологами',
+  vacation_childcare: 'Відпустка для догляду за дитиною',
+  vacation_unpaid: 'Відпустка без збереження зарплати',
+  vacation_unpaid_study: 'Навчальна відпустка без збереження зарплати',
+  vacation_unpaid_mandatory: 'Відпустка без збереження (обов\'язкова)',
+  vacation_unpaid_agreement: 'Відпустка без збереження (за згодою)',
+  vacation_unpaid_other: 'Інша відпустка без збереження зарплати',
+  term_extension: 'Продовження терміну контракту',
+  term_extension_contract: 'Продовження контракту (контракт)',
+  term_extension_competition: 'Продовження контракту (конкурс)',
+  term_extension_pdf: 'Продовження контракту (PDF)',
+  employment_contract: 'Прийом на роботу (контракт)',
+  employment_competition: 'Прийом на роботу (конкурс)',
+  employment_pdf: 'Прийом на роботу (PDF)',
+};
 
 const StaffDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -45,7 +89,16 @@ const StaffDetail: React.FC = () => {
   const [isAddPositionModalOpen, setIsAddPositionModalOpen] = useState(false);
   const [editingPosition, setEditingPosition] = useState<Staff | null>(null);
   const [editForm] = Form.useForm();
-  const [addPositionForm] = Form.useForm();
+
+  // Inline upload modal state for subposition scan
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadPosition, setUploadPosition] = useState('LECTURER');
+  const [uploadRate, setUploadRate] = useState(0.5);
+  const [uploadEmploymentType, setUploadEmploymentType] = useState('internal');
+  const [uploadTermStart, setUploadTermStart] = useState('');
+  const [uploadTermEnd, setUploadTermEnd] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
 
   // Get the specific staff record
   const { data: currentStaff, isLoading: staffLoading } = useQuery<Staff>({
@@ -145,22 +198,6 @@ const StaffDetail: React.FC = () => {
     },
   });
 
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const response = await apiClient.post(endpoints.staff.create, data);
-      return response.data;
-    },
-    onSuccess: () => {
-      message.success('Нову посаду додано');
-      queryClient.invalidateQueries({ queryKey: ['staff'] });
-      queryClient.invalidateQueries({ queryKey: ['staff-all'] });
-      setIsAddPositionModalOpen(false);
-      addPositionForm.resetFields();
-    },
-    onError: (error: Error) => {
-      message.error(error.message || 'Помилка створення');
-    },
-  });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -197,16 +234,6 @@ const StaffDetail: React.FC = () => {
     }
   };
 
-  const handleAddPosition = async (values: any) => {
-    if (currentStaff) {
-      createMutation.mutate({
-        ...values,
-        pib_nom: currentStaff.pib_nom,
-        email: currentStaff.email,
-        phone: currentStaff.phone,
-      });
-    }
-  };
 
   const handleDeletePosition = (positionId: number) => {
     const position = allPositions.find(p => p.id === positionId);
@@ -219,9 +246,46 @@ const StaffDetail: React.FC = () => {
     deleteMutation.mutate(positionId);
   };
 
+  // Handle subposition upload submission
+  const handleSubpositionUpload = async () => {
+    if (!uploadFile || !uploadTermStart || !uploadTermEnd || !currentStaff) {
+      message.warning('Заповніть всі поля та виберіть файл');
+      return;
+    }
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('staff_id', currentStaff.id.toString());
+    formData.append('doc_type', 'employment_pdf');
+    formData.append('date_start', uploadTermStart);
+    formData.append('date_end', uploadTermEnd);
+    formData.append('days_count', '0');
+    formData.append('file', uploadFile);
+    formData.append('new_position', uploadPosition);
+    formData.append('new_rate', uploadRate.toString());
+    formData.append('new_employment_type', uploadEmploymentType);
+
+    try {
+      await apiClient.post('/documents/direct-scan-upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      message.success('Сумісництво створено успішно');
+      setIsUploadModalOpen(false);
+      setUploadFile(null);
+      setUploadTermStart('');
+      setUploadTermEnd('');
+      queryClient.invalidateQueries({ queryKey: ['staff-all'] });
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || error.message || 'Помилка завантаження');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const documentColumns = [
-    {
-      title: 'Position',
+    ...(allPositions.length > 1 ? [{
+      title: 'Посада',
       key: 'position',
       width: 130,
       render: (_: unknown, record: Document) => {
@@ -253,46 +317,39 @@ const StaffDetail: React.FC = () => {
           </Space>
         );
       },
-    },
+    }] : []),
     {
-      title: 'Type',
+      title: 'Документ',
       dataIndex: 'document_type',
       key: 'document_type',
-      render: (type: { name: string }) => type?.name || '-',
+      render: (type: { name: string; id?: string }) => {
+        // Try to translate using id first, then use name
+        if (type?.id) {
+          return DOCUMENT_TYPE_LABELS[type.id] || type.name || '-';
+        }
+        return type?.name || '-';
+      },
     },
     {
-      title: 'Total Days',
-      key: 'total_days',
-      render: (_: unknown, record: Document) => record.days_count || '-',
-    },
-    {
-      title: 'Status',
+      title: 'Статус',
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => {
         const colors: Record<string, string> = {
-          draft: 'default',        // Gray
-          on_signature: 'orange',  // Orange (warning/active)
-          agreed: 'blue',          // Blue
-          signed: 'cyan',          // Cyan
-          scanned: 'purple',       // Purple
-          processed: 'green',      // Green (success)
-
-          // Legacy mappings
-          pending_hr: 'processing',
-          pending_director: 'processing',
-          pending_manager: 'processing',
-          pending_signature: 'warning',
-          pending_scan: 'warning',
-          approved: 'success',
-          rejected: 'error',
-          cancelled: 'default',
+          draft: 'default',
+          signed_by_applicant: 'blue',
+          approved_by_dispatcher: 'cyan',
+          signed_dep_head: 'lime',
+          agreed: 'orange',
+          signed_rector: 'purple',
+          scanned: 'magenta',
+          processed: 'success',
         };
-        return <Tag color={colors[status] || 'default'}>{status.replace(/_/g, ' ').toUpperCase()}</Tag>;
+        return <Tag color={colors[status] || 'default'}>{STATUS_LABELS[status] || status.replace(/_/g, ' ').toUpperCase()}</Tag>;
       },
     },
     {
-      title: 'Dates',
+      title: 'Дати',
       key: 'dates',
       width: 130,
       render: (_: unknown, record: Document) => {
@@ -311,7 +368,12 @@ const StaffDetail: React.FC = () => {
       },
     },
     {
-      title: 'Action',
+      title: 'Днів',
+      key: 'total_days',
+      render: (_: unknown, record: Document) => record.days_count || '-',
+    },
+    {
+      title: 'Дія',
       key: 'action',
       width: 80,
       render: (_: unknown, record: Document) => (
@@ -319,7 +381,7 @@ const StaffDetail: React.FC = () => {
           size="small"
           onClick={() => window.open(`/documents/${record.id}`, '_blank')}
         >
-          View
+          Перегляд
         </Button>
       ),
     },
@@ -328,7 +390,7 @@ const StaffDetail: React.FC = () => {
   const tabItems = [
     {
       key: 'documents',
-      label: 'Documents',
+      label: 'Документи',
       children: (
         <Table
           columns={documentColumns}
@@ -336,17 +398,18 @@ const StaffDetail: React.FC = () => {
           rowKey="id"
           pagination={false}
           size="small"
+          scroll={{ x: 'max-content' }}
         />
       ),
     },
     {
       key: 'attendance',
-      label: 'Attendance',
+      label: 'Відвідування',
       children: (
         <Table
           columns={[
-            {
-              title: 'Position',
+            ...(allPositions.length > 1 ? [{
+              title: 'Посада',
               key: 'position',
               width: 180,
               render: (_: unknown, record: DailyAttendance) => {
@@ -378,15 +441,15 @@ const StaffDetail: React.FC = () => {
                   </Space>
                 );
               },
-            },
+            }] : []),
             {
-              title: 'Date',
+              title: 'Дата',
               dataIndex: 'date',
               key: 'date',
               render: (date: string) => date ? format(new Date(date), 'dd.MM.yyyy') : '-',
             },
             {
-              title: 'Code',
+              title: 'Код',
               dataIndex: 'code',
               key: 'code',
               render: (code: string) => (
@@ -394,13 +457,13 @@ const StaffDetail: React.FC = () => {
               ),
             },
             {
-              title: 'Description',
+              title: 'Опис',
               dataIndex: 'code',
               key: 'description',
               render: (_: unknown, record: DailyAttendance) => getAttendanceCodeLabel(record.code),
             },
             {
-              title: 'Total Days',
+              title: 'Днів',
               key: 'total_days',
               render: (_: unknown, record: DailyAttendance) => {
                 if (record.date_end && record.date) {
@@ -413,27 +476,28 @@ const StaffDetail: React.FC = () => {
               },
             },
             {
-              title: 'Correction',
+              title: 'Корекція',
               dataIndex: 'is_correction',
               key: 'is_correction',
-              render: (isCorrection: boolean) => isCorrection ? <Tag color="orange">Correction</Tag> : '-',
+              render: (isCorrection: boolean) => isCorrection ? <Tag color="orange">Корекція</Tag> : '-',
             },
           ]}
           dataSource={attendance}
           rowKey="id"
           pagination={false}
           size="small"
+          scroll={{ x: 'max-content' }}
         />
       ),
     },
     {
       key: 'history',
-      label: 'History',
+      label: 'Історія',
       children: (
         <Table
           columns={[
-            {
-              title: 'Position',
+            ...(allPositions.length > 1 ? [{
+              title: 'Посада',
               key: 'position',
               width: 150,
               render: (_: unknown, record: StaffHistoryItem) => {
@@ -465,15 +529,15 @@ const StaffDetail: React.FC = () => {
                   </Space>
                 );
               },
-            },
+            }] : []),
             {
-              title: 'Date',
+              title: 'Дата',
               dataIndex: 'created_at',
               key: 'created_at',
               render: (date: string) => date ? format(new Date(date), 'dd.MM.yyyy HH:mm') : '-',
             },
             {
-              title: 'Action',
+              title: 'Дія',
               dataIndex: 'action',
               key: 'action',
               render: (action: string) => {
@@ -491,12 +555,12 @@ const StaffDetail: React.FC = () => {
               },
             },
             {
-              title: 'Changed By',
+              title: 'Змінено',
               dataIndex: 'changed_by',
               key: 'changed_by',
             },
             {
-              title: 'Comment',
+              title: 'Коментар',
               dataIndex: 'comment',
               key: 'comment',
               render: (comment: string | null) => comment || '-',
@@ -506,6 +570,7 @@ const StaffDetail: React.FC = () => {
           rowKey="id"
           pagination={false}
           size="small"
+          scroll={{ x: 'max-content' }}
         />
       ),
     },
@@ -516,7 +581,7 @@ const StaffDetail: React.FC = () => {
   }
 
   if (!currentStaff) {
-    return <Card><Text type="secondary">Staff not found</Text></Card>;
+    return <Card><Text type="secondary">Співробітника не знайдено</Text></Card>;
   }
 
   const staff = currentStaff;
@@ -529,7 +594,7 @@ const StaffDetail: React.FC = () => {
         onClick={() => navigate('/staff')}
         style={{ marginBottom: 16, paddingLeft: 0 }}
       >
-        Back to Staff List
+        Назад до списку
       </Button>
 
       <Row gutter={[16, 16]}>
@@ -550,7 +615,13 @@ const StaffDetail: React.FC = () => {
         <Col xs={24} lg={18}>
           {/* All Positions Card */}
           <Card
-            title={<Space>Всі посади <Button size="small" icon={<PlusOutlined />} onClick={() => setIsAddPositionModalOpen(true)}>Додати посаду</Button></Space>}
+            title={<Space>Всі посади {allPositions.some(p => parseFloat(String(p.rate)) === 1.0 && p.is_active && p.position !== 'specialist') ? (
+              <Button size="small" icon={<PlusOutlined />} onClick={() => setIsAddPositionModalOpen(true)}>Додати посаду</Button>
+            ) : (
+              <Tooltip title="Додавати посаду можна тільки з основної позиції (ставка 1.00, крім фахівця)">
+                <Button size="small" icon={<PlusOutlined />} disabled>Додати посаду</Button>
+              </Tooltip>
+            )}</Space>}
             extra={
               <Space>
                 <Text type="secondary">Всього посад:</Text>
@@ -638,7 +709,7 @@ const StaffDetail: React.FC = () => {
           <Card style={{ marginTop: 16 }}>
             <Descriptions title="Контактна інформація" column={{ xs: 1, sm: 2 }}>
               <Descriptions.Item label="Email">{staff.email || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Phone">{staff.phone || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Телефон">{staff.phone || '-'}</Descriptions.Item>
               <Descriptions.Item label="Вчений ступінь">{staff.degree || '-'}</Descriptions.Item>
               <Descriptions.Item label="Баланс відпусток">{staff.vacation_balance || 0} дн.</Descriptions.Item>
             </Descriptions>
@@ -789,134 +860,151 @@ const StaffDetail: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* Add Position Modal */}
+      {/* Add Position Modal - Choice Dialog */}
       <Modal
         title="Додати посаду (сумісництво)"
         open={isAddPositionModalOpen}
-        onCancel={() => {
-          setIsAddPositionModalOpen(false);
-          addPositionForm.resetFields();
-        }}
+        onCancel={() => setIsAddPositionModalOpen(false)}
         footer={null}
-        destroyOnHidden
+        width={500}
+      >
+        <Card style={{ marginBottom: 16 }}>
+          <Space direction="vertical">
+            <Text strong>Співробітник: {staff.pib_nom}</Text>
+            <Text type="secondary">Оберіть спосіб додавання сумісництва:</Text>
+          </Space>
+        </Card>
+
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Button
+            type="primary"
+            icon={<FileTextOutlined />}
+            block
+            size="large"
+            onClick={() => {
+              setIsAddPositionModalOpen(false);
+              navigate(`/documents/create?staff_id=${id}&type=employment`);
+            }}
+          >
+            Створити документ
+          </Button>
+
+          <Button
+            icon={<UploadOutlined />}
+            block
+            size="large"
+            onClick={() => {
+              setIsAddPositionModalOpen(false);
+              setIsUploadModalOpen(true);
+            }}
+          >
+            Завантажити скан договору
+          </Button>
+        </Space>
+      </Modal>
+
+      {/* Subposition Upload Modal */}
+      <Modal
+        title="Завантажити скан договору (сумісництво)"
+        open={isUploadModalOpen}
+        onCancel={() => {
+          setIsUploadModalOpen(false);
+          setUploadFile(null);
+        }}
+        onOk={handleSubpositionUpload}
+        okText="Завантажити"
+        cancelText="Скасувати"
+        confirmLoading={isUploading}
         width={600}
       >
-        <Form
-          form={addPositionForm}
-          layout="vertical"
-          onFinish={handleAddPosition}
-          style={{ marginTop: 16 }}
-          initialValues={{
-            rate: 0.5,
-            is_active: true,
-          }}
-        >
-          <Form.Item
-            name="position"
-            label="Посада"
-            rules={[{ required: true, message: 'Оберіть посаду' }]}
-          >
-            <Select placeholder="Оберіть посаду" allowClear>
-              {Object.entries(STAFF_POSITION_LABELS).map(([value, label]) => (
-                <Option key={value} value={value}>{label}</Option>
-              ))}
-            </Select>
-          </Form.Item>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Subposition info */}
+          <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 8 }}>
+            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+              Дані нової позиції (сумісництво):
+            </Typography.Text>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <Typography.Text strong>Посада:</Typography.Text>
+                <Select
+                  style={{ width: '100%' }}
+                  value={uploadPosition}
+                  onChange={(val) => setUploadPosition(val)}
+                  options={[
+                    { label: "Професор", value: "PROFESSOR" },
+                    { label: "Доцент", value: "ASSOCIATE_PROFESSOR" },
+                    { label: "Старший викладач", value: "SENIOR_LECTURER" },
+                    { label: "Асистент", value: "LECTURER" },
+                  ]}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Typography.Text strong>Ставка:</Typography.Text>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <Select
+                    style={{ width: 80 }}
+                    value={uploadRate}
+                    onChange={(val) => setUploadRate(val)}
+                    options={[
+                      { label: "0.25", value: 0.25 },
+                      { label: "0.5", value: 0.5 },
+                      { label: "0.75", value: 0.75 },
+                    ]}
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    Зайнято: {allPositions.filter(p => p.is_active).reduce((sum, p) => sum + parseFloat(String(p.rate)), 0).toFixed(2)} |
+                    Вільно: {(1.0 - allPositions.filter(p => p.is_active).reduce((sum, p) => sum + parseFloat(String(p.rate)), 0) - uploadRate).toFixed(2)}
+                  </Typography.Text>
+                </div>
+              </div>
+            </div>
+          </div>
 
-          <Form.Item
-            name="rate"
-            label="Ставка"
-            rules={[
-              { required: true, message: 'Введіть ставку' },
-              {
-                pattern: /^(0\.25|0\.5|0\.75|1(\.0+)?)$/,
-                message: 'Ставка має бути: 0.25, 0.5, 0.75 або 1.0',
-              },
-            ]}
-          >
-            <Input type="number" min={0.25} max={1} step={0.25} placeholder="0.25, 0.5, 0.75, 1.0" />
-          </Form.Item>
+          {/* Contract dates */}
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <Typography.Text strong>Початок контракту:</Typography.Text>
+              <ConfigProvider locale={ukUA}>
+                <DatePicker
+                  style={{ width: '100%' }}
+                  format="DD.MM.YYYY"
+                  placeholder="Виберіть дату"
+                  onChange={(date) => setUploadTermStart(date ? date.format('YYYY-MM-DD') : '')}
+                />
+              </ConfigProvider>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Typography.Text strong>Кінець контракту:</Typography.Text>
+              <ConfigProvider locale={ukUA}>
+                <DatePicker
+                  style={{ width: '100%' }}
+                  format="DD.MM.YYYY"
+                  placeholder="Виберіть дату"
+                  onChange={(date) => setUploadTermEnd(date ? date.format('YYYY-MM-DD') : '')}
+                />
+              </ConfigProvider>
+            </div>
+          </div>
 
-          <Form.Item
-            name="term_start"
-            label="Дата початку"
-            rules={[{ required: true, message: 'Оберіть дату' }]}
-          >
-            <Input type="date" />
-          </Form.Item>
-
-          <Form.Item
-            name="term_end"
-            label="Дата кінця"
-            dependencies={['term_start']}
-            rules={[
-              { required: true, message: 'Оберіть дату' },
-              ({ getFieldValue }) => ({
-                validator: (_, value) => {
-                  const termStart = getFieldValue('term_start');
-                  if (value && termStart && new Date(value) <= new Date(termStart)) {
-                    return Promise.reject(new Error('Кінець контракту має бути пізніше за початок'));
-                  }
-                  return Promise.resolve();
-                },
-              }),
-            ]}
-          >
-            <Input type="date" />
-          </Form.Item>
-
-          <Form.Item
-            name="employment_type"
-            label="Тип працевлаштування"
-            rules={[{ required: true, message: 'Оберіть тип' }]}
-          >
-            <Select placeholder="Оберіть тип">
-              {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([value, label]) => (
-                <Option key={value} value={value}>{label}</Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            name="work_basis"
-            label="Основа роботи"
-            rules={[{ required: true, message: 'Оберіть основу' }]}
-          >
-            <Select placeholder="Оберіть основу">
-              {Object.entries(WORK_BASIS_LABELS).map(([value, label]) => (
-                <Option key={value} value={value}>{label}</Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }} shouldUpdate>
-            {() => {
-              const errors = addPositionForm.getFieldsError();
-              const hasErrors = errors.some(e => e.errors.length > 0);
-              const requiredFields = ['position', 'term_start', 'term_end', 'employment_type', 'work_basis', 'rate'];
-              const values = addPositionForm.getFieldsValue();
-              const hasAllRequired = requiredFields.every(f => values[f] !== undefined && values[f] !== '' && values[f] !== null);
-              const disabled = hasErrors || !hasAllRequired;
-
-              return (
-                <Space>
-                  <Button onClick={() => {
-                    setIsAddPositionModalOpen(false);
-                    addPositionForm.resetFields();
-                  }}>Скасувати</Button>
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    disabled={disabled}
-                    loading={createMutation.isPending}
-                  >
-                    Додати
-                  </Button>
-                </Space>
-              );
-            }}
-          </Form.Item>
-        </Form>
+          {/* File upload */}
+          <div>
+            <Typography.Text strong>Скан договору (PDF):</Typography.Text>
+            <Upload.Dragger
+              accept=".pdf,.png,.jpg,.jpeg"
+              maxCount={1}
+              beforeUpload={(file) => {
+                setUploadFile(file);
+                return false;
+              }}
+              onRemove={() => setUploadFile(null)}
+              fileList={uploadFile ? [{ uid: '-1', name: uploadFile.name, status: 'done' } as any] : []}
+            >
+              <p className="ant-upload-drag-icon"><UploadOutlined style={{ fontSize: 32 }} /></p>
+              <p className="ant-upload-text">Натисніть або перетягніть файл</p>
+              <p className="ant-upload-hint">Підтримуються: PDF, PNG, JPG</p>
+            </Upload.Dragger>
+          </div>
+        </div>
       </Modal>
     </div>
   );

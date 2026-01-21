@@ -10,6 +10,8 @@ export const endpoints = {
   // Dashboard
   dashboard: {
     stats: '/dashboard/stats',
+    today: '/dashboard/today',
+    contractExpiring: '/dashboard/contract-expiring',
   },
 
   // Staff
@@ -29,6 +31,7 @@ export const endpoints = {
   // Documents
   documents: {
     list: '/documents',
+    stale: '/documents/stale',
     detail: (id: string | number) => `/documents/${id}`,
     types: '/documents/types',
     validate: '/documents/validate',
@@ -40,6 +43,7 @@ export const endpoints = {
     download: (id: string | number) => `/documents/${id}/download`,
     preview: '/documents/preview',
     blockedDays: (staffId: string | number) => `/documents/staff/${staffId}/blocked-days`,
+    resolveStale: (id: string | number) => `/documents/${id}/stale/resolve`,
   },
 
   // Schedule

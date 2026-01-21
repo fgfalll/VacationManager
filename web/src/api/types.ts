@@ -117,13 +117,16 @@ export interface Document {
   is_blocked?: boolean;
   blocked_reason?: string;
   file_scan_path?: string | null;
+  stale_info?: StaleInfo;
 }
 
 export type DocumentStatus =
   | 'draft'
-  | 'on_signature'
+  | 'signed_by_applicant'
+  | 'approved_by_dispatcher'
+  | 'signed_dep_head'
   | 'agreed'
-  | 'signed'
+  | 'signed_rector'
   | 'scanned'
   | 'processed';
 
@@ -139,6 +142,19 @@ export interface DocumentCreateRequest {
   date_start: string;
   date_end: string;
   custom_text?: string;
+}
+
+export interface StaleResolutionRequest {
+  action: 'explain' | 'remove';
+  explanation?: string;
+}
+
+export interface StaleInfo {
+  id: number;
+  days_stale: number;
+  notification_count: number;
+  stale_explanation?: string | null;
+  status_changed_at: string | null;
 }
 
 export interface Signature {
