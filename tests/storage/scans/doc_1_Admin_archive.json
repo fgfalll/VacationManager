@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "archived_at": "2026-01-20T07:38:47.467336",
+  "document_id": 1,
+  "document_type": "employment_contract",
+  "staff": {
+    "id": 1,
+    "pib_nom": "Admin",
+    "position": "Admin",
+    "degree": "",
+    "employment_type": "main"
+  },
+  "approvers": [],
+  "signatories": [],
+  "settings": {
+    "university_name": "",
+    "rector_name_nominative": "",
+    "rector_name_dative": "",
+    "department_name": "",
+    "department_abbr": "",
+    "dept_head_id": null
+  },
+  "rendered_html": "",
+  "dates": {
+    "start": "2026-01-20",
+    "end": "2027-01-20",
+    "days_count": 365
+  },
+  "workflow": {
+    "applicant_signed_at": null,
+    "department_head_at": null,
+    "approval_order_at": null,
+    "rector_at": null,
+    "scanned_at": null
+  },
+  "files": {
+    "docx_path": null,
+    "scan_path": "storage\\2026\\01_january\\signed\\Admin_1_signed.pdf"
+  }
+}
