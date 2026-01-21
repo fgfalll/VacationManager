@@ -173,6 +173,25 @@ class Document(Base, TimestampMixin):
         comment="Причина блокування документа",
     )
 
+    # Stale document tracking fields
+    status_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        index=True,
+        comment="Час останньої зміни статусу документа",
+    )
+    stale_notification_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        comment="Кількість сповіщень про застарілий документ",
+    )
+    stale_explanation: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Пояснення затримки документа (для застарілих документів)",
+    )
+
     # Employment document fields - for storing new employee data before creation
     new_employee_data: Mapped[dict | None] = mapped_column(
         JSON,
@@ -237,6 +256,9 @@ class Document(Base, TimestampMixin):
             "корегуюч" in self.tabel_added_comment.lower()
         )
 
+        # Store old status to detect changes
+        old_status = self.status
+
         # Визначаємо статус на основі пріоритету (від кінця до початку)
 
         # 1. PROCESSED: Якщо додано до табелю АБО до корегуючого табелю
@@ -247,25 +269,37 @@ class Document(Base, TimestampMixin):
         elif progress["rector"]["completed"] and progress["scanned"]["completed"]:
              self.status = DocumentStatus.SCANNED
 
-        # 3. SIGNED: Якщо підписано ректором (але ще не скан)
+        # 3. SIGNED_RECTOR: Якщо підписано ректором (але ще не скан)
         elif progress["rector"]["completed"]:
-            self.status = DocumentStatus.SIGNED
+            self.status = DocumentStatus.SIGNED_RECTOR
 
         # 4. AGREED: Якщо є підпис зав. кафедри та погодження (усіх required)
         # Припускаємо, що approval_order це "погоджувачі", а department_head - завідувач
         elif progress["department_head"]["completed"] and progress["approval_order"]["completed"]:
             self.status = DocumentStatus.AGREED
 
-        # 5. ON_SIGNATURE: Якщо хоча б хтось почав підписувати (або викладач, або диспетчер)
-        elif (progress["department_head"]["completed"] or
-              progress["approval_order"]["completed"] or
-              progress["approval"]["completed"] or
-              progress["applicant"]["completed"]):
-            self.status = DocumentStatus.ON_SIGNATURE
+        # 5. SIGNED_DEP_HEAD: Якщо підписав завідувач кафедри
+        elif progress["department_head"]["completed"]:
+            self.status = DocumentStatus.SIGNED_DEP_HEAD
 
-        # 6. DRAFT: Жодних дій не виконано
+        # 6. APPROVED_BY_DISPATCHER: Якщо погодив диспетчер
+        elif progress["approval"]["completed"]:
+            self.status = DocumentStatus.APPROVED_BY_DISPATCHER
+
+        # 7. SIGNED_BY_APPLICANT: Якщо підписав заявник
+        elif progress["applicant"]["completed"]:
+            self.status = DocumentStatus.SIGNED_BY_APPLICANT
+
+        # 8. DRAFT: Жодних дій не виконано
         else:
             self.status = DocumentStatus.DRAFT
+
+        # Reset stale tracking if status changed
+        if old_status != self.status:
+            from datetime import datetime
+            self.status_changed_at = datetime.now()
+            self.stale_notification_count = 0
+            self.stale_explanation = None
 
     def reset_workflow(self) -> None:
         """Скидає всі етапи підписання (при редагуванні документа).
@@ -273,7 +307,12 @@ class Document(Base, TimestampMixin):
         Raises:
             ValueError: Якщо документ вже відскановано.
         """
-        if self.status in (DocumentStatus.SIGNED, DocumentStatus.PROCESSED):
+        if self.status in (
+            DocumentStatus.SIGNED_RECTOR,
+            DocumentStatus.SCANNED,
+            DocumentStatus.PROCESSED,
+            DocumentStatus.SIGNED,  # Legacy
+        ):
             raise ValueError("Неможливо скинути етапи - документ вже відскановано")
 
         self.applicant_signed_at = None

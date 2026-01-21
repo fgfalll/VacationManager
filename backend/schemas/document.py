@@ -1,7 +1,7 @@
 """Pydantic схеми для документів."""
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -157,3 +157,28 @@ class EmploymentCreate(BaseModel):
         if "term_start" in info.data and v <= info.data["term_start"]:
             raise ValueError("Дата закінчення контракту має бути пізніше за дату початку")
         return v
+
+
+class BulkValidationRequest(BaseModel):
+    """Схема запиту на валідацію масового створення документів."""
+
+    staff_ids: list[int] = Field(..., description="Список ID співробітників")
+    date_start: date = Field(..., description="Початок відпустки")
+    date_end: date = Field(..., description="Кінець відпустки")
+
+
+class BulkGenerateRequest(BaseModel):
+    """Схема запиту на масове створення документів."""
+
+    staff_ids: list[int] = Field(..., description="Список ID співробітників")
+    doc_type: DocumentType = Field(..., description="Тип документа")
+    date_start: date = Field(..., description="Початок відпустки")
+    date_end: date = Field(..., description="Кінець відпустки")
+    file_suffix: str = Field(default="", description="Суфікс для назви файлу")
+
+
+class StaleResolutionRequest(BaseModel):
+    """Схема для вирішення старого документа."""
+    action: Literal["explain", "remove"] = Field(..., description="Дія: пояснити або видалити")
+    explanation: str | None = Field(None, description="Пояснення (обов'язково якщо action='explain')")
+
