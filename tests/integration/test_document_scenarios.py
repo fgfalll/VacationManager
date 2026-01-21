@@ -34,7 +34,7 @@ async def test_term_extension_flow(db_session, sample_staff):
     doc = Document(
         staff_id=sample_staff.id,
         doc_type=DocumentType.TERM_EXTENSION, # or specific type
-        status=DocumentStatus.ON_SIGNATURE, # Ready for scan upload
+        status=DocumentStatus.SIGNED_RECTOR, # Ready for scan upload
         date_start=date.today(),
         date_end=new_term_end, # This should be the new term end
         days_count=365,
@@ -82,7 +82,7 @@ async def test_reactivation_flow(db_session, sample_staff):
     doc = Document(
         staff_id=sample_staff.id,
         doc_type=DocumentType.TERM_EXTENSION,
-        status=DocumentStatus.ON_SIGNATURE,
+        status=DocumentStatus.SIGNED_RECTOR,
         date_start=date.today(),
         date_end=new_term_end,
         days_count=365
@@ -207,7 +207,7 @@ async def test_new_employee_flow(db_session):
         # Actually logic in upload.py: `doc.staff_id = new_staff.id` at line 99.
         # So it RE-assigns the staff_id.
         doc_type=DocumentType.EMPLOYMENT_CONTRACT, # assuming this type exists or similar
-        status=DocumentStatus.ON_SIGNATURE,
+        status=DocumentStatus.SIGNED_RECTOR,
         date_start=date.today(),
         date_end=date.today() + timedelta(days=365),
         days_count=365,
@@ -270,7 +270,7 @@ async def test_add_subposition_flow(db_session, sample_staff):
     doc = Document(
         staff_id=sample_staff.id,  # Initially linked to existing staff
         doc_type=DocumentType.EMPLOYMENT_CONTRACT,
-        status=DocumentStatus.ON_SIGNATURE,
+        status=DocumentStatus.SIGNED_RECTOR,
         date_start=date.today(),
         date_end=new_term_end,
         days_count=365,

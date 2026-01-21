@@ -31,7 +31,7 @@ async def test_desktop_scan_upload_triggers_new_employee_creation(db_session, tm
         date_start=date(2024, 1, 1),
         date_end=date(2024, 12, 31),
         days_count=0,
-        status=DocumentStatus.ON_SIGNATURE,
+        status=DocumentStatus.SIGNED_BY_APPLICANT,
         new_employee_data=new_employee_data
     )
     db_session.add(doc)
@@ -85,7 +85,7 @@ async def test_desktop_scan_upload_triggers_term_extension(db_session, sample_st
         date_start=date(2024, 1, 1), # Start of new term
         date_end=date(2024, 12, 31), # End of new term
         days_count=0,
-        status=DocumentStatus.ON_SIGNATURE
+        status=DocumentStatus.SIGNED_RECTOR
     )
     db_session.add(doc)
     db_session.commit()

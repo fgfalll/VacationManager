@@ -108,7 +108,7 @@ async def test_document_requires_action_after_max_notifications(db_session, samp
     doc = Document(
         staff_id=sample_staff.id,
         doc_type=DocumentType.VACATION_PAID,
-        status=DocumentStatus.ON_SIGNATURE,
+        status=DocumentStatus.SIGNED_BY_APPLICANT,
         date_start=date.today() + timedelta(days=10),
         date_end=date.today() + timedelta(days=15),
         days_count=6,
@@ -196,7 +196,7 @@ async def test_cannot_remove_blocked_document(db_session, sample_staff):
     doc = Document(
         staff_id=sample_staff.id,
         doc_type=DocumentType.VACATION_PAID,
-        status=DocumentStatus.SIGNED,
+        status=DocumentStatus.SIGNED_RECTOR,
         date_start=date.today() + timedelta(days=10),
         date_end=date.today() + timedelta(days=15),
         days_count=6,
@@ -265,7 +265,7 @@ async def test_status_change_resets_stale_tracking(db_session, sample_staff):
 
     # Status should have changed and tracking reset
     db_session.refresh(doc)
-    assert doc.status == DocumentStatus.ON_SIGNATURE
+    assert doc.status == DocumentStatus.SIGNED_BY_APPLICANT
     assert doc.stale_notification_count == 0
     assert doc.stale_explanation is None
     assert doc.status_changed_at is not None

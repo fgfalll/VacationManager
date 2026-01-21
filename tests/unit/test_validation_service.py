@@ -47,7 +47,7 @@ class TestValidationService:
     def test_validate_dates_weekend_start(self, validation_service, mock_staff):
         """Тест: початок у суботу - помилка."""
         # 5 липня 2025 - субота
-        with pytest.raises(ValidationError, match="припадає на вихідний"):
+        with pytest.raises(ValidationError, match="Дата початку.*припадає на "):
             validation_service.validate_vacation_dates(
                 date(2025, 7, 5),
                 date(2025, 7, 18),
@@ -58,7 +58,7 @@ class TestValidationService:
     def test_validate_dates_weekend_end(self, validation_service, mock_staff):
         """Тест: кінець у неділю - помилка."""
         # 6 липня 2025 - неділя
-        with pytest.raises(ValidationError, match="припадає на вихідний"):
+        with pytest.raises(ValidationError, match="Дата завершення.*припадає на "):
             validation_service.validate_vacation_dates(
                 date(2025, 7, 1),
                 date(2025, 7, 6),
@@ -68,9 +68,10 @@ class TestValidationService:
 
     def test_validate_dates_beyond_contract(self, validation_service, mock_staff):
         """Тест: відпустка виходить за межі контракту - помилка."""
-        with pytest.raises(ValidationError, match="виходить за межі контракту"):
+        # Use a weekday (November 3, 2025 is Monday)
+        with pytest.raises(ValidationError, match="Відпустка виходить за межі контракту"):
             validation_service.validate_vacation_dates(
-                date(2025, 11, 1),
+                date(2025, 11, 3),  # Monday
                 date(2026, 1, 15),  # За межами контракту (закінчується 31.12.2025)
                 mock_staff,
                 None,
