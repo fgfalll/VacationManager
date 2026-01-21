@@ -549,7 +549,7 @@ class BuilderTab(QWidget):
         panel = QWidget()
         layout = QVBoxLayout(panel)
 
-        # Вибір співробітника
+        # Вибір співобітника
         self.staff_group = QGroupBox("👤 Співробітник")
         staff_layout = QFormLayout()
 
@@ -557,16 +557,25 @@ class BuilderTab(QWidget):
         self.staff_input.currentIndexChanged.connect(self._on_staff_selected)
         staff_layout.addRow("ПІБ:", self.staff_input)
 
-        # Position row - contains both plain text label (single position) and dropdown (multiple positions)
+        # Position widget - contains both plain text (single position) and dropdown (multiple positions)
+        # They are stacked and we toggle visibility
+        self.position_widget = QWidget()
+        position_layout = QHBoxLayout(self.position_widget)
+        position_layout.setContentsMargins(0, 0, 0, 0)
+        position_layout.setSpacing(0)
+
+        # Plain text label for single position
         self.position_label_text = QLabel()
         self.position_label_text.setVisible(False)
-        staff_layout.addRow("Посада:", self.position_label_text)
+        position_layout.addWidget(self.position_label_text)
 
-        # Position selector (hidden by default, shown when employee has multiple positions)
+        # Dropdown for multiple positions
         self.position_input = QComboBox()
         self.position_input.currentIndexChanged.connect(self._on_position_selected)
         self.position_input.setVisible(False)
-        staff_layout.addRow("", self.position_input)  # Empty label since we have label above
+        position_layout.addWidget(self.position_input)
+
+        staff_layout.addRow("Посада:", self.position_widget)
 
         self.staff_info_label = QLabel()
         self.staff_info_label.setWordWrap(True)
