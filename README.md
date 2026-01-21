@@ -1,8 +1,8 @@
-# VacationManager v7.7.3
+# VacationManager v7.7.4
 
 Система управління відпустками та табелем обліку робочого часу для університетської кафедри.
 
-## Версія Latest (v7.7.3) - Stale Document Tracking & Bulk Operations
+## Версія Latest (v7.7.4) - Bug Fixes & Tabel Improvements
 
 ### Проект
 
@@ -67,7 +67,31 @@
 - Тести для bulk operations (test_document_scenarios.py, test_new_endpoints.py)
 - Тести для desktop simulation (test_desktop_simulation.py)
 
-### v7.7.1 - Employment Document Flow & New Employee Creation
+### v7.7.4 - Bug Fixes & Tabel Improvements
+
+**Bug Fixes:**
+- **Approval Button Visibility:** Виправлено баг, коли кнопка погодження табеля залишалася активною після погодження, що дозволяло повторні натискання
+  - Кнопка тепер коректно приховується для звичайних та корегуючих табелів
+  - Виправлено логіку `is_generated and not is_approved` для коректного відображення
+- **Hours Calculation Positions:** Виправлено збереження позицій для розрахунку годин
+  - Раніше зберігалися українські мітки ("Фахівець"), зараз — значення enum ("specialist")
+  - Це забезпечує правильну роботу розрахунку годин у табелі
+
+**Tabel Improvements:**
+- **Correction Tabs Visual Indicators:** Додано візуальні індикатори для погоджених корегуючих табелів (червона рамка)
+- **Close Button on Approved Corrections:** Кнопка закриття прихована на погоджених корегуючих табелях для запобігання випадкового видалення
+- **Auto-Refresh on Tab Show:** Корегуючі табелі автоматично оновлюються при відкритті вкладки
+- **Raw Data Archiving:** Архіви табелів тепер містять повні сирі дані (attendance, staff, vacations) для точного відновлення
+
+**Employment Documents:**
+- **New Templates:** Додано шаблони для документів про прийом на роботу (employment_competition, employment_contract, employment_pdf)
+
+**Web UI:**
+- **Resolve Stale Modal:** Додано модальне вікно для вирішення проблем застарілих документів
+- **Ukrainian Locale:** Додано українську локізацію для antd компонентів
+- **Stale Status Indicators:** Відображення статусу застарілих документів у списку та деталях
+
+### v7.7.3 - Stale Document Tracking & Bulk Operations
 
 **Employment Document System:**
 - **New Document Types:** Додано три типи документів про прийом на роботу (employment_contract, employment_competition, employment_pdf)
