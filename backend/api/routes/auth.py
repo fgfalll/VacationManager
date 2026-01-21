@@ -92,8 +92,10 @@ async def login(login_data: UserLogin):
     """
     Автентифікація користувача та отримання токенів.
 
-    Returns:
-        Access та refresh токени
+    Перевіряє ім'я користувача та пароль.
+    Повертає пару JWT токенів:
+    - **access_token**: короткоживучий токен для доступу до API.
+    - **refresh_token**: довгоживучий токен для оновлення access token.
     """
     user = authenticate_user(login_data.username, login_data.password)
     if not user:
@@ -220,7 +222,9 @@ async def get_current_user_info(current_user: TokenData = Depends(get_current_us
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate):
     """
-    Реєстрація нового користувача.
+    Реєстрація нового користувача в системі.
+    
+    Створює обліковий запис, який може бути прив'язаний до існуючого співробітника (staff_id).
     """
     if get_user_by_username(user_data.username):
         raise HTTPException(

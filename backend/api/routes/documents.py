@@ -24,10 +24,11 @@ from backend.schemas.document import (
     DocumentGenerateResponse,
     DocumentResponse,
     PreviewResponse,
+    StaleResolutionRequest,
 )
 from backend.schemas.auth import TokenData
 from backend.services.document_renderer import render_document
-from shared.enums import DocumentStatus, DocumentType
+from shared.enums import DocumentStatus, DocumentType, get_document_type_label
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -38,7 +39,7 @@ async def get_document_types():
     return [
         {
             "id": dt.value,
-            "name": dt.name.replace("_", " ").title(),
+            "name": get_document_type_label(dt.value),
             "description": dt.value,
         }
         for dt in DocumentType
@@ -51,31 +52,84 @@ async def list_documents(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     staff_id: int | None = Query(None),
-    status: DocumentStatus | None = Query(None),
+    status: str | None = Query(None, description="Фільтр за статусом (draft, on_signature, agreed, signed, scanned, processed)"),
     doc_type: DocumentType | None = Query(None),
     search: str | None = Query(None),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
     needs_scan: bool = Query(False),
+    filter: str | None = Query(None, description="Фільтр: 'stale' для документів з проблемами"),
+    exclude_statuses: str | None = Query(None, description="Статуси для виключення (через кому)"),
     current_user: get_current_user = Depends(require_employee),
 ):
-    """Отримати список документів."""
+    """
+    Отримати список документів з можливістю фільтрації.
+
+    Цей ендпоінт дозволяє фільтрувати документи за багатьма параметрами:
+    - **staff_id**: ID співробітника.
+    - **status**: Статус документа (draft, approved, etc).
+    - **doc_type**: Тип документа.
+    - **start_date/end_date**: Діапазон дат створення.
+    - **needs_scan**: Тільки документи, що потребують сканування.
+    - **filter**: Спеціальні фільтри (stale, not_confirmed, pending).
+    
+    Результати повертаються сторінками (pagination).
+    """
     query = db.query(Document)
 
     if needs_scan:
-        # Filter documents that are signed or processed but don't have a scan yet
+        # Filter documents that are signed_rector or processed but don't have a scan yet
         query = query.filter(
-            Document.status.in_([DocumentStatus.SIGNED, DocumentStatus.PROCESSED]),
+            Document.status.in_([DocumentStatus.SIGNED_RECTOR, DocumentStatus.PROCESSED]),
             Document.file_scan_path.is_(None)
+        )
+    elif filter == 'not_confirmed':
+        # Filter documents that are signed_rector but don't have a scan yet
+        query = query.filter(
+            Document.status == DocumentStatus.SIGNED_RECTOR,
+            Document.file_scan_path.is_(None)
+        )
+    elif filter == 'pending':
+        # Filter for all pending documents (in workflow but not processed)
+        pending_statuses = [
+            DocumentStatus.SIGNED_BY_APPLICANT,
+            DocumentStatus.APPROVED_BY_DISPATCHER,
+            DocumentStatus.SIGNED_DEP_HEAD,
+            DocumentStatus.AGREED,
+            DocumentStatus.SIGNED_RECTOR,
+            DocumentStatus.SCANNED,
+        ]
+        query = query.filter(Document.status.in_(pending_statuses))
+    elif filter == 'stale':
+        # Filter for stale documents (not processed, not updated for 3+ days)
+        stale_threshold = datetime.now() - timedelta(days=3)
+        query = query.filter(
+            Document.status != DocumentStatus.PROCESSED,
+            Document.updated_at <= stale_threshold
         )
     else:
         # Normal filters
         if staff_id is not None:
             query = query.filter(Document.staff_id == staff_id)
         if status is not None:
-            query = query.filter(Document.status == status)
+            # Convert string status to enum
+            try:
+                query = query.filter(Document.status == DocumentStatus(status))
+            except ValueError:
+                pass  # Invalid status, skip filter
         if doc_type is not None:
             query = query.filter(Document.doc_type == doc_type)
+        # Exclude specific statuses
+        if exclude_statuses:
+            excluded = []
+            for s in exclude_statuses.split(','):
+                s = s.strip()
+                try:
+                    excluded.append(DocumentStatus(s))
+                except ValueError:
+                    pass
+            if excluded:
+                query = query.filter(~Document.status.in_(excluded))
 
     if search:
         # Search by custom_text or editor_content
@@ -89,7 +143,7 @@ async def list_documents(
     if end_date:
         query = query.filter(Document.created_at <= end_date)
 
-    total = query.count()
+    total = int(query.count())
     items = query.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
 
     # Return simplified response using correct field names
@@ -97,7 +151,7 @@ async def list_documents(
     for doc in items:
         staff = doc.staff
         # Generate title from doc_type
-        doc_title = doc.doc_type.name.replace("_", " ").title() if doc.doc_type else "Документ"
+        doc_title = get_document_type_label(doc.doc_type.value) if doc.doc_type else "Документ"
 
         # Always re-render to use the correct template
         doc.rendered_html = render_document(doc, db)
@@ -117,7 +171,7 @@ async def list_documents(
             "doc_type": doc.doc_type.value if doc.doc_type else None,
             "document_type": {
                 "id": doc.doc_type.value if doc.doc_type else "",
-                "name": doc.doc_type.name.replace("_", " ").title() if doc.doc_type else "",
+                "name": get_document_type_label(doc.doc_type.value) if doc.doc_type else "",
             },
             "title": doc_title,
             "content": doc.editor_content or doc.custom_text or "",
@@ -148,13 +202,100 @@ async def list_documents(
     }
 
 
+@router.get("/stale")
+async def get_stale_documents(
+    db: DBSession,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: get_current_user = Depends(require_employee),
+):
+    """
+    Отримати список проблемних (застарілих) документів.
+    Використовує StaleDocumentService для визначення застарілих документів.
+    """
+    from backend.services.stale_document_service import StaleDocumentService
+
+    stale_docs = StaleDocumentService.get_stale_documents(db)
+
+    # Convert to response format
+    result_items = []
+    for doc in stale_docs:
+        staff = doc.staff
+        doc_title = get_document_type_label(doc.doc_type.value) if doc.doc_type else "Документ"
+
+        result_items.append({
+            "id": doc.id,
+            "staff_id": doc.staff_id,
+            "staff": {
+                "id": staff.id if staff else 0,
+                "pib_nom": staff.pib_nom if staff else "",
+                "position": staff.position if staff else "",
+            },
+            "doc_type": doc.doc_type.value if doc.doc_type else None,
+            "document_type": {
+                "id": doc.doc_type.value if doc.doc_type else "",
+                "name": get_document_type_label(doc.doc_type.value) if doc.doc_type else "",
+            },
+            "title": doc_title,
+            "status": doc.status.value if doc.status else "draft",
+            "date_start": doc.date_start.isoformat() if doc.date_start else None,
+            "date_end": doc.date_end.isoformat() if doc.date_end else None,
+            "days_count": doc.days_count,
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
+            "staff_name": staff.pib_nom if staff else "",
+            "staff_position": staff.position if staff else "",
+            "stale_info": StaleDocumentService.get_stale_document_info(doc),
+        })
+
+    total = len(result_items)
+    items = result_items[skip:skip + limit]
+
+    return {
+        "data": items,
+        "total": total,
+        "page": skip // limit + 1,
+        "page_size": limit,
+    }
+
+
+@router.post("/{document_id}/stale/resolve")
+async def resolve_stale_document_endpoint(
+    document_id: int,
+    request: StaleResolutionRequest,
+    db: DBSession,
+    current_user: TokenData = Depends(require_employee),
+):
+    """
+    Вирішити проблему застарілого документа.
+    """
+    from backend.services.stale_document_service import StaleDocumentService
+
+    result = StaleDocumentService.resolve_stale_document(
+        db=db,
+        document_id=document_id,
+        action=request.action,
+        explanation=request.explanation,
+    )
+
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result
+
+
 @router.get("/{document_id}")
 async def get_document(
     document_id: int,
     db: DBSession,
     current_user: get_current_user = Depends(require_employee),
 ):
-    """Отримати документ за ID."""
+    """
+    Отримати детальну інформацію про документ за його ID.
+    
+    Повертає повну інформацію, включаючи дані співробітника, статус підписання,
+    шляхи до згенерованих файлів та метадані з архіву (якщо документ заархівовано).
+    """
     from backend.services.document_service import get_document_context_for_display
     
     doc = db.query(Document).filter(Document.id == document_id).first()
@@ -178,7 +319,7 @@ async def get_document(
         db.commit()
     
     # Generate title from doc_type
-    doc_title = doc.doc_type.name.replace("_", " ").title() if doc.doc_type else "Документ"
+    doc_title = get_document_type_label(doc.doc_type.value) if doc.doc_type else "Документ"
     
     # Use rendered_html from context (archive) or document
     rendered_html = context.get("rendered_html") or doc.rendered_html
@@ -247,7 +388,15 @@ async def create_document(
     validation: ValidationSvc,
     current_user: get_current_user = Depends(require_employee),
 ):
-    """Створити новий документ."""
+    """
+    Створити новий документ (заяву).
+    
+    Процес створення включає:
+    1. Перевірку валідності даних (дати, перетин з іншими документами).
+    2. Перевірку наявності інших відпусток у вказаний період.
+    3. Створення запису в базі даних.
+    4. Генерацію HTML представлення документа.
+    """
     from backend.models.staff import Staff
 
     staff = db.query(Staff).filter(Staff.id == doc_data.staff_id).first()
@@ -256,8 +405,12 @@ async def create_document(
 
     # Check for date overlaps with existing documents
     confirmed_statuses = [
-        DocumentStatus.ON_SIGNATURE,
-        DocumentStatus.SIGNED,
+        DocumentStatus.SIGNED_BY_APPLICANT,
+        DocumentStatus.APPROVED_BY_DISPATCHER,
+        DocumentStatus.SIGNED_DEP_HEAD,
+        DocumentStatus.AGREED,
+        DocumentStatus.SIGNED_RECTOR,
+        DocumentStatus.SCANNED,
         DocumentStatus.PROCESSED
     ]
 
@@ -274,7 +427,7 @@ async def create_document(
                 doc_data.date_end >= existing_doc.date_start):
                 overlapping_docs.append({
                     "id": existing_doc.id,
-                    "doc_type": existing_doc.doc_type.name.replace("_", " ").title() if existing_doc.doc_type else "Документ",
+                    "doc_type": get_document_type_label(existing_doc.doc_type.value) if existing_doc.doc_type else "Документ",
                     "date_start": existing_doc.date_start.isoformat(),
                     "date_end": existing_doc.date_end.isoformat(),
                 })
@@ -333,10 +486,10 @@ async def create_document(
 
     # Create response with frontend-compatible fields
     response = DocumentResponse.model_validate(document)
-    response.title = document.doc_type.name.replace("_", " ").title()
+    response.title = get_document_type_label(document.doc_type.value) if document.doc_type else "Документ"
     response.document_type = {
         "id": document.doc_type.value,
-        "name": document.doc_type.name.replace("_", " ").title()
+        "name": get_document_type_label(document.doc_type.value) if document.doc_type else "Документ"
     }
     response.start_date = document.date_start
     response.end_date = document.date_end
@@ -351,7 +504,14 @@ async def upload_document_scan(
     file: UploadFile = File(...),
     current_user: get_current_user = Depends(require_employee),
 ):
-    """Завантажити скан-копію документа."""
+    """
+    Завантажити скан-копію підписаного документа.
+    
+    Після завантаження скану:
+    - Документ блокується для редагування.
+    - Статус оновлюється відповідно до воркфлоу (наприклад, переходить в SCANNED).
+    - Файл зберігається на сервері.
+    """
 
     # ... (code omitted)
 
@@ -380,13 +540,21 @@ async def direct_scan_upload(
     date_end: str = Query(...),
     days_count: int = Query(...),
     file: UploadFile = File(...),
+    # Optional subposition fields for employment documents
+    new_position: str | None = Query(None, description="Position for new subposition"),
+    new_rate: float | None = Query(None, description="Rate for new subposition (0.25, 0.5, 0.75)"),
+    new_employment_type: str | None = Query(None, description="Employment type (internal, external)"),
     current_user: TokenData = Depends(require_employee),
 ):
     """
     Пряме завантаження скану (створення документу та завантаження файлу).
-    Логіка аналогічна desktop/ui/employee_card_dialog.py.
+    
+    For employment documents (employment_pdf, employment_contract, employment_competition):
+    - If new_position, new_rate, new_employment_type are provided, creates a new staff record (subposition)
+    - The document is linked to this new staff record
     """
     from backend.services.attendance_service import AttendanceService
+    from backend.models.staff import Staff
     from decimal import Decimal
 
     # Parse dates
@@ -396,15 +564,46 @@ async def direct_scan_upload(
     except ValueError:
         raise HTTPException(status_code=400, detail="Невірний формат дати (YYYY-MM-DD)")
 
+    target_staff_id = staff_id
+    
+    # For employment documents with subposition data, create a new staff record
+    is_employment = doc_type.startswith("employment_")
+    if is_employment and new_position and new_rate and new_employment_type:
+        # Get original staff to copy name and other data
+        original_staff = db.query(Staff).filter(Staff.id == staff_id).first()
+        if not original_staff:
+            raise HTTPException(status_code=404, detail="Співробітника не знайдено")
+        
+        # Create new staff record for subposition
+        new_staff = Staff(
+            pib_nom=original_staff.pib_nom,
+            pib_dav=original_staff.pib_dav,
+            degree=original_staff.degree,
+            position=new_position.upper(),
+            rate=Decimal(str(new_rate)),
+            employment_type=new_employment_type,
+            work_basis="contract",
+            term_start=dt_start,
+            term_end=dt_end,
+            is_active=True,
+            vacation_balance=0,
+            department=original_staff.department or "",
+            work_schedule=original_staff.work_schedule,
+        )
+        db.add(new_staff)
+        db.commit()
+        db.refresh(new_staff)
+        target_staff_id = new_staff.id
+
     # 1. Create document entry
     document = Document(
-        staff_id=staff_id,
+        staff_id=target_staff_id,
         doc_type=DocumentType(doc_type),
         date_start=dt_start,
         date_end=dt_end,
         days_count=days_count,
         payment_period="Скан завантажено вручну",
-        status=DocumentStatus.SIGNED,  # Already signed by default
+        status=DocumentStatus.SCANNED,  # Scanned document
         tabel_added_comment="Додано зі скану (документ створено співробітником самостійно via Web)",
     )
     
@@ -531,13 +730,17 @@ async def get_blocked_days(
     """
     Отримати заблоковані дні (відпустки та відвідування) для співробітника.
     Повертає масив дат, які вже зайняті:
-    - Документами у станах on_signature, signed, processed
+    - Документами у станах signed_by_applicant, approved_by_dispatcher, signed_dep_head, agreed, signed_rector, scanned, processed
     - Записами відвідування з кодами відпусток (з ATTENDANCE_CODES)
     """
     # Get documents with confirmed statuses
     confirmed_statuses = [
-        DocumentStatus.ON_SIGNATURE,
-        DocumentStatus.SIGNED,
+        DocumentStatus.SIGNED_BY_APPLICANT,
+        DocumentStatus.APPROVED_BY_DISPATCHER,
+        DocumentStatus.SIGNED_DEP_HEAD,
+        DocumentStatus.AGREED,
+        DocumentStatus.SIGNED_RECTOR,
+        DocumentStatus.SCANNED,
         DocumentStatus.PROCESSED
     ]
 
@@ -561,7 +764,7 @@ async def get_blocked_days(
                         "date": date_key,
                         "doc_id": doc.id,
                         "doc_type": doc.doc_type.value if doc.doc_type else None,
-                        "doc_type_name": doc.doc_type.name.replace("_", " ").title() if doc.doc_type else None,
+                        "doc_type_name": get_document_type_label(doc.doc_type.value) if doc.doc_type else None,
                         "source": "document",
                     })
                 current_date += timedelta(days=1)

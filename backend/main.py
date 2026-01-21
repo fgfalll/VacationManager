@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 
-from backend.api.routes import documents, schedule, staff, upload, auth, attendance, settings as settings_routes, tabel, dashboard
+from backend.api.routes import documents, schedule, staff, upload, auth, attendance, settings as settings_routes, tabel, dashboard, bulk
 from backend.api.dependencies import DBSession
 from backend.core.config import get_settings
 from backend.core.logging import setup_logging
@@ -26,14 +26,82 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Startup/shutdown events."""
     setup_logging()
+    
+    # Start background task for stale document monitoring
+    import asyncio
+    from backend.api.dependencies import get_db
+    from backend.services.stale_document_service import StaleDocumentService
+    import logging
+
+    stop_event = asyncio.Event()
+
+    async def stale_monitor_loop():
+        """Periodically check for stale documents."""
+        logging.info("Starting stale document monitor loop")
+        # Initial wait to let server start up
+        await asyncio.sleep(60) 
+        
+        while not stop_event.is_set():
+            try:
+                logging.info("Running stale document check...")
+                # Create a new session for this check
+                db_gen = get_db()
+                db = next(db_gen)
+                try:
+                    result = StaleDocumentService.check_and_notify_stale_documents(db)
+                    logging.info(f"Stale document check result: {result}")
+                finally:
+                    db.close()
+            except Exception as e:
+                logging.error(f"Error in stale document monitor: {e}")
+            
+            # Check every 24 hours (86400 seconds)
+            # For testing/demo purposes, we can check more frequently or use config
+            # But requirement says "notifications when status unchanged for > 1 day"
+            # So checking once a day or every few hours is reasonable.
+            # Let's check every 12 hours.
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=12 * 3600)
+            except asyncio.TimeoutError:
+                continue
+
+    monitor_task = asyncio.create_task(stale_monitor_loop())
+
     yield
+    
     # Cleanup
+    stop_event.set()
+    monitor_task.cancel()
+    try:
+        await monitor_task
+    except asyncio.CancelledError:
+        pass
+    logging.info("Stale document monitor stopped")
 
 
 app = FastAPI(
     title="VacationManager API",
-    description="API для системи управління відпустками",
-    version="7.0.0",
+    description="""
+    API для системи управління відпустками та кадрами.
+    
+    ## Основні можливості:
+    
+    * **Документи**: Створення, погодження та архівування кадрових документів.
+    * **Співробітники**: Управління базою співробітників, їх контрактами та ставками.
+    * **Графік відпусток**: Планування та моніторинг щорічних відпусток.
+    * **Табель**: Облік робочого часу та формування табелів.
+    * **Статистика**: Дашборди та звіти.
+    
+    ## Авторизація:
+    
+    Для доступу до більшості ендпоінтів потрібна авторизація через Bearer token.
+    Використовуйте ендпоінт `/api/auth/login` для отримання токена.
+    """,
+    version="7.0.1",
+    contact={
+        "name": "Support Team",
+        "email": "support@vacationmanager.local",
+    },
     lifespan=lifespan,
 )
 
@@ -63,6 +131,8 @@ app.include_router(settings_routes.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
 app.include_router(tabel.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
+app.include_router(bulk.router, prefix="/api")
+
 
 
 @app.get("/")

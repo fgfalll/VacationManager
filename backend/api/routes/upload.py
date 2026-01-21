@@ -31,7 +31,7 @@ async def upload_scan(
     Валідація:
     - Максимальний розмір: 10MB
     - Дозволені формати: PDF, JPG, JPEG, PNG
-    - Документ має бути в статусі 'on_signature'
+    - Документ має бути в статусі 'signed_rector'
 
     Для документів прийому на роботу:
     - Після завантаження скану створюється новий запис співробітника
@@ -42,10 +42,10 @@ async def upload_scan(
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не знайдено")
 
-    if doc.status != DocumentStatus.ON_SIGNATURE:
+    if doc.status != DocumentStatus.SIGNED_RECTOR:
         raise HTTPException(
             status_code=400,
-            detail=f"Документ має статус '{doc.status.value}', очікується 'on_signature'",
+            detail=f"Документ має статус '{doc.status.value}', очікується 'signed_rector'",
         )
 
     # Валідація файлу
@@ -101,10 +101,10 @@ async def upload_scan(
                 import logging
                 logging.info(f"Created new staff record {new_staff.id} for employment document {doc.id}")
             else:
-                # Failed to create staff, but still mark as signed
-                doc.status = DocumentStatus.SIGNED
+                # Failed to create staff, but still mark as scanned
+                doc.status = DocumentStatus.SCANNED
         else:
-            doc.status = DocumentStatus.SIGNED
+            doc.status = DocumentStatus.SCANNED
 
         # Handle term extension documents - update staff term_end and reactivate if needed
         is_extension = doc.doc_type.value.startswith("term_extension") or doc.doc_type == DocumentType.TERM_EXTENSION

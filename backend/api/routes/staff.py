@@ -1,6 +1,7 @@
 """API маршрути для управління співробітниками."""
 
 from typing import Annotated
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -26,12 +27,17 @@ async def list_staff(
     is_active: bool | None = Query(None, description="Фільтр за активністю"),
     employment_type: EmploymentType | None = Query(None, description="Фільтр за типом працевлаштування"),
     search: str | None = Query(None, description="Пошук за ПІБ"),
+    filter: str | None = Query(None, description="Фільтр: 'expiring' для контрактів, що скоро закінчуються"),
     current_user: get_current_user = Depends(require_employee),
 ):
     """
     Отримати список співробітників.
 
-    Підтримує пагінацію та фільтрацію.
+    Підтримує пагінацію та фільтрацію:
+    - **is_active**: Тільки активні/неактивні.
+    - **employment_type**: За типом працевлаштування (main/external/internal).
+    - **search**: Пошук за ПІБ.
+    - **filter**: Спеціальні фільтри (expiring contracts).
     """
     query = db.query(Staff)
 
@@ -44,7 +50,15 @@ async def list_staff(
     if search:
         query = query.filter(Staff.pib_nom.ilike(f"%{search}%"))
 
-    total = query.count()
+    # Filter for expiring contracts (within 30 days)
+    if filter == 'expiring':
+        deadline = date.today() + timedelta(days=30)
+        query = query.filter(
+            Staff.is_active == True,
+            Staff.term_end <= deadline,
+        )
+
+    total = int(query.count())
     items = query.order_by(Staff.pib_nom).offset(skip).limit(limit).all()
 
     # Додаємо computed properties
@@ -100,6 +114,9 @@ async def create_staff(
 ):
     """
     Створити нового співробітника.
+    
+    Створює новий запис в таблиці staff, логує дію в історії змін.
+    ПІБ має бути унікальним.
     """
     # Перевірка на унікальність ПІБ
     existing = db.query(Staff).filter(Staff.pib_nom == staff_data.pib_nom).first()
@@ -167,17 +184,15 @@ async def delete_staff(
     return None
 
 
-@router.get("/expiring-soon", response_model=StaffListResponse)
+@router.get("/expiring-soon")
 async def get_staff_with_expiring_contracts(
     db: DBSession,
     days: int = Query(30, ge=1, le=365, description="Кількість днів для попередження"),
-    current_user: get_current_user = Depends(require_department_head),
+    current_user: get_current_user = Depends(require_employee),
 ):
     """
     Отримати список співробітників з контрактами, що закінчуються.
     """
-    from datetime import date, timedelta
-
     deadline = date.today() + timedelta(days=days)
 
     query = db.query(Staff).filter(
@@ -185,22 +200,28 @@ async def get_staff_with_expiring_contracts(
         Staff.term_end <= deadline,
     )
 
-    total = query.count()
+    total = int(query.count())
     items = query.order_by(Staff.term_end).all()
 
-    result_items = []
-    for staff in items:
-        staff_dict = StaffResponse.model_validate(staff).model_dump()
-        staff_dict["days_until_term_end"] = staff.days_until_term_end
-        staff_dict["is_term_expiring_soon"] = staff.is_term_expiring_soon
-        result_items.append(StaffResponse(**staff_dict))
-
-    return StaffListResponse(
-        items=result_items,
-        total=total,
-        page=1,
-        page_size=total,
-    )
+    return {
+        "items": [
+            {
+                "id": staff.id,
+                "pib_nom": staff.pib_nom,
+                "position": staff.position,
+                "employment_type": staff.employment_type,
+                "work_basis": staff.work_basis,
+                "rate": float(staff.rate) if staff.rate else 0,
+                "term_start": staff.term_start.isoformat() if staff.term_start else None,
+                "term_end": staff.term_end.isoformat() if staff.term_end else None,
+                "is_active": staff.is_active,
+            }
+            for staff in items
+        ],
+        "total": total,
+        "page": 1,
+        "page_size": total,
+    }
 
 
 @router.get("/search")
