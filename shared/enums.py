@@ -6,6 +6,34 @@ from enum import Enum
 
 
 # Mapping dictionaries for UI labels
+DOCUMENT_TYPE_LABELS: dict[str, str] = {
+    # Оплачувані відпустки
+    "vacation_paid": "Відпустка оплачувана",
+    "vacation_main": "Основна щорічна відпустка",
+    "vacation_additional": "Додаткова щорічна відпустка",
+    "vacation_chornobyl": "Додаткова відпустка чорнобильцям",
+    "vacation_creative": "Творча відпустка",
+    "vacation_study": "Навчальна відпустка",
+    "vacation_children": "Відпустка працівникам з дітьми",
+    "vacation_maternity": "Відпустка у зв'язку з вагітністю та пологами",
+    "vacation_childcare": "Відпустка для догляду за дитиною",
+    # Відпустки без збереження зарплати
+    "vacation_unpaid": "Відпустка без збереження зарплати",
+    "vacation_unpaid_study": "Навчальна відпустка без збереження зарплати",
+    "vacation_unpaid_mandatory": "Відпустка без збереження (обов'язкова)",
+    "vacation_unpaid_agreement": "Відпустка без збереження (за згодою)",
+    "vacation_unpaid_other": "Інша відпустка без збереження зарплати",
+    # Продовження контракту
+    "term_extension": "Продовження терміну контракту",
+    "term_extension_contract": "Продовження контракту (контракт)",
+    "term_extension_competition": "Продовження контракту (конкурс)",
+    "term_extension_pdf": "Продовження контракту (PDF)",
+    # Прийом на роботу
+    "employment_contract": "Прийом на роботу (контракт)",
+    "employment_competition": "Прийом на роботу (конкурс)",
+    "employment_pdf": "Прийом на роботу (PDF)",
+}
+
 EMPLOYMENT_TYPE_LABELS: dict[str, str] = {
     "main": "Основне місце роботи",
     "external": "Зовнішній сумісник",
@@ -42,6 +70,16 @@ def get_employment_type_label(value: str) -> str:
 def get_work_basis_label(value: str) -> str:
     """Get Ukrainian label for work basis value."""
     return WORK_BASIS_LABELS.get(value, value)
+
+
+def get_document_type_label(value: str) -> str:
+    """Get Ukrainian label for document type value."""
+    return DOCUMENT_TYPE_LABELS.get(value, value)
+
+
+def get_document_type_label(value: str) -> str:
+    """Get Ukrainian label for document type value."""
+    return DOCUMENT_TYPE_LABELS.get(value, value)
 
 
 class EmploymentType(str, Enum):
@@ -103,13 +141,20 @@ class DocumentType(str, Enum):
 
 
 class DocumentStatus(str, Enum):
-    """Статус документа"""
-    DRAFT = "draft"                    # Чернетка
-    ON_SIGNATURE = "on_signature"      # На підписі (хоча б один підпис)
-    AGREED = "agreed"                  # Погоджено (всі проміжні підписи є)
-    SIGNED = "signed"                  # Підписано ректором
-    SCANNED = "scanned"                # Відскановано (є скан)
-    PROCESSED = "processed"            # Оброблено (додано в табель)
+    """Статус документа - повний цикл workflow"""
+    # Detailed workflow statuses
+    DRAFT = "draft"                              # Чернетка
+    SIGNED_BY_APPLICANT = "signed_by_applicant"  # Підписав заявник
+    APPROVED_BY_DISPATCHER = "approved_by_dispatcher"  # Погоджено диспетчером
+    SIGNED_DEP_HEAD = "signed_dep_head"          # Підписано завідувачем кафедри
+    AGREED = "agreed"                            # Погоджено (колективні узгодження)
+    SIGNED_RECTOR = "signed_rector"              # Підписано ректором
+    SCANNED = "scanned"                          # Відскановано (є скан)
+    PROCESSED = "processed"                      # В табелі (додано в табель)
+
+    # Legacy aliases for compatibility
+    ON_SIGNATURE = "on_signature"                # На підписі (deprecated - use detailed statuses)
+    SIGNED = "signed"                            # Підписано (deprecated - use SIGNED_RECTOR)
 
 
 class UserRole(str, Enum):
