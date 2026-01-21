@@ -557,11 +557,16 @@ class BuilderTab(QWidget):
         self.staff_input.currentIndexChanged.connect(self._on_staff_selected)
         staff_layout.addRow("ПІБ:", self.staff_input)
 
+        # Position row - contains both plain text label (single position) and dropdown (multiple positions)
+        self.position_label_text = QLabel()
+        self.position_label_text.setVisible(False)
+        staff_layout.addRow("Посада:", self.position_label_text)
+
         # Position selector (hidden by default, shown when employee has multiple positions)
         self.position_input = QComboBox()
         self.position_input.currentIndexChanged.connect(self._on_position_selected)
         self.position_input.setVisible(False)
-        staff_layout.addRow("Посада:", self.position_input)
+        staff_layout.addRow("", self.position_input)  # Empty label since we have label above
 
         self.staff_info_label = QLabel()
         self.staff_info_label.setWordWrap(True)
@@ -1073,16 +1078,24 @@ class BuilderTab(QWidget):
             display_text = f"{position_label} ({staff.rate})"
             self.position_input.addItem(display_text, staff.id)
 
-        # Show position selector if multiple positions
+        # Show position selector if multiple positions, otherwise show plain text
         if len(positions_sorted) > 1:
+            # Multiple positions: show dropdown, hide plain text
             self.position_input.setVisible(True)
+            self.position_label_text.setVisible(False)
             # Default to main position (1.0) or first in list
             for i, staff in enumerate(positions_sorted):
                 if staff.rate == Decimal("1.00"):
                     self.position_input.setCurrentIndex(i)
                     break
         else:
+            # Single position: show plain text, hide dropdown
             self.position_input.setVisible(False)
+            self.position_label_text.setVisible(True)
+            # Show position as plain text
+            single_staff = positions_sorted[0]
+            position_label = get_position_label(single_staff.position)
+            self.position_label_text.setText(f"{position_label} ({single_staff.rate})")
 
         self._on_field_changed()
         self._update_staff_info()
