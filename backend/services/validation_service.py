@@ -726,7 +726,13 @@ class ValidationService:
         # Підраховуємо документи на підписі для цього співробітника
         query = db.query(Document).filter(
             Document.staff_id == staff_id,
-            Document.status == DocumentStatus.ON_SIGNATURE,
+            Document.status.in_([
+                DocumentStatus.SIGNED_BY_APPLICANT,
+                DocumentStatus.APPROVED_BY_DISPATCHER,
+                DocumentStatus.SIGNED_DEP_HEAD,
+                DocumentStatus.AGREED,
+                DocumentStatus.SIGNED_RECTOR,
+            ]),
         )
 
         # Виключаємо поточний документ при редагуванні

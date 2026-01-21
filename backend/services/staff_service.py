@@ -80,6 +80,23 @@ class StaffService:
             comment="Створено новий запис",
         )
 
+        # Check if month is locked - if so, create correction sequence for this employee
+        from backend.services.tabel_approval_service import TabelApprovalService
+        
+        term_start = staff.term_start
+        doc_month = term_start.month
+        doc_year = term_start.year
+
+        approval_service = TabelApprovalService(self.db)
+        is_month_locked = approval_service.is_month_locked(doc_month, doc_year)
+
+        if is_month_locked:
+            # Month is locked - employee will appear in correction tabel
+            # Just ensure the correction sequence/approval record exists
+            correction_sequence = approval_service.get_or_create_correction_sequence(doc_month, doc_year)
+            import logging
+            logging.info(f"New staff {staff.id} will appear in correction tabel #{correction_sequence} for {doc_month}.{doc_year}")
+
         # Коміт буде виконаний в get_db_context()
         return staff
 

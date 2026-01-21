@@ -62,14 +62,14 @@ class ScheduleService:
         Отримує всі заброньовані дати для співробітника.
 
         Включає:
-        - Дати документів (на підписі, підписано, оброблено)
+        - Дати документів (підписано заявником, погоджено диспетчером, підписано зав. кафедри, погоджено, підписано ректором, відскановано, оброблено)
         - Дати відвідуваності (крім "Р" - присутність)
         """
         booked_dates = set()
 
         # Документи
         for doc in staff.documents:
-            if doc.status in ('on_signature', 'signed', 'processed'):
+            if doc.status in ('signed_by_applicant', 'approved_by_dispatcher', 'signed_dep_head', 'agreed', 'signed_rector', 'scanned', 'processed'):
                 current = doc.date_start
                 while current <= doc.date_end:
                     booked_dates.add(current)

@@ -38,9 +38,11 @@ UKRAINIAN_MONTHS = {
 # Ukrainian status names
 UKRAINIAN_STATUS = {
     DocumentStatus.DRAFT: "чернетки",
-    DocumentStatus.ON_SIGNATURE: "на_підписі",
+    DocumentStatus.SIGNED_BY_APPLICANT: "підписано_заявником",
+    DocumentStatus.APPROVED_BY_DISPATCHER: "погоджено_диспетчером",
+    DocumentStatus.SIGNED_DEP_HEAD: "підписано_зав_кафедри",
     DocumentStatus.AGREED: "погоджено",
-    DocumentStatus.SIGNED: "підписані",
+    DocumentStatus.SIGNED_RECTOR: "підписано_ректором",
     DocumentStatus.SCANNED: "відскановано",
     DocumentStatus.PROCESSED: "оброблені",
 }
@@ -94,7 +96,7 @@ class DocumentService:
         >>> service = DocumentService(db, grammar_service)
         >>> path = service.generate_document(document)
         >>> print(path)
-        Path("storage/2025/01_january/on_signature/dmytrenko_42.pdf")
+        Path("storage/2025/01_january/підписано_заявником/dmytrenko_42.pdf")
     """
 
     def __init__(self, db: Session, grammar: GrammarService) -> None:
@@ -158,7 +160,7 @@ class DocumentService:
             self._generate_pdf(document, output_path, raw_html)
 
             document.file_docx_path = str(output_path)
-            # Status stays as DRAFT - will change to ON_SIGNATURE when applicant signs
+            # Status stays as DRAFT - will change to SIGNED_BY_APPLICANT when applicant signs
             self.db.commit()
 
             return output_path
@@ -697,7 +699,7 @@ class DocumentService:
     def process_document(self, document: Document) -> None:
         """Обробляє підписаний документ."""
         try:
-            if document.status != DocumentStatus.SIGNED:
+            if document.status != DocumentStatus.SIGNED_RECTOR:
                 raise DocumentGenerationError("Документ має бути підписаним для обробки")
 
             # Skip vacation balance update for non-vacation documents
@@ -725,7 +727,7 @@ class DocumentService:
         document.applicant_signed_at = datetime.datetime.now()
         document.applicant_signed_comment = comment
         
-        # Move file from draft folder to on_signature folder
+        # Move file from draft folder to signed_by_applicant folder
         if document.file_docx_path:
             old_path = Path(document.file_docx_path)
             if old_path.exists():

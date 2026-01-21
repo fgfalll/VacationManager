@@ -1086,6 +1086,9 @@ def save_tabel_archive(
     responsible_person: str = "",
     department_head: str = "",
     hr_person: str = "",
+    raw_attendance: list | None = None,
+    raw_staff: list | None = None,
+    raw_vacations: list | None = None,
 ) -> Path:
     """
     Зберігає компактний архів табеля у JSON форматі.
@@ -1096,6 +1099,7 @@ def save_tabel_archive(
     - Налаштування установи
     - Дані працівників
     - Метадані (час створення, версія програми)
+    - Raw data (необов'язково) - повні дані для точного відновлення
 
     Args:
         month: Місяць архіву
@@ -1110,6 +1114,9 @@ def save_tabel_archive(
         responsible_person: Відповідальна особа за складання
         department_head: Керівник структурного підрозділу
         hr_person: Працівник кадрової служби
+        raw_attendance: Сирі дані відвідуваності (для архіву)
+        raw_staff: Сирі дані співробітників (для архіву)
+        raw_vacations: Сирі дані відпусток (для архіву)
 
     Returns:
         Path: Шлях до збереженого архіву
@@ -1135,7 +1142,7 @@ def save_tabel_archive(
 
     # Build archive data with is_approved from parameter
     archive_data = {
-        "version": "1.0",
+        "version": "1.1",  # Bumped version for raw data support
         "archived_at": datetime.utcnow().isoformat(),
         "month": month,
         "year": year,
@@ -1154,6 +1161,11 @@ def save_tabel_archive(
             "hr_person": hr_person,
         },
         "employees": employees_data or [],
+        "raw_data": {
+            "attendance": raw_attendance or [],
+            "staff": raw_staff or [],
+            "vacations": raw_vacations or [],
+        }
     }
 
     # Format: Табель_Січень_2026.json or Табель_корегуючий_Січень_2026_#1.json
@@ -1838,27 +1850,28 @@ def get_employees_for_tabel(
         for att in correction_attendance:
             staff_ids_with_corrections.add(att.staff_id)
 
-        # Calculate when this correction month was locked (1st of next month at 00:00:00)
-        if month == 12:
-            lock_month = 1
-            lock_year = year + 1
-        else:
-            lock_month = month + 1
-            lock_year = year
-        lock_date = datetime(lock_year, lock_month, 1, 0, 0, 0)
-
-        # Include employees whose contract started in this correction month
-        # AND who were added AFTER the month was locked
-        staff_added_after_lock = db.query(Staff).filter(
-            Staff.term_start >= month_start,
-            Staff.term_start <= month_end,
-            Staff.created_at >= lock_date
-        ).all()
+        # Get the main tabel approval date for this month
+        from backend.models.tabel_approval import TabelApproval
+        main_approval = db.query(TabelApproval).filter(
+            TabelApproval.month == month,
+            TabelApproval.year == year,
+            TabelApproval.is_correction == False,
+            TabelApproval.is_approved == True
+        ).first()
         
+        # Include employees whose contract started in this correction month
+        # AND who were added AFTER the main tabel was approved
         new_staff_ids = set()
-        for staff in staff_added_after_lock:
-            staff_ids_with_corrections.add(staff.id)
-            new_staff_ids.add(staff.id)
+        if main_approval and main_approval.approved_at:
+            staff_added_after_approval = db.query(Staff).filter(
+                Staff.term_start >= month_start,
+                Staff.term_start <= month_end,
+                Staff.created_at > main_approval.approved_at
+            ).all()
+            
+            for staff in staff_added_after_approval:
+                staff_ids_with_corrections.add(staff.id)
+                new_staff_ids.add(staff.id)
 
         # If no corrections AND no new contracts for this month, return empty list
         if not staff_ids_with_corrections:
@@ -1939,8 +1952,37 @@ def get_employees_for_tabel(
 
         # Check if month is locked/approved by HR
         from backend.services.tabel_approval_service import TabelApprovalService
+        from backend.models.tabel_approval import TabelApproval
         approval_service = TabelApprovalService(db)
         is_month_locked = approval_service.is_month_locked(month, year)
+
+        # If month is locked, exclude employees who were added AFTER the main tabel was approved
+        # These employees should only appear in the correction tabel
+        if is_month_locked:
+            # Get the main tabel approval date for this month
+            main_approval = db.query(TabelApproval).filter(
+                TabelApproval.month == month,
+                TabelApproval.year == year,
+                TabelApproval.is_correction == False,
+                TabelApproval.is_approved == True
+            ).first()
+            
+            if main_approval and main_approval.approved_at:
+                # Filter out employees added after approval
+                filtered_staff_list = []
+                for staff in staff_list:
+                    # Check if contract started in this locked month
+                    contract_started_this_month = (staff.term_start >= month_start and 
+                                                   staff.term_start <= month_end)
+                    
+                    # If employee was created AFTER main tabel approval AND contract started this month
+                    # -> they belong in correction only
+                    if (staff.created_at and contract_started_this_month and
+                        staff.created_at > main_approval.approved_at):
+                        continue
+                        
+                    filtered_staff_list.append(staff)
+                staff_list = filtered_staff_list
 
         # Find responsible person and department head
         for staff_member in staff_list:

@@ -53,12 +53,16 @@ class TabelApprovalService:
             return True
 
         # Check for manual approval
-        approval = self.db.query(TabelApproval).filter(
-            TabelApproval.month == month,
-            TabelApproval.year == year,
-            TabelApproval.is_correction == False,
-            TabelApproval.is_approved == True
-        ).first()
+        approval = (
+            self.db.query(TabelApproval)
+            .filter(
+                TabelApproval.month == month,
+                TabelApproval.year == year,
+                TabelApproval.is_correction == False,
+                TabelApproval.is_approved == True,
+            )
+            .first()
+        )
 
         return approval is not None
 
@@ -69,13 +73,18 @@ class TabelApprovalService:
         Returns:
             list[tuple]: Список кортежів (місяць, рік) для заблокованих місяців
         """
-        approvals = self.db.query(TabelApproval).filter(
-            TabelApproval.is_correction == False,
-            TabelApproval.is_approved == True
-        ).all()
+        approvals = (
+            self.db.query(TabelApproval)
+            .filter(
+                TabelApproval.is_correction == False, TabelApproval.is_approved == True
+            )
+            .all()
+        )
         return [(a.month, a.year) for a in approvals]
 
-    def can_edit_attendance(self, staff_id: int, attendance_date: date) -> tuple[bool, str]:
+    def can_edit_attendance(
+        self, staff_id: int, attendance_date: date
+    ) -> tuple[bool, str]:
         """
         Перевіряє, чи можна редагувати відвідуваність на вказану дату.
 
@@ -90,7 +99,10 @@ class TabelApprovalService:
         year = attendance_date.year
 
         if self.is_month_locked(month, year):
-            return False, "Цей місяць вже погоджено з кадрами. Зміни будуть внесені в корегуючий табель."
+            return (
+                False,
+                "Цей місяць вже погоджено з кадрами. Зміни будуть внесені в корегуючий табель.",
+            )
 
         return True, ""
 
@@ -127,11 +139,15 @@ class TabelApprovalService:
         correction_months = {}
         for lock_month, lock_year in locked_months:
             # Get all corrections for this locked month
-            corrections = self.db.query(TabelApproval).filter(
-                TabelApproval.is_correction == True,
-                TabelApproval.correction_month == lock_month,
-                TabelApproval.correction_year == lock_year
-            ).all()
+            corrections = (
+                self.db.query(TabelApproval)
+                .filter(
+                    TabelApproval.is_correction == True,
+                    TabelApproval.correction_month == lock_month,
+                    TabelApproval.correction_year == lock_year,
+                )
+                .all()
+            )
 
             if corrections:
                 # Get max sequence for this month
@@ -141,14 +157,20 @@ class TabelApprovalService:
                     "correction_year": lock_year,
                     "correction_sequence": max_seq,
                     "is_approved": any(c.is_approved for c in corrections),
-                    "has_corrections": True
+                    "has_corrections": True,
                 }
 
         # Convert to list and sort by date (newest first), limit to 4
-        result = sorted(correction_months.values(), key=lambda x: (x["correction_year"], x["correction_month"]), reverse=True)
+        result = sorted(
+            correction_months.values(),
+            key=lambda x: (x["correction_year"], x["correction_month"]),
+            reverse=True,
+        )
         return result[:4]
 
-    def is_correction_locked(self, correction_month: int, correction_year: int, correction_sequence: int) -> bool:
+    def is_correction_locked(
+        self, correction_month: int, correction_year: int, correction_sequence: int
+    ) -> bool:
         """
         Checks if a specific correction sequence is locked (approved).
 
@@ -160,39 +182,62 @@ class TabelApprovalService:
         Returns:
             bool: True if the correction sequence is approved, False otherwise
         """
-        approval = self.db.query(TabelApproval).filter(
-            TabelApproval.month == correction_month,
-            TabelApproval.year == correction_year,
-            TabelApproval.is_correction == True,
-            TabelApproval.correction_sequence == correction_sequence,
-            TabelApproval.is_approved == True
-        ).first()
+        approval = (
+            self.db.query(TabelApproval)
+            .filter(
+                TabelApproval.month == correction_month,
+                TabelApproval.year == correction_year,
+                TabelApproval.is_correction == True,
+                TabelApproval.correction_sequence == correction_sequence,
+                TabelApproval.is_approved == True,
+            )
+            .first()
+        )
 
         return approval is not None
 
     def get_or_create_correction_sequence(
-        self,
-        correction_month: int,
-        correction_year: int
+        self, correction_month: int, correction_year: int, create_if_needed: bool = True
     ) -> int:
         """
         Отримує наступний номер послідовності для корекції місяця.
+        Якщо всі корекції затверджені, створює новий TabelApproval запис.
 
         Args:
             correction_month: Місяць що коригується
             correction_year: Рік що коригується
+            create_if_needed: Якщо True, створює TabelApproval для нової послідовності
 
         Returns:
             int: Номер послідовності для нової корекції
         """
         # Find existing corrections for this month/year
-        existing = self.db.query(TabelApproval).filter(
-            TabelApproval.correction_month == correction_month,
-            TabelApproval.correction_year == correction_year,
-            TabelApproval.is_correction == True
-        ).order_by(TabelApproval.correction_sequence.desc()).all()
+        existing = (
+            self.db.query(TabelApproval)
+            .filter(
+                TabelApproval.correction_month == correction_month,
+                TabelApproval.correction_year == correction_year,
+                TabelApproval.is_correction == True,
+            )
+            .order_by(TabelApproval.correction_sequence.desc())
+            .all()
+        )
 
         if not existing:
+            # No corrections exist yet - create first one if requested
+            if create_if_needed:
+                new_approval = TabelApproval(
+                    month=correction_month,
+                    year=correction_year,
+                    is_correction=True,
+                    correction_month=correction_month,
+                    correction_year=correction_year,
+                    correction_sequence=1,
+                    is_approved=False,
+                    generated_at=datetime.utcnow(),
+                )
+                self.db.add(new_approval)
+                self.db.flush()
             return 1
 
         # Check the latest correction
@@ -202,8 +247,22 @@ class TabelApprovalService:
         if not latest.is_approved:
             return latest.correction_sequence
 
-        # Otherwise, start a new sequence
-        return latest.correction_sequence + 1
+        # Otherwise, start a new sequence - and CREATE the approval record
+        new_sequence = latest.correction_sequence + 1
+        if create_if_needed:
+            new_approval = TabelApproval(
+                month=correction_month,
+                year=correction_year,
+                is_correction=True,
+                correction_month=correction_month,
+                correction_year=correction_year,
+                correction_sequence=new_sequence,
+                is_approved=False,
+                generated_at=datetime.utcnow(),
+            )
+            self.db.add(new_approval)
+            self.db.flush()
+        return new_sequence
 
     def record_generation(
         self,
@@ -212,7 +271,7 @@ class TabelApprovalService:
         is_correction: bool = False,
         correction_month: Optional[int] = None,
         correction_year: Optional[int] = None,
-        correction_sequence: int = 1
+        correction_sequence: int = 1,
     ) -> TabelApproval:
         """
         Реєструє факт генерації табеля.
@@ -232,21 +291,21 @@ class TabelApprovalService:
         query = self.db.query(TabelApproval).filter(
             TabelApproval.month == month,
             TabelApproval.year == year,
-            TabelApproval.is_correction == is_correction
+            TabelApproval.is_correction == is_correction,
         )
 
         if is_correction:
             query = query.filter(
                 TabelApproval.correction_month == correction_month,
                 TabelApproval.correction_year == correction_year,
-                TabelApproval.correction_sequence == correction_sequence
+                TabelApproval.correction_sequence == correction_sequence,
             )
         else:
             # For non-correction, match NULL correction_month/year/sequence
             query = query.filter(
                 TabelApproval.correction_month.is_(None),
                 TabelApproval.correction_year.is_(None),
-                TabelApproval.correction_sequence == 1
+                TabelApproval.correction_sequence == 1,
             )
 
         approval = query.first()
@@ -264,18 +323,14 @@ class TabelApprovalService:
                 correction_year=correction_year,
                 correction_sequence=correction_sequence,
                 is_approved=False,
-                generated_at=datetime.utcnow()
+                generated_at=datetime.utcnow(),
             )
             self.db.add(approval)
 
         self.db.commit()
         return approval
 
-    def delete_correction(
-        self,
-        correction_month: int,
-        correction_year: int
-    ) -> bool:
+    def delete_correction(self, correction_month: int, correction_year: int) -> bool:
         """
         Видаляє запис про корегуючий табель.
 
@@ -286,11 +341,15 @@ class TabelApprovalService:
         Returns:
             bool: True якщо видалено успішно
         """
-        corrections = self.db.query(TabelApproval).filter(
-            TabelApproval.is_correction == True,
-            TabelApproval.correction_month == correction_month,
-            TabelApproval.correction_year == correction_year
-        ).all()
+        corrections = (
+            self.db.query(TabelApproval)
+            .filter(
+                TabelApproval.is_correction == True,
+                TabelApproval.correction_month == correction_month,
+                TabelApproval.correction_year == correction_year,
+            )
+            .all()
+        )
 
         if not corrections:
             return False
@@ -309,7 +368,7 @@ class TabelApprovalService:
         correction_month: int | None = None,
         correction_year: int | None = None,
         correction_sequence: int = 1,
-        user: str = "user"
+        user: str = "user",
     ) -> TabelApproval:
         """
         Підтверджує погодження табеля з кадровою службою.
@@ -325,50 +384,43 @@ class TabelApprovalService:
 
         Returns:
             TabelApproval: Оновлений запис
+
+        Raises:
+            ValueError: Якщо табель вже погоджено
         """
         query = self.db.query(TabelApproval).filter(
             TabelApproval.month == month,
             TabelApproval.year == year,
-            TabelApproval.is_correction == is_correction
+            TabelApproval.is_correction == is_correction,
         )
 
         if is_correction:
             query = query.filter(
                 TabelApproval.correction_month == correction_month,
                 TabelApproval.correction_year == correction_year,
-                TabelApproval.correction_sequence == correction_sequence
+                TabelApproval.correction_sequence == correction_sequence,
             )
         else:
             # For non-correction, ensure we match the main record (NULL corrections)
             query = query.filter(
                 TabelApproval.correction_month.is_(None),
                 TabelApproval.correction_year.is_(None),
-                TabelApproval.correction_sequence == 1
+                TabelApproval.correction_sequence == 1,
             )
 
         approval = query.first()
 
-        if approval:
-            approval.is_approved = True
-            approval.approved_at = datetime.utcnow()
-            approval.approved_by = user
-            self.db.commit()
-        else:
-            # Create new if doesn't exist
-            approval = TabelApproval(
-                month=month,
-                year=year,
-                is_correction=is_correction,
-                correction_month=correction_month,
-                correction_year=correction_year,
-                correction_sequence=correction_sequence,
-                is_approved=True,
-                generated_at=datetime.utcnow(),
-                approved_at=datetime.utcnow(),
-                approved_by=user
-            )
-            self.db.add(approval)
-            self.db.commit()
+        # Check if already approved
+        if approval and approval.is_approved:
+            raise ValueError("Табель вже погоджено")
+
+        if not approval:
+            raise ValueError("Табель не знайдено. Спочатку згенеруйте табель.")
+
+        approval.is_approved = True
+        approval.approved_at = datetime.utcnow()
+        approval.approved_by = user
+        self.db.commit()
 
         return approval
 
@@ -395,11 +447,15 @@ class TabelApprovalService:
             return False
 
         # Check if tabel has been generated
-        approval = self.db.query(TabelApproval).filter(
-            TabelApproval.month == month,
-            TabelApproval.year == year,
-            TabelApproval.is_correction == False
-        ).first()
+        approval = (
+            self.db.query(TabelApproval)
+            .filter(
+                TabelApproval.month == month,
+                TabelApproval.year == year,
+                TabelApproval.is_correction == False,
+            )
+            .first()
+        )
 
         # Show warning if not generated yet
         return approval is None
@@ -410,7 +466,7 @@ class TabelApprovalService:
         year: int,
         is_correction: bool = False,
         correction_month: int | None = None,
-        correction_year: int | None = None
+        correction_year: int | None = None,
     ) -> Optional[dict]:
         """
         Отримує статус погодження для табеля.
@@ -428,21 +484,20 @@ class TabelApprovalService:
         query = self.db.query(TabelApproval).filter(
             TabelApproval.month == month,
             TabelApproval.year == year,
-            TabelApproval.is_correction == is_correction
+            TabelApproval.is_correction == is_correction,
         )
 
         if is_correction:
             query = query.filter(
                 TabelApproval.correction_month == correction_month,
-                TabelApproval.correction_year == correction_year
+                TabelApproval.correction_year == correction_year,
             )
         else:
             # For non-correction, ensure we match the main record
             query = query.filter(
                 TabelApproval.correction_month.is_(None),
-                TabelApproval.correction_year.is_(None)
+                TabelApproval.correction_year.is_(None),
             )
-
 
         approval = query.first()
 

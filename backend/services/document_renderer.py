@@ -36,6 +36,9 @@ TEMPLATE_MAP = {
     DocumentType.TERM_EXTENSION_CONTRACT: "term_extension_contract.html",
     DocumentType.TERM_EXTENSION_COMPETITION: "term_extension_competition.html",
     DocumentType.TERM_EXTENSION_PDF: "term_extension_pdf.html",
+    DocumentType.EMPLOYMENT_CONTRACT: "employment_contract.html",
+    DocumentType.EMPLOYMENT_COMPETITION: "employment_competition.html",
+    DocumentType.EMPLOYMENT_PDF: "employment_pdf.html",
 }
 
 # Default template for unknown types

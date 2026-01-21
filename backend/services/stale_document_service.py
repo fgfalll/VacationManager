@@ -22,9 +22,11 @@ class StaleDocumentService:
     # Statuses that should be monitored (exclude terminal states)
     MONITORED_STATUSES = [
         DocumentStatus.DRAFT,
-        DocumentStatus.ON_SIGNATURE,
+        DocumentStatus.SIGNED_BY_APPLICANT,
+        DocumentStatus.APPROVED_BY_DISPATCHER,
+        DocumentStatus.SIGNED_DEP_HEAD,
         DocumentStatus.AGREED,
-        DocumentStatus.SIGNED,
+        DocumentStatus.SIGNED_RECTOR,
         DocumentStatus.SCANNED,
     ]
 

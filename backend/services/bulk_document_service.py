@@ -152,7 +152,7 @@ class BulkDocumentService:
 
         # Update document with file path
         doc.file_docx_path = str(output_path)
-        # Status stays as DRAFT - will change to ON_SIGNATURE when applicant signs
+        # Status stays as DRAFT - will change to SIGNED_BY_APPLICANT when applicant signs
         self.db.commit()
 
         return doc
@@ -168,8 +168,12 @@ class BulkDocumentService:
         # Use document's actual status for folder
         UKRAINIAN_STATUS = {
             DocumentStatus.DRAFT: "чернетки",
-            DocumentStatus.ON_SIGNATURE: "на_підписі",
-            DocumentStatus.SIGNED: "підписані",
+            DocumentStatus.SIGNED_BY_APPLICANT: "підписано_заявником",
+            DocumentStatus.APPROVED_BY_DISPATCHER: "погоджено_диспетчером",
+            DocumentStatus.SIGNED_DEP_HEAD: "підписано_зав_кафедри",
+            DocumentStatus.AGREED: "погоджено",
+            DocumentStatus.SIGNED_RECTOR: "підписано_ректором",
+            DocumentStatus.SCANNED: "відскановано",
             DocumentStatus.PROCESSED: "оброблені",
         }
         status_folder = UKRAINIAN_STATUS.get(doc.status, "чернетки")
@@ -226,7 +230,7 @@ class BulkDocumentService:
 
             # Check for overlapping documents
             for doc in staff.documents:
-                if doc.status in ('draft', 'on_signature'):
+                if doc.status in ('draft', 'signed_by_applicant', 'approved_by_dispatcher', 'signed_dep_head', 'agreed', 'signed_rector'):
                     # Check overlap
                     if not (date_end < doc.date_start or date_start > doc.date_end):
                         reasons.append(f"Перетин з існуючим документом #{doc.id}")
@@ -260,7 +264,7 @@ class BulkDocumentService:
         # Get locked dates from existing documents
         locked = set()
         for doc in staff.documents:
-            if doc.status in ('on_signature', 'signed', 'processed'):
+            if doc.status in ('signed_by_applicant', 'approved_by_dispatcher', 'signed_dep_head', 'agreed', 'signed_rector', 'scanned', 'processed'):
                 current = doc.date_start
                 while current <= doc.date_end:
                     locked.add(current)
