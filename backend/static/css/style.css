@@ -198,18 +198,43 @@ body {
 }
 
 .badge-draft {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.badge-signed_by_applicant {
     background: #dbeafe;
     color: #1e40af;
 }
 
-.badge-on_signature {
+.badge-approved_by_dispatcher {
+    background: #cffafe;
+    color: #0e7490;
+}
+
+.badge-signed_dep_head {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.badge-agreed {
     background: #fef3c7;
     color: #92400e;
 }
 
-.badge-signed {
-    background: #d1fae5;
-    color: #065f46;
+.badge-signed_rector {
+    background: #f3e8ff;
+    color: #6b21a8;
+}
+
+.badge-scanned {
+    background: #fce7f3;
+    color: #9d174d;
+}
+
+.badge-processed {
+    background: #ccfbf1;
+    color: #0f766e;
 }
 
 /* Upload form */

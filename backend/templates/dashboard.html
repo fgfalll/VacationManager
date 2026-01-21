@@ -746,8 +746,12 @@
         function getStatusLabel(status) {
             const labels = {
                 'draft': 'Чернетка',
-                'on_signature': 'На підписі',
-                'signed': 'Підписано',
+                'signed_by_applicant': 'Підписав заявник',
+                'approved_by_dispatcher': 'Погоджено диспетчером',
+                'signed_dep_head': 'Підписано зав. кафедри',
+                'agreed': 'Погоджено',
+                'signed_rector': 'Підписано ректором',
+                'scanned': 'Відсконовано',
                 'processed': 'В табелі'
             };
             return labels[status] || status;
