@@ -390,6 +390,14 @@ class TabelTab(QWidget):
         # NOTE: Don't load data here - delay until tab is shown to avoid slow startup
         self._data_loaded: bool = False
 
+    def showEvent(self, event) -> None:
+        """Called when tab becomes visible - refresh correction tabs."""
+        super().showEvent(event)
+        # Always refresh correction tabs when tab becomes visible
+        # This ensures new corrections created elsewhere (e.g., new employee added) are shown
+        if self._data_loaded:
+            self._update_correction_tabs()
+
     def _setup_ui(self) -> None:
         """Set up the UI."""
         layout = QVBoxLayout(self)
@@ -823,6 +831,9 @@ class TabelTab(QWidget):
 
             # Tab label shows which month is being corrected
             tab_text = f"Корег. ({month_name})"
+            
+            is_approved = correction.get("is_approved", False)
+            border_color = "#d32f2f" if is_approved else "#217346"
 
             tab_btn = QPushButton(tab_text)
             tab_btn.setCheckable(True)
@@ -830,64 +841,62 @@ class TabelTab(QWidget):
             tab_btn.setFixedWidth(170)
             tab_btn.setProperty("correction_month", corr_month)
             tab_btn.setProperty("correction_year", corr_year)
-            tab_btn.setStyleSheet("""
-                QPushButton {
+            tab_btn.setStyleSheet(f"""
+                QPushButton {{
                     background-color: #ffffff;
                     border: 1px solid #d0d0d0;
-                    border-bottom: 2px solid #d0d0d0;
+                    border-bottom: 2px solid {'#d32f2f' if is_approved else '#d0d0d0'};
                     border-radius: 0px;
                     padding: 4px 25px 4px 15px;
                     font-size: 11px;
                     text-align: center;
-                }
-                QPushButton:checked {
+                }}
+                QPushButton:checked {{
                     background-color: #ffffff;
-                    border-bottom: 3px solid #217346;
+                    border-bottom: 3px solid {border_color};
                     font-weight: bold;
-                }
-                QPushButton:hover {
+                }}
+                QPushButton:hover {{
                     background-color: #f0f0f0;
-                }
-                QPushButton:hover:checked {
+                }}
+                QPushButton:hover:checked {{
                     background-color: #ffffff;
-                }
+                }}
             """)
             tab_btn.clicked.connect(lambda checked, m=corr_month, y=corr_year: self._on_correction_tab_clicked(m, y))
 
-            # Add close button to the tab
-            from PyQt6.QtWidgets import QToolButton
-            close_btn = QToolButton(tab_btn)
-            close_btn.setText("×")
-            close_btn.setFixedSize(16, 16)
-            close_btn.setCursor(Qt.CursorShape.ArrowCursor)
-            close_btn.setToolTip("Видалити корегуючий табель")
-            close_btn.setStyleSheet("""
-                QToolButton {
-                    border: none;
-                    background: transparent;
-                    font-weight: bold;
-                    color: #999;
-                    font-size: 14px;
-                }
-                QToolButton:hover {
-                    color: #d32f2f;
-                    background: rgba(211, 47, 47, 0.1);
-                    border-radius: 8px;
-                }
-            """)
-            # Connect close signal - use lambda to capture specific month/year
-            # blockSignals(True) prevents the tab from being selected when closing? 
-            # No, because close_btn is a child, clicking it might propagate? 
-            # QToolButton click doesn't propagate to parent usually unless ignored.
-            close_btn.clicked.connect(lambda checked=False, m=corr_month, y=corr_year: self._close_correction_tab(m, y))
+            # Add close button to the tab - ONLY if not approved
+            if not is_approved:
+                from PyQt6.QtWidgets import QToolButton
+                close_btn = QToolButton(tab_btn)
+                close_btn.setText("×")
+                close_btn.setFixedSize(16, 16)
+                close_btn.setCursor(Qt.CursorShape.ArrowCursor)
+                close_btn.setToolTip("Видалити корегуючий табель")
+                close_btn.setStyleSheet("""
+                    QToolButton {
+                        border: none;
+                        background: transparent;
+                        font-weight: bold;
+                        color: #999;
+                        font-size: 14px;
+                    }
+                    QToolButton:hover {
+                        color: #d32f2f;
+                        background: rgba(211, 47, 47, 0.1);
+                        border-radius: 8px;
+                    }
+                """)
+                # Connect close signal - use lambda to capture specific month/year
+                close_btn.clicked.connect(lambda checked=False, m=corr_month, y=corr_year: self._close_correction_tab(m, y))
 
-            # Position close button on the right
-            from PyQt6.QtWidgets import QHBoxLayout
-            btn_layout = QHBoxLayout(tab_btn)
-            btn_layout.setContentsMargins(0, 0, 4, 0)
-            btn_layout.setSpacing(0)
-            btn_layout.addStretch()
-            btn_layout.addWidget(close_btn)
+                # Position close button on the right
+                from PyQt6.QtWidgets import QHBoxLayout
+                btn_layout = QHBoxLayout(tab_btn)
+                btn_layout.setContentsMargins(0, 0, 4, 0)
+                btn_layout.setSpacing(0)
+                btn_layout.addStretch()
+                btn_layout.addWidget(close_btn)
 
             self.correction_tabs_layout.addWidget(tab_btn)
             self.tab_button_group.addButton(tab_btn)
@@ -1754,6 +1763,10 @@ Traceback:
                 from backend.services.tabel_service import get_employees_for_tabel, format_initials
                 from backend.models.settings import SystemSettings
                 from backend.models.staff import Staff
+                from backend.models.attendance import Attendance
+                from backend.models.document import Document, DocumentType, DocumentStatus
+                from datetime import date
+                from calendar import monthrange
                 
                 # Use shared function to get EXACTLY the same data as the generated tabel
                 employees_list, resp_person, dept_head, hr_pers = get_employees_for_tabel(
@@ -1765,18 +1778,47 @@ Traceback:
                 department_head = dept_head if dept_head else ""
                 hr_person = hr_pers if hr_pers else ""
                 
+                # Collect RAW data for full redundancy
+                month_start = date(year, month, 1)
+                _, last_day = monthrange(year, month)
+                month_end = date(year, month, last_day)
+                
+                # Get staff IDs from employees list for raw data query
+                staff_ids = set()
+                
                 # Convert EmployeeData objects to dicts for JSON serialization
                 for emp in employees_list:
+                    # Get staff_id from the employee if available
+                    staff_id = getattr(emp, 'staff_id', 0)
+                    if staff_id:
+                        staff_ids.add(staff_id)
+                    
                     # Convert EmployeeData to dict - use 'pib' to match template
+                    # Use asdict for dataclass conversion where needed
+                    from dataclasses import asdict
+                    
+                    # Convert absence (AbsenceTotals dataclass) to dict
+                    absence_dict = {}
+                    if hasattr(emp, 'absence') and emp.absence:
+                        try:
+                            absence_dict = asdict(emp.absence) if hasattr(emp.absence, '__dataclass_fields__') else dict(emp.absence) if isinstance(emp.absence, dict) else {}
+                        except:
+                            absence_dict = {}
+                    
+                    # Convert totals - ensure it's a proper dict
+                    totals_dict = {}
+                    if hasattr(emp, 'totals') and emp.totals:
+                        totals_dict = dict(emp.totals) if isinstance(emp.totals, dict) else {}
+                    
                     emp_dict = {
-                        "staff_id": 0, # Not available in EmployeeData, but not strictly needed for archive view
+                        "staff_id": staff_id,
                         "pib": emp.pib,  # Use 'pib' to match template expectations
                         "pib_nom": emp.pib,  # Keep for backwards compatibility
                         "position": get_position_label(emp.position),
                         "rate": float(emp.rate.replace(',', '.')) if emp.rate else 1.0,
                         "days": [],
-                        "totals": emp.totals if hasattr(emp, 'totals') else {},
-                        "absence": emp.absence if hasattr(emp, 'absence') else {},
+                        "totals": totals_dict,
+                        "absence": absence_dict,
                     }
                     
                     # Convert days
@@ -1790,6 +1832,88 @@ Traceback:
                         })
                         
                     employees_data.append(emp_dict)
+                
+                # === Collect RAW attendance records ===
+                raw_attendance = []
+                if is_correction:
+                    att_query = db.query(Attendance).filter(
+                        Attendance.is_correction == True,
+                        Attendance.correction_month == correction_month,
+                        Attendance.correction_year == correction_year,
+                        Attendance.correction_sequence == correction_sequence,
+                    )
+                else:
+                    att_query = db.query(Attendance).filter(
+                        Attendance.date >= month_start,
+                        Attendance.date <= month_end,
+                        Attendance.is_correction == False,
+                    )
+                
+                for att in att_query.all():
+                    raw_attendance.append({
+                        "id": att.id,
+                        "staff_id": att.staff_id,
+                        "date": att.date.isoformat() if att.date else None,
+                        "date_end": att.date_end.isoformat() if att.date_end else None,
+                        "code": att.code,
+                        "hours": str(att.hours) if att.hours else "0",
+                        "notes": att.notes or "",
+                        "is_correction": att.is_correction,
+                        "correction_month": att.correction_month,
+                        "correction_year": att.correction_year,
+                        "correction_sequence": att.correction_sequence,
+                    })
+                
+                # === Collect RAW staff records ===
+                raw_staff = []
+                # Get all staff that appear in this tabel
+                staff_in_tabel = db.query(Staff).filter(
+                    Staff.term_start <= month_end,
+                    Staff.term_end >= month_start,
+                ).all()
+                
+                for staff in staff_in_tabel:
+                    raw_staff.append({
+                        "id": staff.id,
+                        "pib_nom": staff.pib_nom,
+                        "pib_dav": staff.pib_dav,
+                        "position": staff.position,
+                        "degree": staff.degree,
+                        "rate": str(staff.rate) if staff.rate else "1.0",
+                        "employment_type": staff.employment_type,
+                        "work_basis": staff.work_basis,
+                        "term_start": staff.term_start.isoformat() if staff.term_start else None,
+                        "term_end": staff.term_end.isoformat() if staff.term_end else None,
+                        "vacation_balance": staff.vacation_balance,
+                        "is_active": staff.is_active,
+                        "created_at": staff.created_at.isoformat() if staff.created_at else None,
+                        "department": staff.department or "",
+                        "work_schedule": staff.work_schedule,
+                    })
+                
+                # === Collect RAW vacation documents ===
+                raw_vacations = []
+                vacations = db.query(Document).filter(
+                    Document.doc_type.in_([DocumentType.VACATION_PAID, DocumentType.VACATION_UNPAID]),
+                    Document.status == DocumentStatus.PROCESSED,
+                    Document.date_end >= month_start,
+                    Document.date_start <= month_end,
+                ).all()
+                
+                for vac in vacations:
+                    raw_vacations.append({
+                        "id": vac.id,
+                        "staff_id": vac.staff_id,
+                        "doc_type": vac.doc_type.value if vac.doc_type else None,
+                        "date_start": vac.date_start.isoformat() if vac.date_start else None,
+                        "date_end": vac.date_end.isoformat() if vac.date_end else None,
+                        "days_count": vac.days_count,
+                        "status": vac.status.value if vac.status else None,
+                        "is_correction": vac.is_correction,
+                        "correction_month": vac.correction_month,
+                        "correction_year": vac.correction_year,
+                        "correction_sequence": vac.correction_sequence,
+                    })
 
             # Save compact JSON archive (is_approved=True since this is called after approval)
             save_tabel_archive(
@@ -1804,6 +1928,9 @@ Traceback:
                 responsible_person=responsible_person,
                 department_head=department_head,
                 hr_person=hr_person,
+                raw_attendance=raw_attendance,
+                raw_staff=raw_staff,
+                raw_vacations=raw_vacations,
             )
 
             # Record tabel generation and check approval status
@@ -1936,9 +2063,36 @@ Traceback:
                 self._approval_button.setVisible(False)
             else:
                 self._approval_banner.setVisible(False)
-                # Show approval button if generated but not approved
-                is_generated = status and status.get("is_generated")
-                self._approval_button.setVisible(bool(is_generated))
+            
+            # Update main list tab styling if not correction
+            if not self._is_correction:
+                border_color = "#d32f2f" if is_approved else "#217346"
+                self.normal_tab_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: #ffffff;
+                        border: 1px solid #d0d0d0;
+                        border-bottom: 2px solid #d0d0d0;
+                        border-radius: 0px;
+                        padding: 4px 25px 4px 15px;
+                        font-size: 11px;
+                        text-align: center;
+                    }}
+                    QPushButton:checked {{
+                        background-color: #ffffff;
+                        border-bottom: 3px solid {border_color};
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        background-color: #f0f0f0;
+                    }}
+                    QPushButton:hover:checked {{
+                        background-color: #ffffff;
+                    }}
+                """)
+
+            # Show approval button if generated but not approved (applies to both normal and corrections)
+            is_generated = status and status.get("is_generated")
+            self._approval_button.setVisible(bool(is_generated and not is_approved))
 
     def _on_hr_approval_clicked(self) -> None:
         """Handle HR approval button click."""

@@ -1389,10 +1389,14 @@ class SettingsDialog(QDialog):
             )
 
             # Зберігаємо обрані посади для підрахунку годин
+            # Convert Ukrainian labels back to enum values
+            label_to_enum = {v: k for k, v in STAFF_POSITION_LABELS.items()}
             selected_positions = []
             for i in range(self.hours_calc_positions_list.count()):
                 item = self.hours_calc_positions_list.item(i)
-                selected_positions.append(item.text())
+                label = item.text()
+                # Convert label to enum value if it exists in the mapping
+                selected_positions.append(label_to_enum.get(label, label))
             SystemSettings.set_value(db, "tabel_hours_calc_positions", selected_positions)
 
             # Працівник кадрової служби
