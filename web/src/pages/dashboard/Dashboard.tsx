@@ -1,24 +1,23 @@
 import React, { useState } from 'react';
-import { Row, Col, Card, Statistic, Table, Tag, Typography, Button, Empty, Progress, Tooltip, Space } from 'antd';
+import { Row, Col, Card, Table, Tag, Typography, Button, Tooltip, Space } from 'antd';
 import {
   CalendarOutlined,
   TeamOutlined,
-  EyeOutlined,
-  CheckCircleOutlined,
-  CheckOutlined,
   ExclamationCircleOutlined,
   PlusOutlined,
-  ArrowRightOutlined,
   UpOutlined,
   DownOutlined,
+
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/axios';
 import { endpoints } from '../../api/endpoints';
 import { useAuthStore } from '../../stores/index';
 import { Document } from '../../api/types';
 import { format } from 'date-fns';
+import { DOCUMENT_TYPE_LABELS } from '../../api/constants';
+import ResolveStaleModal from '../documents/ResolveStaleModal';
 
 const { Title, Text } = Typography;
 
@@ -48,13 +47,18 @@ const STATUS_COLORS: Record<string, string> = {
 // Normalize status from API (may be uppercase or have spaces)
 const normalizeStatus = (s: string) => s?.toLowerCase().replace(/ /g, '_') || '';
 
+
+
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const queryClient = useQueryClient();
   const [showStaleTable, setShowStaleTable] = useState(true);
+  const [resolveModalOpen, setResolveModalOpen] = useState(false);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(null);
 
   // Document counts by status
-  const { data: docsData, isLoading: docsLoading } = useQuery({
+  const { data: docsData } = useQuery({
     queryKey: ['documents-all'],
     queryFn: async () => {
       const response = await apiClient.get(endpoints.documents.list, {
@@ -66,7 +70,7 @@ const Dashboard: React.FC = () => {
 
   // Calculate counts from documents data (normalize status to lowercase for comparison)
   const docItems = docsData?.data || [];
-  const normalizeStatus = (s: string) => s?.toLowerCase().replace(/ /g, '_') || '';
+
   const draftCount = docItems.filter((d: Document) => normalizeStatus(d.status) === 'draft').length;
 
   // Pending = all documents that are signed by someone but not yet processed
@@ -79,7 +83,7 @@ const Dashboard: React.FC = () => {
   ).length;
 
   // Not confirmed documents (signed but no scan)
-  const { data: notConfirmedData, isLoading: notConfirmedLoading } = useQuery({
+  const { data: notConfirmedData } = useQuery({
     queryKey: ['documents-not-confirmed'],
     queryFn: async () => {
       const response = await apiClient.get(endpoints.documents.list, {
@@ -91,7 +95,7 @@ const Dashboard: React.FC = () => {
   const notConfirmedCount = notConfirmedData ?? 0;
 
   // Expiring contracts count
-  const { data: expiringData, isLoading: expiringLoading } = useQuery({
+  const { data: expiringData } = useQuery({
     queryKey: ['dashboard-contract-expiring'],
     queryFn: async () => {
       const response = await apiClient.get(endpoints.dashboard.contractExpiring);
@@ -139,7 +143,7 @@ const Dashboard: React.FC = () => {
       key: 'title',
       render: (text: string, record: Document) => (
         <Button type="link" onClick={() => navigate(`/documents/${record.id}`)} style={{ padding: 0 }}>
-          {text}
+          {DOCUMENT_TYPE_LABELS[text] || text}
         </Button>
       ),
     },
@@ -171,18 +175,18 @@ const Dashboard: React.FC = () => {
       title: 'Документ',
       dataIndex: 'title',
       key: 'title',
-      width: 250,
+      width: 200,
       render: (text: string, record: Document) => (
-        <Tooltip title={text} placement="topLeft">
+        <Tooltip title={DOCUMENT_TYPE_LABELS[text] || text} placement="topLeft">
           <Button
             type="link"
             onClick={(e) => {
               e.stopPropagation();
               navigate(`/documents/${record.id}`);
             }}
-            style={{ padding: 0, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            style={{ padding: 0, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
           >
-            {text}
+            {DOCUMENT_TYPE_LABELS[text] || text}
           </Button>
         </Tooltip>
       ),
@@ -192,11 +196,16 @@ const Dashboard: React.FC = () => {
       dataIndex: 'staff_name',
       key: 'staff_name',
       width: 130,
-      render: (text: string) => (
-        <Tooltip title={text} placement="topLeft">
-          <span style={{ display: 'block', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {text}
-          </span>
+      render: (text: string, record: Document) => (
+        <Tooltip title={`${text} - ${record.staff_position || ''}`} placement="topLeft">
+          <div>
+            <div style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {text}
+            </div>
+            <div style={{ fontSize: '11px', color: '#999', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {record.staff_position || ''}
+            </div>
+          </div>
         </Tooltip>
       ),
     },
@@ -211,18 +220,70 @@ const Dashboard: React.FC = () => {
         </Tag>
       ),
     },
+
     {
-      title: 'Днів',
-      key: 'days',
-      width: 80,
+      title: 'Сповіщень',
+      key: 'notifications',
+      width: 90,
       render: (_: unknown, record: Document) => {
-        const days = Math.floor(
-          (new Date().getTime() - new Date(record.updated_at).getTime()) / (1000 * 60 * 60 * 24)
+        const count = record.stale_info?.notification_count ?? 0;
+        return <Tag color={count >= 3 ? 'red' : count > 0 ? 'orange' : 'default'}>{count}/3</Tag>;
+      },
+    },
+    {
+      title: 'Пояснення',
+      key: 'explanation',
+      width: 150,
+      render: (_: unknown, record: Document) => {
+        const explanation = record.stale_info?.stale_explanation;
+        if (!explanation) {
+          return <Text type="secondary">-</Text>;
+        }
+        return (
+          <Tooltip title={explanation} placement="topLeft">
+            <span style={{ display: 'block', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {explanation}
+            </span>
+          </Tooltip>
         );
-        return <Tag color={days > 7 ? 'red' : 'orange'}>{days} дн.</Tag>;
+      },
+    },
+    {
+      title: 'Дії',
+      key: 'actions',
+      width: 100,
+      fixed: 'right' as const,
+      render: (_: unknown, record: Document) => {
+        const count = record.stale_info?.notification_count ?? 0;
+        // Button enabled only if count >= 3 or if user wants to force it?
+        // Requirement: "should be avalieble only after some eligable number of сповіщень"
+        const isEligible = count >= 3;
+
+        return (
+          <Tooltip title={isEligible ? "Вирішити проблему" : `Доступно через ${3 - count} сповіщень`}>
+            <Button
+              type="primary"
+              size="small"
+              disabled={!isEligible}
+              icon={<ExclamationCircleOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedDocumentId(record.id);
+                setResolveModalOpen(true);
+              }}
+            >
+              Дії
+            </Button>
+          </Tooltip>
+        );
       },
     },
   ];
+
+
+
+  // Handler for deleting stale documents directly
+
 
   return (
     <div>
@@ -322,7 +383,7 @@ const Dashboard: React.FC = () => {
                   rowKey="id"
                   pagination={false}
                   size="small"
-                  scroll={{ x: 550 }}
+                  scroll={{ x: 900 }}
                   onRow={(record) => ({
                     onClick: () => navigate(`/documents/${record.id}`),
                     style: { cursor: 'pointer' },
@@ -363,6 +424,22 @@ const Dashboard: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      <ResolveStaleModal
+        open={resolveModalOpen}
+        onCancel={() => {
+          setResolveModalOpen(false);
+          setSelectedDocumentId(null);
+        }}
+        documentId={selectedDocumentId}
+        staleLockCount={staleDocuments.data?.find((d: any) => d.id === selectedDocumentId)?.stale_info?.stale_lock_count || 0}
+        onSuccess={() => {
+          setResolveModalOpen(false);
+          setSelectedDocumentId(null);
+          queryClient.invalidateQueries({ queryKey: ['documents-stale'] });
+          queryClient.invalidateQueries({ queryKey: ['documents-all'] });
+        }}
+      />
     </div>
   );
 };

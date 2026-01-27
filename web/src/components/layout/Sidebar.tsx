@@ -4,7 +4,7 @@ import {
   DashboardOutlined,
   TeamOutlined,
   FileTextOutlined,
-  CalendarOutlined,
+
   CheckSquareOutlined,
   SettingOutlined,
   ScanOutlined,
@@ -23,7 +23,7 @@ const Sidebar: React.FC = () => {
 
   const canViewStaff = isAdmin(user) || isHR(user);
   const canViewDocuments = isAdmin(user) || isHR(user) || user?.role === 'employee';
-  const canViewSchedule = isAdmin(user) || isHR(user);
+
   const canViewAttendance = isAdmin(user) || isHR(user);
   const canViewSettings = isAdmin(user);
 
@@ -31,64 +31,55 @@ const Sidebar: React.FC = () => {
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
-      label: 'Dashboard',
+      label: 'Дашборд',
       onClick: () => navigate('/dashboard'),
     },
     ...(canViewStaff
       ? [
-          {
-            key: '/staff',
-            icon: <TeamOutlined />,
-            label: 'Staff',
-            onClick: () => navigate('/staff'),
-          },
-        ]
+        {
+          key: '/staff',
+          icon: <TeamOutlined />,
+          label: 'Співробітники',
+          onClick: () => navigate('/staff'),
+        },
+      ]
       : []),
     ...(canViewDocuments
       ? [
-          {
-            key: '/documents',
-            icon: <FileTextOutlined />,
-            label: 'Документи',
-            onClick: () => navigate('/documents'),
-          },
-          {
-            key: '/scan-upload',
-            icon: <ScanOutlined />,
-            label: 'Scan Upload',
-            onClick: () => navigate('/scan-upload'),
-          },
-        ]
+        {
+          key: '/documents',
+          icon: <FileTextOutlined />,
+          label: 'Документи',
+          onClick: () => navigate('/documents'),
+        },
+        {
+          key: '/scan-upload',
+          icon: <ScanOutlined />,
+          label: 'Завантаження сканів',
+          onClick: () => navigate('/scan-upload'),
+        },
+      ]
       : []),
-    ...(canViewSchedule
-      ? [
-          {
-            key: '/schedule',
-            icon: <CalendarOutlined />,
-            label: 'Assignments',
-            onClick: () => navigate('/schedule'),
-          },
-        ]
-      : []),
+
     ...(canViewAttendance
       ? [
-          {
-            key: '/attendance',
-            icon: <CheckSquareOutlined />,
-            label: 'Attendance',
-            onClick: () => navigate('/attendance'),
-          },
-        ]
+        {
+          key: '/attendance',
+          icon: <CheckSquareOutlined />,
+          label: 'Табель',
+          onClick: () => navigate('/attendance'),
+        },
+      ]
       : []),
     ...(canViewSettings
       ? [
-          {
-            key: '/settings',
-            icon: <SettingOutlined />,
-            label: 'Settings',
-            onClick: () => navigate('/settings'),
-          },
-        ]
+        {
+          key: '/settings',
+          icon: <SettingOutlined />,
+          label: 'Налаштування',
+          onClick: () => navigate('/settings'),
+        },
+      ]
       : []),
   ];
 

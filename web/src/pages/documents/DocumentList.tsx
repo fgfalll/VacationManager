@@ -11,7 +11,7 @@ import {
   Typography,
   Dropdown,
   message,
-  Popconfirm,
+
   Tooltip,
   Radio,
 } from 'antd';
@@ -23,7 +23,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   DownOutlined,
-  FilterOutlined,
+
   LockOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -32,6 +32,7 @@ import apiClient from '../../api/axios';
 import { endpoints } from '../../api/endpoints';
 import { Document, DocumentStatus, PaginatedResponse } from '../../api/types';
 import { format } from 'date-fns';
+import { uk } from 'date-fns/locale';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -160,11 +161,11 @@ const DocumentList: React.FC = () => {
       await apiClient.delete(endpoints.documents.delete(id));
     },
     onSuccess: () => {
-      message.success('Document deleted successfully');
+      message.success('Документ успішно видалено');
       queryClient.invalidateQueries({ queryKey: ['documents'] });
     },
     onError: (error: Error) => {
-      message.error(error.message || 'Failed to delete document');
+      message.error(error.message || 'Не вдалося видалити документ');
     },
   });
 
@@ -185,25 +186,25 @@ const DocumentList: React.FC = () => {
 
   const columns = [
     {
-      title: 'Title',
+      title: 'Назва',
       dataIndex: 'title',
       key: 'title',
       render: (text: string) => <Text strong>{text}</Text>,
     },
     {
-      title: 'Staff',
+      title: 'Співробітник',
       key: 'staff',
       render: (_: unknown, record: Document) => (
         <span>{record.staff?.first_name} {record.staff?.last_name}</span>
       ),
     },
     {
-      title: 'Type',
+      title: 'Тип',
       dataIndex: ['document_type', 'name'],
       key: 'document_type',
     },
     {
-      title: 'Status',
+      title: 'Статус',
       dataIndex: 'status',
       key: 'status',
       render: (status: DocumentStatus) => (
@@ -211,48 +212,43 @@ const DocumentList: React.FC = () => {
       ),
     },
     {
-      title: 'Dates',
+      title: 'Дати',
       key: 'dates',
       render: (_: unknown, record: Document) => {
-        const start = record.start_date ? format(new Date(record.start_date), 'MMM dd') : '-';
-        const end = record.end_date ? format(new Date(record.end_date), 'MMM dd, yyyy') : '-';
+        const start = record.start_date ? format(new Date(record.start_date), 'd MMM', { locale: uk }) : '-';
+        const end = record.end_date ? format(new Date(record.end_date), 'd MMM yyyy', { locale: uk }) : '-';
         return (
           <Text type="secondary" style={{ fontSize: 12 }}>
             {start} - {end}
             <br />
-            ({record.total_days || 0} days)
+            ({record.total_days || 0} днів)
           </Text>
         );
       },
     },
     {
-      title: 'Created',
+      title: 'Створено',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (date: string) => date ? format(new Date(date), 'MMM dd, yyyy') : '-',
+      render: (date: string) => date ? format(new Date(date), 'd MMM yyyy', { locale: uk }) : '-',
     },
-    {
-      title: 'Created',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (date: string) => date ? format(new Date(date), 'MMM dd, yyyy') : '-',
-    },
+
     ...(viewMode === 'stale' ? [{
-      title: 'Days Stale',
+      title: 'Днів прострочено',
       key: 'stale_info',
       render: (_: unknown, record: Document) => (
         <Space direction="vertical" size={0}>
-          <Tag color="error">{record.stale_info?.days_stale || 0} days</Tag>
-          {record.stale_info?.notification_count > 0 && (
+          <Tag color="error">{record.stale_info?.days_stale || 0} днів</Tag>
+          {(record.stale_info?.notification_count || 0) > 0 && (
             <Text type="secondary" style={{ fontSize: 11 }}>
-              {record.stale_info.notification_count} warnings
+              {record.stale_info?.notification_count || 0} попереджень
             </Text>
           )}
         </Space>
       ),
     }] : []),
     {
-      title: 'Actions',
+      title: 'Дії',
       key: 'actions',
       width: 150,
       render: (_: unknown, record: Document) => {
@@ -266,24 +262,24 @@ const DocumentList: React.FC = () => {
               danger
               onClick={() => handleResolve(record.id)}
             >
-              Resolve
+              Вирішити
             </Button>
           );
         }
 
         // Standard actions
         const items: any[] = [
-          {
-            key: 'view',
-            icon: <EyeOutlined />,
-            label: 'View',
-            onClick: () => navigate(`/documents/${record.id}`),
-          },
+
           {
             key: 'download',
             icon: <DownloadOutlined />,
-            label: 'Download PDF',
-            onClick: () => window.open(endpoints.documents.download(record.id), '_blank'),
+            label: 'Завантажити PDF',
+            onClick: () => {
+              // Always use the download endpoint - backend should handle serving scan if available or generating PDF
+              // But user explicitly asked to download uploaded pdf.
+              // We'll rely on the standard download link for now to trigger the file download.
+              window.open(endpoints.documents.download(record.id), '_blank');
+            },
           },
         ];
 
@@ -292,13 +288,13 @@ const DocumentList: React.FC = () => {
           items.push({
             key: 'edit',
             icon: <EditOutlined />,
-            label: 'Edit',
+            label: 'Редагувати',
             onClick: () => navigate(`/documents/${record.id}/edit`),
           });
           items.push({
             key: 'delete',
             icon: <DeleteOutlined />,
-            label: 'Delete',
+            label: 'Видалити',
             danger: true,
             onClick: () => deleteMutation.mutate(record.id),
           } as any);
@@ -340,7 +336,7 @@ const DocumentList: React.FC = () => {
           <Title level={3} style={{ margin: 0 }}>Документи</Title>
           <Radio.Group value={viewMode} onChange={(e) => handleViewModeChange(e.target.value)} buttonStyle="solid">
             <Radio.Button value="all">Всі документи</Radio.Button>
-            <Radio.Button value="stale">Attention Needed</Radio.Button>
+            <Radio.Button value="stale">Потребує уваги</Radio.Button>
           </Radio.Group>
         </Space>
         <Button
@@ -369,14 +365,14 @@ const DocumentList: React.FC = () => {
             allowClear
             style={{ width: 180 }}
           >
-            <Select.Option value="draft">Draft</Select.Option>
-            <Select.Option value="signed_by_applicant">Signed by Applicant</Select.Option>
-            <Select.Option value="approved_by_dispatcher">Approved by Dispatcher</Select.Option>
-            <Select.Option value="signed_dep_head">Signed by Dept Head</Select.Option>
-            <Select.Option value="agreed">Agreed</Select.Option>
-            <Select.Option value="signed_rector">Signed by Rector</Select.Option>
-            <Select.Option value="scanned">Scanned</Select.Option>
-            <Select.Option value="processed">Processed</Select.Option>
+            <Select.Option value="draft">Чернетка</Select.Option>
+            <Select.Option value="signed_by_applicant">Підписав заявник</Select.Option>
+            <Select.Option value="approved_by_dispatcher">Погоджено диспетчером</Select.Option>
+            <Select.Option value="signed_dep_head">Підписано зав. кафедри</Select.Option>
+            <Select.Option value="agreed">Погоджено</Select.Option>
+            <Select.Option value="signed_rector">Підписано ректором</Select.Option>
+            <Select.Option value="scanned">Відсконовано</Select.Option>
+            <Select.Option value="processed">В табелі</Select.Option>
           </Select>
           <RangePicker
             value={dateRange ? [dateRange[0] as any, dateRange[1] as any] : undefined}

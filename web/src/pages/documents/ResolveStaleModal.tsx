@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal, Radio, Input, Form, message, Alert } from 'antd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/axios';
@@ -10,6 +10,7 @@ interface ResolveStaleModalProps {
     open: boolean;
     onCancel: () => void;
     documentId: number | null;
+    staleLockCount?: number;
     onSuccess: () => void;
 }
 
@@ -17,11 +18,20 @@ const ResolveStaleModal: React.FC<ResolveStaleModalProps> = ({
     open,
     onCancel,
     documentId,
+    staleLockCount = 0,
     onSuccess,
 }) => {
     const [form] = Form.useForm();
     const queryClient = useQueryClient();
     const [action, setAction] = useState<'explain' | 'remove'>('explain');
+
+    useEffect(() => {
+        if (open) {
+            setAction('explain');
+            form.resetFields();
+            form.setFieldsValue({ action: 'explain' });
+        }
+    }, [open, form]);
 
     const mutation = useMutation({
         mutationFn: async (values: StaleResolutionRequest) => {
@@ -67,13 +77,23 @@ const ResolveStaleModal: React.FC<ResolveStaleModalProps> = ({
             cancelText="Скасувати"
             okButtonProps={{ danger: action === 'remove' }}
         >
-            <Alert
-                message="Увага"
-                description="Цей документ не оновлювався довгий час. Виберіть дію для вирішення ситуації."
-                type="warning"
-                showIcon
-                style={{ marginBottom: 16 }}
-            />
+            {staleLockCount >= 1 ? (
+                <Alert
+                    message="Критична затримка"
+                    description="Цей документ вже був позначений як застарілий і знову не оновлювався. Ми наполегливо рекомендуємо видалити його, оскільки процес явно зупинився."
+                    type="error"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                />
+            ) : (
+                <Alert
+                    message="Увага"
+                    description="Цей документ не оновлювався довгий час. Виберіть дію для вирішення ситуації."
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                />
+            )}
 
             <Form
                 form={form}

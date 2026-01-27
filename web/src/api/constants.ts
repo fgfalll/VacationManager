@@ -120,3 +120,28 @@ export function getActionTypeLabel(value: string): string {
 export function getAttendanceCodeLabel(code: string): string {
   return ATTENDANCE_CODES[code] || code;
 }
+
+// Ukrainian document type labels
+export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  vacation_paid: 'Відпустка оплачувана',
+  vacation_main: 'Основна щорічна відпустка',
+  vacation_additional: 'Додаткова щорічна відпустка',
+  vacation_chornobyl: 'Додаткова відпустка чорнобильцям',
+  vacation_creative: 'Творча відпустка',
+  vacation_study: 'Навчальна відпустка',
+  vacation_children: "Відпустка працівникам з дітьми",
+  vacation_maternity: "Відпустка у зв'язку з вагітністю та пологами",
+  vacation_childcare: 'Відпустка для догляду за дитиною',
+  vacation_unpaid: 'Відпустка без збереження зарплати',
+  vacation_unpaid_study: 'Навчальна відпустка без збереження зарплати',
+  vacation_unpaid_mandatory: "Відпустка без збереження (обов'язкова)",
+  vacation_unpaid_agreement: 'Відпустка без збереження (за згодою)',
+  vacation_unpaid_other: 'Інша відпустка без збереження зарплати',
+  term_extension: 'Продовження терміну контракту',
+  term_extension_contract: 'Продовження контракту (контракт)',
+  term_extension_competition: 'Продовження контракту (конкурс)',
+  term_extension_pdf: 'Продовження контракту (PDF)',
+  employment_contract: 'Прийом на роботу (контракт)',
+  employment_competition: 'Прийом на роботу (конкурс)',
+  employment_pdf: 'Прийом на роботу (PDF)',
+};

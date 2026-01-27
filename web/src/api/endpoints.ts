@@ -39,7 +39,7 @@ export const endpoints = {
     update: (id: string | number) => `/documents/${id}`,
     delete: (id: string | number) => `/documents/${id}`,
     workflow: (id: string | number, action: string) => `/documents/${id}/${action}`,
-    uploadScan: (id: string | number) => `/documents/${id}/upload-scan`,
+    uploadScan: (id: string | number) => `/documents/${id}/upload`,
     download: (id: string | number) => `/documents/${id}/download`,
     preview: '/documents/preview',
     blockedDays: (staffId: string | number) => `/documents/staff/${staffId}/blocked-days`,
@@ -87,5 +87,14 @@ export const endpoints = {
     corrections: '/tabel/corrections',
     approve: '/tabel/approve',
     status: '/tabel/status',
+  },
+
+  // Telegram
+  telegram: {
+    info: '/telegram/info',
+    requests: '/telegram/link-requests',
+    approve: (id: string | number) => `/telegram/link-requests/${id}/approve`,
+    reject: (id: string | number) => `/telegram/link-requests/${id}/reject`,
+    unlink: (id: string | number) => `/telegram/link-requests/${id}/unlink`,
   },
 };

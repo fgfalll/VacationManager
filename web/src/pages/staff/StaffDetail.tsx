@@ -36,7 +36,7 @@ import {
 import apiClient from '../../api/axios';
 import { endpoints } from '../../api/endpoints';
 import { Staff, Document, DailyAttendance, StaffHistoryItem } from '../../api/types';
-import { getPositionLabel, getActionTypeLabel, getAttendanceCodeLabel, EMPLOYMENT_TYPE_LABELS, WORK_BASIS_LABELS, STAFF_POSITION_LABELS } from '../../api/constants';
+import { getPositionLabel, getActionTypeLabel, getAttendanceCodeLabel, EMPLOYMENT_TYPE_LABELS, WORK_BASIS_LABELS, STAFF_POSITION_LABELS, DOCUMENT_TYPE_LABELS } from '../../api/constants';
 import { format } from 'date-fns';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import ukUA from 'antd/locale/uk_UA';
@@ -56,30 +56,7 @@ const STATUS_LABELS: Record<string, string> = {
   processed: 'В табелі',
 };
 
-// Ukrainian document type labels
-const DOCUMENT_TYPE_LABELS: Record<string, string> = {
-  vacation_paid: 'Відпустка оплачувана',
-  vacation_main: 'Основна щорічна відпустка',
-  vacation_additional: 'Додаткова щорічна відпустка',
-  vacation_chornobyl: 'Додаткова відпустка чорнобильцям',
-  vacation_creative: 'Творча відпустка',
-  vacation_study: 'Навчальна відпустка',
-  vacation_children: 'Відпустка працівникам з дітьми',
-  vacation_maternity: 'Відпустка у зв\'язку з вагітністю та пологами',
-  vacation_childcare: 'Відпустка для догляду за дитиною',
-  vacation_unpaid: 'Відпустка без збереження зарплати',
-  vacation_unpaid_study: 'Навчальна відпустка без збереження зарплати',
-  vacation_unpaid_mandatory: 'Відпустка без збереження (обов\'язкова)',
-  vacation_unpaid_agreement: 'Відпустка без збереження (за згодою)',
-  vacation_unpaid_other: 'Інша відпустка без збереження зарплати',
-  term_extension: 'Продовження терміну контракту',
-  term_extension_contract: 'Продовження контракту (контракт)',
-  term_extension_competition: 'Продовження контракту (конкурс)',
-  term_extension_pdf: 'Продовження контракту (PDF)',
-  employment_contract: 'Прийом на роботу (контракт)',
-  employment_competition: 'Прийом на роботу (конкурс)',
-  employment_pdf: 'Прийом на роботу (PDF)',
-};
+
 
 const StaffDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -95,7 +72,7 @@ const StaffDetail: React.FC = () => {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPosition, setUploadPosition] = useState('LECTURER');
   const [uploadRate, setUploadRate] = useState(0.5);
-  const [uploadEmploymentType, setUploadEmploymentType] = useState('internal');
+  const [uploadEmploymentType] = useState('internal');
   const [uploadTermStart, setUploadTermStart] = useState('');
   const [uploadTermEnd, setUploadTermEnd] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -209,7 +186,7 @@ const StaffDetail: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['staff'] });
       queryClient.invalidateQueries({ queryKey: ['staff-all'] });
       // Navigate away if current position was deactivated
-      if (id === currentStaff?.id && !currentStaff.is_active) {
+      if (id === currentStaff?.id && (!currentStaff?.is_active)) {
         navigate('/staff');
       }
     },
