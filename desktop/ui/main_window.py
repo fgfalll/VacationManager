@@ -55,25 +55,24 @@ class MainWindow(QMainWindow):
 
         # Вкладки (без передачі db - кожна вкладка створює свою сесію)
         self.staff_tab = StaffTab()
-        self.schedule_tab = ScheduleTab()
+        self.schedule_tab = ScheduleTab()  # Hidden for now
         self.builder_tab = BuilderTab()
         self.tabel_tab = TabelTab()
 
         self.tabs.addTab(self.staff_tab, "Персонал")
-        self.tabs.addTab(self.schedule_tab, "Графік відпусток")
+        # self.tabs.addTab(self.schedule_tab, "Графік відпусток")  # Hidden for now
         self.tabs.addTab(self.builder_tab, "Конструктор заяв")
-        self.tabs.addTab(self.tabel_tab, "📋 Табель")
+        self.tabs.addTab(self.tabel_tab, "Табель")
 
         # Enable closing tabs (for ephemeral builder tabs)
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self._on_tab_close_requested)
 
         # Hide close buttons for persistent tabs
-        # Indices 0, 1, 2, 3 correspond to the tabs added above
+        # Indices correspond to the visible tabs above
         self.tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
         self.tabs.tabBar().setTabButton(1, QTabBar.ButtonPosition.RightSide, None)
         self.tabs.tabBar().setTabButton(2, QTabBar.ButtonPosition.RightSide, None)
-        self.tabs.tabBar().setTabButton(3, QTabBar.ButtonPosition.RightSide, None)
 
         # Refresh data on app start (тільки якщо не використовуємо сплеш-скрін)
         if not self._show_splash:
