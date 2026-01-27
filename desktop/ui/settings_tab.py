@@ -3,6 +3,7 @@
 import json
 from typing import Any
 
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QInputDialog,
+    QScrollArea,
 )
 from PyQt6.QtCore import Qt
 
@@ -84,28 +86,24 @@ class SettingsDialog(QDialog):
         approvers_tab = self._create_approvers_tab()
         self.tabs.addTab(approvers_tab, "Погоджувачі")
 
-        # Вкладка "Форматування"
-        formatting_tab = self._create_formatting_tab()
-        self.tabs.addTab(formatting_tab, "Форматування")
-
-        # Вкладка "Відпустки"
-        vacation_tab = self._create_vacation_tab()
-        self.tabs.addTab(vacation_tab, "Відпустки")
-
-        # Вкладка "Табель"
+        # Вкладка "Табель" - поєднує форматування, відпустки та табель
         tabel_tab = self._create_tabel_tab()
         self.tabs.addTab(tabel_tab, "Табель")
 
         # Вкладка "Debug" - для перегляду та редагування БД
         debug_tab = self._create_debug_tab()
-        self.tabs.addTab(debug_tab, "🔧 Debug")
+        self.tabs.addTab(debug_tab, "Debug")
+
+        # Вкладка "Telegram" - для налаштування Telegram бота
+        telegram_tab = self._create_telegram_tab()
+        self.tabs.addTab(telegram_tab, "Telegram")
 
         # Кнопки збереження
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save |
             QDialogButtonBox.StandardButton.Close
         )
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText("💾 Зберегти")
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Зберегти")
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("Закрити")
         buttons.accepted.connect(self._save_all_settings)
         buttons.rejected.connect(self.accept)
@@ -126,6 +124,7 @@ class SettingsDialog(QDialog):
             "vacation": 4,
             "tabel": 5,
             "debug": 6,
+            "telegram": 7,
         }
         if tab in tab_map:
             self.tabs.setCurrentIndex(tab_map[tab])
@@ -136,7 +135,7 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         # Група "Ректор"
-        rector_group = QGroupBox("👔 Ректор університету")
+        rector_group = QGroupBox("Ректор університету")
         rector_layout = QFormLayout()
 
         self.rector_name_input = QLineEdit()
@@ -164,7 +163,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(rector_group)
 
         # Група "Університет"
-        university_group = QGroupBox("🎓 Університет")
+        university_group = QGroupBox("Університет")
         university_layout = QFormLayout()
 
         self.university_name_input = QLineEdit()
@@ -194,7 +193,7 @@ class SettingsDialog(QDialog):
 
         # Підказка
         help_label = QLabel(
-            "💡 Ці дані використовуються для автоматичного заповнення "
+            "Ці дані використовуються для автоматичного заповнення "
             "шапки документів (заяв, наказів тощо)."
         )
         help_label.setWordWrap(True)
@@ -210,7 +209,7 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         # Група "Кафедра/Підрозділ"
-        dept_group = QGroupBox("🏢 Кафедра / Підрозділ")
+        dept_group = QGroupBox("Кафедра / Підрозділ")
         dept_layout = QFormLayout()
 
         self.dept_name_input = QLineEdit()
@@ -273,7 +272,7 @@ class SettingsDialog(QDialog):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
 
-        left_layout.addWidget(QLabel("📜 Список погоджувачів:"))
+        left_layout.addWidget(QLabel("Список погоджувачів:"))
 
         self.approvers_list = QListWidget()
         self.approvers_list.itemDoubleClicked.connect(self._edit_approver)
@@ -282,15 +281,15 @@ class SettingsDialog(QDialog):
         # Кнопки
         buttons_layout = QHBoxLayout()
 
-        add_btn = QPushButton("➕ Додати")
+        add_btn = QPushButton("Додати")
         add_btn.clicked.connect(self._add_approver)
         buttons_layout.addWidget(add_btn)
 
-        edit_btn = QPushButton("✏️ Редагувати")
+        edit_btn = QPushButton("Редагувати")
         edit_btn.clicked.connect(self._edit_approver)
         buttons_layout.addWidget(edit_btn)
 
-        remove_btn = QPushButton("🗑 Видалити")
+        remove_btn = QPushButton("Видалити")
         remove_btn.clicked.connect(self._remove_approver)
         buttons_layout.addWidget(remove_btn)
 
@@ -302,7 +301,7 @@ class SettingsDialog(QDialog):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
 
-        right_layout.addWidget(QLabel("📖 Інструкція:"))
+        right_layout.addWidget(QLabel("Інструкція:"))
 
         info_text = QTextEdit()
         info_text.setReadOnly(True)
@@ -342,7 +341,7 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         # Група "Порядок виводу ПІБ"
-        name_order_group = QGroupBox("👤 Порядок виводу ПІБ у підписі")
+        name_order_group = QGroupBox("Порядок виводу ПІБ у підписі")
         name_order_layout = QFormLayout()
 
         self.name_order_input = QComboBox()
@@ -356,7 +355,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(name_order_group)
 
         # Група "Попередження"
-        warnings_group = QGroupBox("⚠️ Попередження про завершення контракту")
+        warnings_group = QGroupBox("Попередження про завершення контракту")
         warnings_layout = QFormLayout()
 
         self.contract_warning_days_input = QSpinBox()
@@ -369,7 +368,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(warnings_group)
 
         # Група "Бібліотека причин"
-        reasons_group = QGroupBox("📚 Типові причини для неоплачуваної відпустки")
+        reasons_group = QGroupBox("Типові причини для неоплачуваної відпустки")
         reasons_layout = QVBoxLayout()
 
         self.unpaid_reasons_input = QTextEdit()
@@ -389,7 +388,7 @@ class SettingsDialog(QDialog):
 
         # Підказка
         help_label = QLabel(
-            "💡 Типові причини будуть доступні для вибору при створенні "
+            "Типові причини будуть доступні для вибору при створенні "
             "заяви на неоплачувану відпустку."
         )
         help_label.setWordWrap(True)
@@ -405,7 +404,7 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         # Група "Воєнний стан"
-        martial_group = QGroupBox("⚠️ Воєнний стан")
+        martial_group = QGroupBox("Воєнний стан")
         martial_layout = QVBoxLayout()
 
         self.martial_law_checkbox = QCheckBox(
@@ -429,7 +428,7 @@ class SettingsDialog(QDialog):
         martial_layout.addLayout(martial_limit_layout)
 
         martial_info = QLabel(
-            "ℹ️ Під час воєнного стану:\n"
+            "Під час воєнного стану:\n"
             "• Всі календарні дні рахуються як відпускні\n"
             "• Вихідні та свята НЕ додають додаткових днів\n"
             "• Діє обмеження на максимальну кількість днів"
@@ -480,7 +479,7 @@ class SettingsDialog(QDialog):
 
         # Підказка
         help_label = QLabel(
-            "💡 Ці налаштування визначають річну норму днів відпустки для різних категорій працівників. "
+            "Ці налаштування визначають річну норму днів відпустки для різних категорій працівників. "
             "Під час воєнного стану норми можуть бути обмежені законом № 2136."
         )
         help_label.setWordWrap(True)
@@ -491,12 +490,154 @@ class SettingsDialog(QDialog):
         return widget
 
     def _create_tabel_tab(self) -> QWidget:
-        """Створює вкладку налаштувань табеля."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        """Створює комбіновану вкладку Табель (форматування + відпустки + табель)."""
+        from PyQt6.QtWidgets import QScrollArea
+
+        # Create scroll area for all sections
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
+
+        # ==================== ФОРМАТУВАННЯ ====================
+        formatting_label = QLabel("<b>ФОРМАТУВАННЯ</b>")
+        formatting_label.setStyleSheet("font-size: 14px; padding: 5px; color: #1e40af;")
+        layout.addWidget(formatting_label)
+
+        # Група "Порядок виводу ПІБ"
+        name_order_group = QGroupBox("Порядок виводу ПІБ у підписі")
+        name_order_layout = QFormLayout()
+
+        self.name_order_input = QComboBox()
+        self.name_order_input.addItems([
+            "Ім'я Прізвище",
+            "Прізвище Ім'я",
+        ])
+        name_order_layout.addRow("Формат:", self.name_order_input)
+
+        name_order_group.setLayout(name_order_layout)
+        layout.addWidget(name_order_group)
+
+        # Група "Попередження"
+        warnings_group = QGroupBox("Попередження про завершення контракту")
+        warnings_layout = QFormLayout()
+
+        self.contract_warning_days_input = QSpinBox()
+        self.contract_warning_days_input.setRange(1, 365)
+        self.contract_warning_days_input.setValue(30)
+        self.contract_warning_days_input.setSuffix(" днів")
+        warnings_layout.addRow("Попереджати за:", self.contract_warning_days_input)
+
+        warnings_group.setLayout(warnings_layout)
+        layout.addWidget(warnings_group)
+
+        # Група "Бібліотека причин"
+        reasons_group = QGroupBox("Типові причини для неоплачуваної відпустки")
+        reasons_layout = QVBoxLayout()
+
+        self.unpaid_reasons_input = QTextEdit()
+        self.unpaid_reasons_input.setPlaceholderText(
+            "Введіть типові причини, кожну з нового рядка:\n\n"
+            "Приклади:\n"
+            "- сімейні обставини\n"
+            "- догляд за хворим родичем\n"
+            "- навчальні цілі\n"
+            "- інші поважні причини"
+        )
+        self.unpaid_reasons_input.setMaximumHeight(100)
+        reasons_layout.addWidget(self.unpaid_reasons_input)
+
+        reasons_group.setLayout(reasons_layout)
+        layout.addWidget(reasons_group)
+
+        # ==================== ВІДПУСТКИ ====================
+        vacation_label = QLabel("<b>ВІДПУСТКИ</b>")
+        vacation_label.setStyleSheet("font-size: 14px; padding: 15px 5px 5px; color: #1e40af;")
+        layout.addWidget(vacation_label)
+
+        # Група "Воєнний стан"
+        martial_group = QGroupBox("Воєнний стан")
+        martial_layout = QVBoxLayout()
+
+        self.martial_law_checkbox = QCheckBox(
+            "Увімкнути режим воєнного стану\n"
+            "(всі дні рахуються як відпускні, включаючи вихідні та свята)"
+        )
+        self.martial_law_checkbox.setStyleSheet("font-weight: bold; color: #B91C1C;")
+        self.martial_law_checkbox.toggled.connect(self._on_martial_law_toggled)
+        martial_layout.addWidget(self.martial_law_checkbox)
+
+        # Ліміт відпустки під час воєнного стану
+        martial_limit_layout = QFormLayout()
+        self.martial_limit_input = QSpinBox()
+        self.martial_limit_input.setRange(1, 365)
+        self.martial_limit_input.setValue(DEFAULT_MARTIAL_LAW_VACATION_LIMIT)
+        self.martial_limit_input.setSuffix(" днів")
+        self.martial_limit_input.setToolTip(
+            "Закон № 2136 дозволяє обмежувати відпустку до 24 днів під час воєнного стану"
+        )
+        martial_limit_layout.addRow("Ліміт днів відпустки:", self.martial_limit_input)
+        martial_layout.addLayout(martial_limit_layout)
+
+        martial_info = QLabel(
+            "Під час воєнного стану:\n"
+            "• Всі календарні дні рахуються як відпускні\n"
+            "• Вихідні та свята НЕ додають додаткових днів\n"
+            "• Діє обмеження на максимальну кількість днів"
+        )
+        martial_info.setWordWrap(True)
+        martial_info.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
+        martial_layout.addWidget(martial_info)
+
+        martial_group.setLayout(martial_layout)
+        layout.addWidget(martial_group)
+
+        # Група "Норми днів відпустки"
+        norms_group = QGroupBox("📅 Норми днів відпустки на рік")
+        norms_layout = QFormLayout()
+
+        # Науково-педагогічні працівники
+        self.scientific_days_input = QSpinBox()
+        self.scientific_days_input.setRange(0, 365)
+        self.scientific_days_input.setValue(DEFAULT_VACATION_DAYS["scientific_pedagogical"])
+        self.scientific_days_input.setSuffix(" днів")
+        self.scientific_days_input.setToolTip(
+            "Професори, доценти, старші викладачі, викладачі, асистенти, завідувачі кафедри"
+        )
+        norms_layout.addRow("Науково-педагогічні:", self.scientific_days_input)
+
+        # Педагогічні працівники
+        self.pedagogical_days_input = QSpinBox()
+        self.pedagogical_days_input.setRange(0, 365)
+        self.pedagogical_days_input.setValue(DEFAULT_VACATION_DAYS["pedagogical"])
+        self.pedagogical_days_input.setSuffix(" днів")
+        self.pedagogical_days_input.setToolTip(
+            "Педагоги, вихователі, методисти"
+        )
+        norms_layout.addRow("Педагогічні:", self.pedagogical_days_input)
+
+        # Адміністративний персонал
+        self.admin_days_input = QSpinBox()
+        self.admin_days_input.setRange(0, 365)
+        self.admin_days_input.setValue(DEFAULT_VACATION_DAYS["administrative"])
+        self.admin_days_input.setSuffix(" днів")
+        self.admin_days_input.setToolTip(
+            "Секретарі, лаборанти, інший адміністративний персонал"
+        )
+        norms_layout.addRow("Адміністративний персонал:", self.admin_days_input)
+
+        norms_group.setLayout(norms_layout)
+        layout.addWidget(norms_group)
+
+        # ==================== ТАБЕЛЬ ====================
+        tabel_label = QLabel("<b>ТАБЕЛЬ</b>")
+        tabel_label.setStyleSheet("font-size: 14px; padding: 15px 5px 5px; color: #1e40af;")
+        layout.addWidget(tabel_label)
 
         # Група "Підсумки"
-        totals_group = QGroupBox("📊 Підсумки табеля")
+        totals_group = QGroupBox("Підсумки табеля")
         totals_layout = QVBoxLayout()
 
         self.show_monthly_totals_checkbox = QCheckBox(
@@ -515,7 +656,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(totals_group)
 
         # Група "Години для коду 'Р'"
-        work_hours_group = QGroupBox("⏱️ Години для коду 'Р' (робочий день)")
+        work_hours_group = QGroupBox("Години для коду 'Р' (робочий день)")
         work_hours_layout = QFormLayout()
 
         self.work_hours_per_day_edit = QLineEdit()
@@ -530,7 +671,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(work_hours_group)
 
         # Група "Працівники для підрахунку годин"
-        hours_calc_group = QGroupBox("👥 Працівники, для яких рахувати години")
+        hours_calc_group = QGroupBox("Працівники, для яких рахувати години")
         hours_calc_layout = QVBoxLayout()
 
         # Підказка
@@ -545,15 +686,16 @@ class SettingsDialog(QDialog):
         self.hours_calc_positions_list.setSelectionMode(
             QListWidget.SelectionMode.SingleSelection
         )
+        self.hours_calc_positions_list.setMaximumHeight(100)
         hours_calc_layout.addWidget(self.hours_calc_positions_list)
 
         # Кнопки Add/Remove
         buttons_layout = QHBoxLayout()
-        add_position_btn = QPushButton("➕ Додати")
+        add_position_btn = QPushButton("Додати")
         add_position_btn.clicked.connect(self._add_position)
         buttons_layout.addWidget(add_position_btn)
 
-        remove_position_btn = QPushButton("🗑 Видалити")
+        remove_position_btn = QPushButton("Видалити")
         remove_position_btn.clicked.connect(self._remove_position)
         buttons_layout.addWidget(remove_position_btn)
         hours_calc_layout.addLayout(buttons_layout)
@@ -562,7 +704,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(hours_calc_group)
 
         # Група "HR (Кадри)"
-        hr_group = QGroupBox("👤 Підписант табеля")
+        hr_group = QGroupBox("Підписант табеля")
         hr_layout = QFormLayout()
 
         self.hr_employee_input = QComboBox()
@@ -574,7 +716,7 @@ class SettingsDialog(QDialog):
 
         # Підказка
         help_label = QLabel(
-            "💡 Години підраховуються лише для обраних посад. "
+            "Години підраховуються лише для обраних посад. "
             "Для інших працівників у табелі відображатимуться лише коди днів ('Р', 'В', тощо)."
         )
         help_label.setWordWrap(True)
@@ -582,7 +724,10 @@ class SettingsDialog(QDialog):
         layout.addWidget(help_label)
 
         layout.addStretch()
-        return widget
+        scroll_content.setLayout(layout)
+
+        scroll.setWidget(scroll_content)
+        return scroll
 
     def _create_debug_tab(self) -> QWidget:
         """Створює вкладку Debug для перегляду/редагування БД."""
@@ -591,7 +736,7 @@ class SettingsDialog(QDialog):
 
         # Warning label
         warning = QLabel(
-            "⚠️ УВАГА: Цей розділ призначений для розробників. "
+            "УВАГА: Цей розділ призначений для розробників. "
             "Зміни в базі даних можуть призвести до некоректної роботи програми!"
         )
         warning.setStyleSheet("color: #B91C1C; font-weight: bold; padding: 10px; background: #FEE2E2; border-radius: 5px;")
@@ -607,7 +752,7 @@ class SettingsDialog(QDialog):
         self.debug_table_combo.currentIndexChanged.connect(self._load_debug_table)
         selector_layout.addWidget(self.debug_table_combo)
 
-        load_btn = QPushButton("🔄 Завантажити")
+        load_btn = QPushButton("Завантажити")
         load_btn.clicked.connect(self._load_debug_table)
         selector_layout.addWidget(load_btn)
 
@@ -643,22 +788,22 @@ class SettingsDialog(QDialog):
         # Action buttons
         actions_layout = QHBoxLayout()
 
-        edit_btn = QPushButton("✏️ Редагувати обране")
+        edit_btn = QPushButton("Редагувати обране")
         edit_btn.clicked.connect(self._edit_selected_record)
         actions_layout.addWidget(edit_btn)
 
-        delete_btn = QPushButton("🗑️ Видалити обране")
+        delete_btn = QPushButton("Видалити обране")
         delete_btn.clicked.connect(self._delete_selected_record)
         delete_btn.setStyleSheet("background-color: #FEE2E2;")
         actions_layout.addWidget(delete_btn)
 
         actions_layout.addStretch()
 
-        copy_btn = QPushButton("📋 Копіювати")
+        copy_btn = QPushButton("Копіювати")
         copy_btn.clicked.connect(self._copy_selected_record)
         actions_layout.addWidget(copy_btn)
 
-        sql_btn = QPushButton("📝 SQL запит")
+        sql_btn = QPushButton("SQL запит")
         sql_btn.clicked.connect(self._run_sql_query)
         actions_layout.addWidget(sql_btn)
 
@@ -1090,6 +1235,28 @@ class SettingsDialog(QDialog):
             # Завантажуємо унікальні посади для вибору
             self._load_positions_for_hours_calc(db)
 
+            # Telegram налаштування
+            telegram_enabled_raw = SystemSettings.get_value(db, "telegram_enabled", False)
+            telegram_enabled = str(telegram_enabled_raw).lower() in ("true", "1", "yes") if isinstance(telegram_enabled_raw, str) else telegram_enabled_raw
+            self.telegram_enabled_checkbox.setChecked(telegram_enabled)
+
+            self.telegram_token_input.setText(
+                SystemSettings.get_value(db, "telegram_bot_token", "")
+            )
+            
+            # Telegram mode (polling or webhook)
+            telegram_mode = SystemSettings.get_value(db, "telegram_mode", "polling")
+            mode_index = 1 if telegram_mode == "webhook" else 0
+            self.telegram_mode_combo.setCurrentIndex(mode_index)
+            self._on_telegram_mode_changed(mode_index)  # Update UI state
+            
+            self.telegram_webhook_input.setText(
+                SystemSettings.get_value(db, "telegram_webhook_url", "")
+            )
+            self.telegram_mini_app_url_input.setText(
+                SystemSettings.get_value(db, "telegram_mini_app_url", "")
+            )
+
     def _load_staff_for_combos(self, db):
         """Завантажує співробітників у випадаючі списки."""
         # Тільки завідувачі для завідувача кафедри
@@ -1411,6 +1578,28 @@ class SettingsDialog(QDialog):
             else:
                 SystemSettings.set_value(db, "hr_signature_id", hr_employee_id)
 
+            # Telegram налаштування
+            SystemSettings.set_value(
+                db, "telegram_enabled",
+                self.telegram_enabled_checkbox.isChecked()
+            )
+            SystemSettings.set_value(
+                db, "telegram_bot_token",
+                self.telegram_token_input.text().strip()
+            )
+            # Save telegram mode
+            telegram_mode = self.telegram_mode_combo.currentData() or "polling"
+            SystemSettings.set_value(db, "telegram_mode", telegram_mode)
+            
+            SystemSettings.set_value(
+                db, "telegram_webhook_url",
+                self.telegram_webhook_input.text().strip()
+            )
+            SystemSettings.set_value(
+                db, "telegram_mini_app_url",
+                self.telegram_mini_app_url_input.text().strip()
+            )
+
         # Показуємо повідомлення і закриваємо діалог
         QMessageBox.information(
             self,
@@ -1418,6 +1607,435 @@ class SettingsDialog(QDialog):
             "Налаштування збережено!"
         )
         self.accept()
+
+    def _create_telegram_tab(self) -> QWidget:
+        """Створює вкладку налаштувань Telegram."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Група "Telegram Bot"
+        bot_group = QGroupBox("Telegram Bot")
+        bot_layout = QFormLayout()
+
+        self.telegram_enabled_checkbox = QCheckBox("Увімкнути Telegram бота")
+        bot_layout.addRow(self.telegram_enabled_checkbox)
+
+        self.telegram_token_input = QLineEdit()
+        self.telegram_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.telegram_token_input.setPlaceholderText(
+            "Введіть токен бота від @BotFather\n"
+            "Наприклад: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+        )
+        bot_layout.addRow("Bot Token:", self.telegram_token_input)
+
+        # Bot Mode selector
+        self.telegram_mode_combo = QComboBox()
+        self.telegram_mode_combo.addItem("Polling (рекомендовано для розробки)", "polling")
+        self.telegram_mode_combo.addItem("Webhook (потребує публічний URL)", "webhook")
+        self.telegram_mode_combo.setToolTip(
+            "Polling: Бот опитує Telegram API (простіше, не потребує публічного URL)\n"
+            "Webhook: Telegram надсилає оновлення на ваш сервер (ефективніше для продакшн)"
+        )
+        self.telegram_mode_combo.currentIndexChanged.connect(self._on_telegram_mode_changed)
+        bot_layout.addRow("Режим роботи:", self.telegram_mode_combo)
+
+        self.telegram_webhook_input = QLineEdit()
+        self.telegram_webhook_input.setPlaceholderText(
+            "Webhook URL для отримання оновлень\n"
+            "Наприклад: https://your-domain.com/api/telegram/webhook\n"
+            "Для розробки можна використовувати ngrok або інший тунель"
+        )
+        bot_layout.addRow("Webhook URL:", self.telegram_webhook_input)
+
+        self.telegram_mini_app_url_input = QLineEdit()
+        self.telegram_mini_app_url_input.setPlaceholderText(
+            "URL Mini App для відкриття в Telegram\n"
+            "Наприклад: https://your-domain.com/telegram-mini-app/"
+        )
+        bot_layout.addRow("Mini App URL:", self.telegram_mini_app_url_input)
+
+        # Кнопки автоновизначення та тестування
+        buttons_layout = QHBoxLayout()
+        auto_btn = QPushButton("Автовизначити URL")
+        auto_btn.setToolTip("Автоматично заповнити URL на основі поточної мережі")
+        auto_btn.clicked.connect(self._auto_detect_urls)
+        buttons_layout.addWidget(auto_btn)
+
+        test_btn = QPushButton("Перевірити з'єднання")
+        test_btn.clicked.connect(self._test_telegram_connection)
+        buttons_layout.addWidget(test_btn)
+        buttons_layout.addStretch()
+        bot_layout.addRow("", buttons_layout)
+
+        bot_group.setLayout(bot_layout)
+        layout.addWidget(bot_group)
+
+        # Група "Запити на підключення"
+        requests_group = QGroupBox("Запити на підключення")
+        requests_layout = QVBoxLayout()
+
+        # Фільтр
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Статус:"))
+        self.request_status_filter = QComboBox()
+        self.request_status_filter.addItems(["Очікує (Pending)", "Схвалено (Approved)", "Відхилено (Rejected)", "Всі"])
+        self.request_status_filter.currentIndexChanged.connect(self._load_telegram_requests)
+        filter_layout.addWidget(self.request_status_filter)
+        filter_layout.addStretch()
+        requests_layout.addLayout(filter_layout)
+
+        # Таблиця запитів
+        self.telegram_requests_table = QTableWidget()
+        self.telegram_requests_table.setColumnCount(5)
+        self.telegram_requests_table.setHorizontalHeaderLabels(["Користувач", "Username", "Статус", "Телефон", "Дата"])
+        self.telegram_requests_table.horizontalHeader().setStretchLastSection(True)
+        self.telegram_requests_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.telegram_requests_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.telegram_requests_table.setMinimumHeight(200)
+        requests_layout.addWidget(self.telegram_requests_table)
+
+        # Кнопки управління
+        req_buttons_layout = QHBoxLayout()
+
+        refresh_btn = QPushButton("Оновити")
+        refresh_btn.clicked.connect(self._load_telegram_requests)
+        req_buttons_layout.addWidget(refresh_btn)
+
+        approve_btn = QPushButton("Схвалити")
+        approve_btn.clicked.connect(self._approve_telegram_request)
+        approve_btn.setStyleSheet("background-color: #D1FAE5; color: #065F46;")
+        req_buttons_layout.addWidget(approve_btn)
+
+        reject_btn = QPushButton("Відхилити")
+        reject_btn.clicked.connect(self._reject_telegram_request)
+        reject_btn.setStyleSheet("background-color: #FEE2E2; color: #991B1B;")
+        req_buttons_layout.addWidget(reject_btn)
+
+        edit_perms_btn = QPushButton("Права доступу")
+        edit_perms_btn.clicked.connect(self._edit_telegram_permissions)
+        edit_perms_btn.setStyleSheet("background-color: #FEF3C7; color: #92400E;")
+        edit_perms_btn.setToolTip("Змінити права доступу для вже схваленого користувача")
+        req_buttons_layout.addWidget(edit_perms_btn)
+
+        unlink_btn = QPushButton("Відв'язати")
+        unlink_btn.clicked.connect(self._unlink_telegram_request)
+        unlink_btn.setStyleSheet("background-color: #fee2e2; color: #b91c1c;")
+        unlink_btn.setToolTip("Скасувати прив'язку та забрати права")
+        req_buttons_layout.addWidget(unlink_btn)
+
+        req_buttons_layout.addStretch()
+        requests_layout.addLayout(req_buttons_layout)
+
+        requests_group.setLayout(requests_layout)
+        layout.addWidget(requests_group)
+
+        # Підказка
+        help_label = QLabel(
+            "<b>Telegram Bot</b> дозволяє управляти документами через Telegram.<br><br>"
+            "<b>Режими роботи:</b><br>"
+            "• <b>Polling</b> - Простий режим для розробки. Запускається через <code>python run.py --telegram</code><br>"
+            "• <b>Webhook</b> - Для продакшн з публічним URL. Запускається через <code>python run.py --telegram-webhook</code><br><br>"
+            "<b>Можливості бота (без Mini App):</b><br>"
+            "• Перегляд документів та їх статусів<br>"
+            "• Підписання/погодження документів<br>"
+            "• Управління проблемними документами<br>"
+            "• Перегляд профілю<br><br>"
+            "<i>Примітка: Сканування доступне тільки через Mini App</i>"
+        )
+        help_label.setWordWrap(True)
+        help_label.setStyleSheet("color: #666; font-size: 11px; padding: 10px; background: #f0f0f0; border-radius: 5px;")
+        layout.addWidget(help_label)
+
+        layout.addStretch()
+        return widget
+
+    def _on_telegram_mode_changed(self, index: int):
+        """Обробляє зміну режиму Telegram бота."""
+        mode = self.telegram_mode_combo.currentData()
+        # Webhook URL field is only relevant in webhook mode
+        self.telegram_webhook_input.setEnabled(mode == "webhook")
+        if mode == "polling":
+            self.telegram_webhook_input.setPlaceholderText("(Не потрібно для режиму Polling)")
+        else:
+            self.telegram_webhook_input.setPlaceholderText(
+                "Webhook URL для отримання оновлень\n"
+                "Наприклад: https://your-domain.com/api/telegram/webhook"
+            )
+
+    def _load_telegram_requests(self):
+        """Завантажує список запитів на підключення."""
+        from backend.models.telegram_link_request import TelegramLinkRequest, LinkRequestStatus
+        from sqlalchemy import select
+        
+        self.telegram_requests_table.setRowCount(0)
+        
+        filter_idx = self.request_status_filter.currentIndex()
+        # 0=Pending, 1=Approved, 2=Rejected, 3=All
+        
+        with get_db_context() as db:
+            query = select(TelegramLinkRequest).order_by(TelegramLinkRequest.created_at.desc())
+            
+            if filter_idx == 0:
+                query = query.where(TelegramLinkRequest.status == LinkRequestStatus.PENDING)
+            elif filter_idx == 1:
+                query = query.where(TelegramLinkRequest.status == LinkRequestStatus.APPROVED)
+            elif filter_idx == 2:
+                query = query.where(TelegramLinkRequest.status == LinkRequestStatus.REJECTED)
+                
+            requests = db.execute(query).scalars().all()
+            
+            self.telegram_requests_table.setRowCount(len(requests))
+            for i, req in enumerate(requests):
+                user_item = QTableWidgetItem(f"{req.first_name} {req.last_name or ''}")
+                user_item.setData(Qt.ItemDataRole.UserRole, req.id)
+                self.telegram_requests_table.setItem(i, 0, user_item)
+                
+                self.telegram_requests_table.setItem(i, 1, QTableWidgetItem(f"@{req.telegram_username}" if req.telegram_username else "-"))
+                
+                # Status with color
+                status_item = QTableWidgetItem(req.status.value)
+                if req.status == LinkRequestStatus.APPROVED:
+                    status_item.setBackground(QColor("#d1fae5"))
+                elif req.status == LinkRequestStatus.REJECTED:
+                    status_item.setBackground(QColor("#fee2e2"))
+                elif req.status == LinkRequestStatus.PENDING:
+                    status_item.setBackground(QColor("#eff6ff"))
+                self.telegram_requests_table.setItem(i, 2, status_item)
+                
+                self.telegram_requests_table.setItem(i, 3, QTableWidgetItem(req.phone_number or "-"))
+                self.telegram_requests_table.setItem(i, 4, QTableWidgetItem(req.created_at.strftime("%Y-%m-%d %H:%M")))
+
+    def _approve_telegram_request(self):
+        """Схвалює обраний запит."""
+        current_row = self.telegram_requests_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Увага", "Оберіть запит для схвалення")
+            return
+            
+        request_id = self.telegram_requests_table.item(current_row, 0).data(Qt.ItemDataRole.UserRole)
+        
+        # Dialog to select staff and permissions
+        dialog = TelegramApprovalDialog(self, request_id)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._load_telegram_requests()
+            QMessageBox.information(self, "Успіх", "Запит успішно схвалено")
+
+    def _reject_telegram_request(self):
+        """Відхиляє обраний запит."""
+        current_row = self.telegram_requests_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Увага", "Оберіть запит для відхилення")
+            return
+            
+        request_id = self.telegram_requests_table.item(current_row, 0).data(Qt.ItemDataRole.UserRole)
+        
+        reason, ok = QInputDialog.getText(
+            self, "Відхилення запиту", 
+            "Вкажіть причину відхилення (необов'язково):"
+        )
+        
+        if ok:
+            from backend.models.telegram_link_request import TelegramLinkRequest, LinkRequestStatus
+            from sqlalchemy import select
+            import asyncio
+            from backend.api.routes.telegram import _send_rejection_notification
+            
+            with get_db_context() as db:
+                req = db.execute(
+                    select(TelegramLinkRequest).where(TelegramLinkRequest.id == request_id)
+                ).scalar_one()
+                
+                req.status = LinkRequestStatus.REJECTED
+                req.rejection_reason = reason
+                req.processed_at = datetime.now()
+                req.approved_by = "Desktop Admin"
+                
+                db.commit()
+                
+                # Try to send notification (this is async, so we just try best effort in desktop)
+                # Ideally this should be done via API or properly handled asyncio loop
+                try:
+                    # Simple fire-and-forget wrapper if we have a running loop, otherwise ignores
+                    pass 
+                except:
+                    pass
+            
+            self._load_telegram_requests()
+
+    def _unlink_telegram_request(self):
+        """Відв'язує користувача."""
+        current_row = self.telegram_requests_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Увага", "Оберіть запит для відв'язування")
+            return
+            
+        request_id = self.telegram_requests_table.item(current_row, 0).data(Qt.ItemDataRole.UserRole)
+        
+        reply = QMessageBox.question(
+            self, "Підтвердження",
+            "Ви впевнені, що хочете відв'язати цього користувача?\n"
+            "Він втратить доступ до боту.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        from backend.models.telegram_link_request import TelegramLinkRequest, LinkRequestStatus
+        from backend.models.staff import Staff
+        from sqlalchemy import select
+        
+        try:
+            with get_db_context() as db:
+                req = db.execute(select(TelegramLinkRequest).where(TelegramLinkRequest.id == request_id)).scalar_one()
+                
+                if req.staff_id:
+                    staff = db.execute(select(Staff).where(Staff.id == req.staff_id)).scalar_one_or_none()
+                    if staff:
+                        staff.telegram_user_id = None
+                        staff.telegram_username = None
+                        staff.telegram_permissions = None
+                
+                req.status = LinkRequestStatus.REJECTED
+                req.rejection_reason = "Unlinked by admin"
+                req.processed_at = datetime.now()
+
+                db.commit()
+                QMessageBox.information(self, "Успіх", "Користувача відв'язано.")
+                self._load_telegram_requests()
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося відв'язати користувача: {e}")
+
+    def _edit_telegram_permissions(self):
+        """Відкриває діалог для зміни прав доступу користувача."""
+        current_row = self.telegram_requests_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Увага", "Оберіть запит")
+            return
+
+        request_id = self.telegram_requests_table.item(current_row, 0).data(Qt.ItemDataRole.UserRole)
+
+        dialog = TelegramPermissionsDialog(self, request_id)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._load_telegram_requests()
+
+    def _test_telegram_connection(self):
+        """Перевіряє з'єднання з Telegram API."""
+        token = self.telegram_token_input.text().strip()
+        if not token:
+            QMessageBox.warning(self, "Увага", "Введіть токен бота")
+            return
+
+        try:
+            import requests
+
+            # Test bot info
+            response = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5)
+            data = response.json()
+
+            if data.get("ok"):
+                bot_info = data["result"]
+                message = (
+                    f"З'єднання з Telegram встановлено!\n\n"
+                    f"Bot: @{bot_info.get('username', 'N/A')}\n"
+                    f"Ім'я: {bot_info.get('first_name', 'N/A')}\n"
+                    f"ID: {bot_info.get('id', 'N/A')}"
+                )
+                QMessageBox.information(self, "Успіх", message)
+            else:
+                error_desc = data.get("description", "Невідома помилка")
+                QMessageBox.critical(self, "Помилка", f"Не вдалося підключитися до Telegram:\n{error_desc}")
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося перевірити з'єднання:\n{e}")
+
+    def _auto_detect_urls(self):
+        """Автоматично визначає URL для webhook та Mini App на основі локальної IP адреси."""
+        import socket
+
+        # Get local IP address
+        hostname = socket.gethostname()
+        try:
+            local_ip = socket.gethostbyname(hostname)
+        except socket.gaierror:
+            # Fallback to common local IP
+            local_ip = "127.0.0.1"
+
+        # Read backend port from settings or use default
+        from pathlib import Path
+        import json
+
+        port = 8000  # Default port
+
+        # Try to read from .env file
+        env_path = Path(__file__).parent.parent.parent / ".env"
+        if env_path.exists():
+            try:
+                with open(env_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if line.startswith('VM_PORT='):
+                            port = int(line.split('=')[1].strip())
+                            break
+            except Exception:
+                pass
+
+        # Generate URLs
+        webhook_url = f"http://{local_ip}:{port}/api/telegram/webhook"
+        mini_app_url = f"http://{local_ip}:5173"  # Vite default port
+
+        # Show dialog with URLs
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Автовизначені URL")
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel(f"Локальна IP адреса: <b>{local_ip}</b>"))
+        layout.addWidget(QLabel(f"Backend порт: <b>{port}</b>"))
+        layout.addWidget(QLabel(""))
+
+        # Webhook URL
+        webhook_layout = QFormLayout()
+        webhook_input = QLineEdit(webhook_url)
+        webhook_input.setMinimumWidth(400)
+        webhook_layout.addRow("Webhook URL:", webhook_input)
+        layout.addLayout(webhook_layout)
+
+        # Mini App URL
+        mini_app_layout = QFormLayout()
+        mini_app_input = QLineEdit(mini_app_url)
+        mini_app_input.setMinimumWidth(400)
+        mini_app_layout.addRow("Mini App URL:", mini_app_input)
+        layout.addLayout(mini_app_layout)
+
+        # Warning about HTTPS
+        warning = QLabel(
+            "<b>Увага:</b> Telegram вимагає <b>HTTPS</b> для webhook URL.<br><br>"
+            "Для розробки використовуйте:<br>"
+            "• <b>ngrok</b>: ngrok http 8000<br>"
+            "• <b>Cloudflare Tunnel</b>: cloudflared tunnel<br>"
+            "• Інший локальний тунель з HTTPS"
+        )
+        warning.setWordWrap(True)
+        warning.setStyleSheet("color: #B91C1C; background: #FEE2E2; padding: 10px; border-radius: 5px;")
+        layout.addWidget(warning)
+
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Застосувати")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Скасувати")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Apply the URLs
+            self.telegram_webhook_input.setText(webhook_input.text())
+            self.telegram_mini_app_url_input.setText(mini_app_input.text())
+            QMessageBox.information(
+                self,
+                "Успішно",
+                "URL оновлено!\n\nДля продакшну не забудьте змінити http:// на https://"
+            )
 
 
 class ApproverDialog(QDialog):
@@ -1459,7 +2077,7 @@ class ApproverDialog(QDialog):
         )
         name_layout.addWidget(self.name_nom_input)
 
-        auto_btn = QPushButton("🔄")
+        auto_btn = QPushButton("Оновити")
         auto_btn.setMaximumWidth(40)
         auto_btn.setToolTip("Автоматично перетворити у давальний відмінок")
         auto_btn.clicked.connect(self._auto_generate_dative)
@@ -1484,7 +2102,7 @@ class ApproverDialog(QDialog):
         help_label = QLabel(
             "<b>Давальний відмінок</b> - для шапки документів (кому?): «директору <b>Іванову</b>»<br><br>"
             "<b>Називний відмінок</b> - для розділу «Погоджено» (хто?): «<b>Іванов</b> І.І.»<br><br>"
-            "💡 Натисніть 🔄 щоб автоматично перетворити називний у давальний"
+            "Натисніть Оновити щоб автоматично перетворити називний у давальний"
         )
         help_label.setWordWrap(True)
         help_label.setStyleSheet("color: #666; font-style: italic; padding: 10px; background: #f0f0f0; border-radius: 5px;")
@@ -1576,6 +2194,334 @@ class PositionSelectionDialog(QDialog):
         return None
 
 
+class TelegramApprovalDialog(QDialog):
+    """Діалог для схвалення запиту на прив'язку Telegram."""
+
+    def __init__(self, parent, request_id: int):
+        super().__init__(parent)
+        self.request_id = request_id
+        self._setup_ui()
+        self._load_data()
+
+    def _setup_ui(self):
+        """Налаштовує інтерфейс."""
+        self.setWindowTitle("Схвалення запиту")
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(400)
+
+        layout = QVBoxLayout(self)
+
+        # Інфо про користувача
+        self.user_info = QLabel("Завантаження...")
+        self.user_info.setStyleSheet("background: #f0f9ff; padding: 10px; border-radius: 5px;")
+        layout.addWidget(self.user_info)
+
+        # Вибір співробітника
+        staff_group = QGroupBox("Прив'язати до співробітника")
+        staff_layout = QFormLayout()
+
+        self.staff_combo = QComboBox()
+        self.staff_combo.setEditable(True)
+        staff_layout.addRow("Співробітник:", self.staff_combo)
+        
+        staff_group.setLayout(staff_layout)
+        layout.addWidget(staff_group)
+
+        # Права доступу
+        perm_group = QGroupBox("Права доступу та дозволи")
+        perm_layout = QVBoxLayout()
+
+        self.perm_view_docs = QCheckBox("Перегляд своїх документів")
+        self.perm_view_docs.setChecked(True)
+        self.perm_view_docs.setEnabled(False) # Always required
+        perm_layout.addWidget(self.perm_view_docs)
+
+        self.perm_sign_docs = QCheckBox("Підписання/Погодження документів")
+        perm_layout.addWidget(self.perm_sign_docs)
+
+        self.perm_view_stale = QCheckBox("Перегляд застарілих документів")
+        perm_layout.addWidget(self.perm_view_stale)
+
+        self.perm_manage_stale = QCheckBox("Управління застарілими документами")
+        perm_layout.addWidget(self.perm_manage_stale)
+
+        # Admin access - separated visually
+        perm_layout.addWidget(QLabel(""))
+        admin_separator = QLabel("─" * 30)
+        admin_separator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        perm_layout.addWidget(admin_separator)
+
+        self.perm_view_all = QCheckBox("<b>Адміністративний доступ</b> - перегляд документів усіх співробітників")
+        self.perm_view_all.setToolTip("Дозволяє переглядати документи будь-якого співробітника через команду /search у Telegram боті")
+        perm_layout.addWidget(self.perm_view_all)
+
+        perm_group.setLayout(perm_layout)
+        layout.addWidget(perm_group)
+        
+        # Повідомлення про відправку
+        layout.addWidget(QLabel("Користувач отримає повідомлення про схвалення та перелік своїх прав."))
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _load_data(self):
+        """Завантажує дані запиту та список співробітників."""
+        from backend.models.telegram_link_request import TelegramLinkRequest
+        from backend.models.staff import Staff
+        from sqlalchemy import select
+        
+        with get_db_context() as db:
+            # Load request
+            self.request = db.execute(
+                select(TelegramLinkRequest).where(TelegramLinkRequest.id == self.request_id)
+            ).scalar_one()
+            
+            self.user_info.setText(
+                f"<b>{self.request.first_name} {self.request.last_name or ''}</b>\n"
+                f"Телефон: {self.request.phone_number or 'Без телефону'}\n"
+                f"@{self.request.telegram_username or '---'}"
+            )
+            
+            # Load staff list
+            staff_list = db.execute(
+                select(Staff).where(Staff.is_active == True).order_by(Staff.pib_nom)
+            ).scalars().all()
+            
+            for s in staff_list:
+                # Mark already linked staff
+                linked = f" (вже має Telegram: {s.telegram_user_id})" if s.telegram_user_id else ""
+                self.staff_combo.addItem(f"{s.pib_nom} - {s.position}{linked}", s.id)
+                
+            # Try to auto-select if phone match or name similarity (simple check)
+            # This is a basic implementation, can be improved
+            
+    def _accept(self):
+        """Обробляє схвалення."""
+        import json
+        from datetime import datetime
+        from backend.models.telegram_link_request import TelegramLinkRequest, LinkRequestStatus
+        from backend.models.staff import Staff
+        from sqlalchemy import select
+        from backend.api.routes.telegram import _send_approval_notification
+        import asyncio
+
+        staff_id = self.staff_combo.currentData()
+        if not staff_id:
+            QMessageBox.warning(self, "Увага", "Оберіть співробітника")
+            return
+
+        permissions = ["view_documents"]
+        if self.perm_sign_docs.isChecked(): permissions.append("sign_documents")
+        if self.perm_view_stale.isChecked(): permissions.append("view_stale")
+        if self.perm_manage_stale.isChecked(): permissions.append("manage_stale")
+        if self.perm_view_all.isChecked(): permissions.append("view_all_documents")
+
+        try:
+            with get_db_context() as db:
+                staff = db.execute(select(Staff).where(Staff.id == staff_id)).scalar_one()
+                req = db.execute(select(TelegramLinkRequest).where(TelegramLinkRequest.id == self.request_id)).scalar_one()
+                
+                # Check if staff already linked to different ID
+                if staff.telegram_user_id and staff.telegram_user_id != req.telegram_user_id:
+                    reply = QMessageBox.question(
+                        self, "Підтвердження",
+                        f"Співробітник {staff.pib_nom} вже прив'язаний до іншого Telegram ID!\n"
+                        f"Перезаписати прив'язку?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+
+                # Update stats
+                staff.telegram_user_id = req.telegram_user_id
+                staff.telegram_username = req.telegram_username
+                staff.telegram_permissions = json.dumps(permissions)
+                
+                req.status = LinkRequestStatus.APPROVED
+                req.staff_id = staff_id
+                req.processed_at = datetime.now()
+                req.approved_by = "Desktop Admin"
+                
+                db.commit()
+
+                # Notify user using direct HTTP request to Telegram API (sync)
+                try:
+                    import requests
+                    # Access token from parent settings dialog
+                    parent_dialog = self.parent()
+                    token = parent_dialog.telegram_token_input.text().strip()
+                    
+                    if token:
+                        permission_labels = {
+                            "view_documents": "Перегляд документів",
+                            "sign_documents": "Підписання документів",
+                            "view_stale": "Перегляд застарілих",
+                            "manage_stale": "Управління застарілими",
+                        }
+                        perm_text = "\n".join(f"• {permission_labels.get(p, p)}" for p in permissions)
+                        
+                        msg = (
+                            f"<b>Вітаємо, {staff.pib_nom}!</b>\n\n"
+                            f"Ваш Telegram акаунт успішно прив'язано до системи VacationManager.\n\n"
+                            f"<b>Ваша посада:</b> {staff.position}\n"
+                            f"Підрозділ: {staff.department or 'Не вказано'}\n\n"
+                            f"<b>Ваші права доступу:</b>\n{perm_text}"
+                        )
+                        
+                        requests.post(
+                            f"https://api.telegram.org/bot{token}/sendMessage",
+                            json={
+                                "chat_id": req.telegram_user_id,
+                                "text": msg,
+                                "parse_mode": "HTML"
+                            },
+                            timeout=5
+                        )
+                except Exception as e:
+                    print(f"Failed to send telegram notification: {e}")
+
+                QMessageBox.information(
+                    self, "Успіх",
+                    f"Користувача {req.first_name} успішно прив'язано до {staff.pib_nom}!"
+                )
+                self.accept()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося зберегти зміни: {e}")
+
+
+class TelegramPermissionsDialog(QDialog):
+    """Діалог для зміни прав доступу Telegram користувача."""
+
+    def __init__(self, parent, request_id: int):
+        super().__init__(parent)
+        self.request_id = request_id
+        self._setup_ui()
+        self._load_data()
+
+    def _setup_ui(self):
+        """Налаштовує інтерфейс."""
+        self.setWindowTitle("Змінити права доступу")
+        self.setMinimumWidth(450)
+
+        layout = QVBoxLayout(self)
+
+        # Інфо про користувача
+        self.user_info = QLabel("Завантаження...")
+        self.user_info.setStyleSheet("background: #f0f9ff; padding: 10px; border-radius: 5px;")
+        layout.addWidget(self.user_info)
+
+        # Права доступу
+        perm_group = QGroupBox("🔐 Права доступу")
+        perm_layout = QVBoxLayout()
+
+        self.perm_view_docs = QCheckBox("Перегляд своїх документів")
+        self.perm_view_docs.setChecked(True)
+        self.perm_view_docs.setEnabled(False)  # Always required
+        perm_layout.addWidget(self.perm_view_docs)
+
+        self.perm_sign_docs = QCheckBox("Підписання/Погодження документів")
+        perm_layout.addWidget(self.perm_sign_docs)
+
+        self.perm_view_stale = QCheckBox("Перегляд застарілих документів")
+        perm_layout.addWidget(self.perm_view_stale)
+
+        self.perm_manage_stale = QCheckBox("Управління застарілими документами")
+        perm_layout.addWidget(self.perm_manage_stale)
+
+        # Admin access
+        perm_layout.addWidget(QLabel(""))
+        admin_separator = QLabel("─" * 30)
+        admin_separator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        perm_layout.addWidget(admin_separator)
+
+        self.perm_view_all = QCheckBox("<b>Адміністративний доступ</b>")
+        self.perm_view_all.setToolTip("Дозволяє переглядати документи будь-якого співробітника через команду /search")
+        perm_layout.addWidget(self.perm_view_all)
+
+        perm_group.setLayout(perm_layout)
+        layout.addWidget(perm_group)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _load_data(self):
+        """Завантажує поточні права доступу."""
+        import json
+        from sqlalchemy import select
+        from backend.models.telegram_link_request import TelegramLinkRequest
+        from backend.models.staff import Staff
+
+        with get_db_context() as db:
+            # Load request
+            req = db.execute(
+                select(TelegramLinkRequest).where(TelegramLinkRequest.id == self.request_id)
+            ).scalar_one()
+
+            # Load linked staff
+            staff = db.execute(
+                select(Staff).where(Staff.id == req.staff_id)
+            ).scalar_one_or_none()
+
+            if not staff:
+                self.user_info.setText("❌ Співробітника не знайдено")
+                return
+
+            self.staff = staff
+            self.user_info.setText(
+                f"<b>{staff.pib_nom}</b>\n"
+                f"📋 {staff.position}\n"
+                f"📱 Telegram ID: {staff.telegram_user_id}"
+            )
+
+            # Load current permissions
+            try:
+                permissions = json.loads(staff.telegram_permissions) if staff.telegram_permissions else []
+            except:
+                permissions = []
+
+            self.perm_view_docs.setChecked("view_documents" in permissions)
+            self.perm_sign_docs.setChecked("sign_documents" in permissions)
+            self.perm_view_stale.setChecked("view_stale" in permissions)
+            self.perm_manage_stale.setChecked("manage_stale" in permissions)
+            self.perm_view_all.setChecked("view_all_documents" in permissions)
+
+    def _save(self):
+        """Зберігає нові права доступу."""
+        import json
+        from sqlalchemy import select
+        from backend.models.staff import Staff
+
+        permissions = ["view_documents"]
+        if self.perm_sign_docs.isChecked(): permissions.append("sign_documents")
+        if self.perm_view_stale.isChecked(): permissions.append("view_stale")
+        if self.perm_manage_stale.isChecked(): permissions.append("manage_stale")
+        if self.perm_view_all.isChecked(): permissions.append("view_all_documents")
+
+        try:
+            with get_db_context() as db:
+                staff = db.execute(select(Staff).where(Staff.id == self.staff.id)).scalar_one()
+                staff.telegram_permissions = json.dumps(permissions)
+                db.commit()
+
+            QMessageBox.information(self, "Успіх", "Права доступу оновлено!")
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося оновити права: {e}")
+
+
 class SQLQueryBuilderDialog(QDialog):
     """Діалог для візуального конструювання SQL запитів."""
 
@@ -1619,7 +2565,7 @@ class SQLQueryBuilderDialog(QDialog):
             return ["id"]
 
     def _setup_ui(self):
-        self.setWindowTitle("🔧 Конструктор SQL запитів")
+        self.setWindowTitle("Конструктор SQL запитів")
         self.setMinimumSize(700, 500)
 
         layout = QVBoxLayout(self)
@@ -1683,7 +2629,7 @@ class SQLQueryBuilderDialog(QDialog):
         where_layout.addWidget(self.conditions_widget)
 
         # Add condition button
-        add_cond_btn = QPushButton("➕ Додати умову")
+        add_cond_btn = QPushButton("Додати умову")
         add_cond_btn.clicked.connect(self._add_condition)
         where_layout.addWidget(add_cond_btn)
 
@@ -1718,7 +2664,7 @@ class SQLQueryBuilderDialog(QDialog):
         self.preview_text.setStyleSheet("font-family: monospace; background: #f5f5f5;")
         preview_layout.addWidget(self.preview_text)
         
-        refresh_btn = QPushButton("🔄 Оновити перегляд")
+        refresh_btn = QPushButton("Оновити перегляд")
         refresh_btn.clicked.connect(self._update_preview)
         preview_layout.addWidget(refresh_btn)
         preview_group.setLayout(preview_layout)
@@ -1734,7 +2680,7 @@ class SQLQueryBuilderDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("▶️ Виконати")
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Виконати")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
