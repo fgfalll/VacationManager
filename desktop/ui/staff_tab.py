@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QLabel,
     QLineEdit,
-    QComboBox,
     QDialog,
     QFormLayout,
     QSpinBox,
@@ -48,24 +47,18 @@ class StaffTab(QWidget):
         """Налаштовує інтерфейс."""
         layout = QVBoxLayout(self)
 
-        # Панель пошуку та фільтрів
+        # Панель пошуку
         search_layout = QHBoxLayout()
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Пошук за ПІБ...")
         self.search_input.textChanged.connect(self._on_search)
 
-        self.filter_active = QComboBox()
-        self.filter_active.addItems(["Всі", "Активні", "Неактивні"])
-        self.filter_active.currentIndexChanged.connect(self._load_data)
-
         self.refresh_btn = QPushButton("Оновити")
         self.refresh_btn.clicked.connect(self._on_refresh)
 
         search_layout.addWidget(QLabel("Пошук:"))
         search_layout.addWidget(self.search_input)
-        search_layout.addWidget(QLabel("Фільтр:"))
-        search_layout.addWidget(self.filter_active)
         search_layout.addWidget(self.refresh_btn)
         search_layout.addStretch()
 
@@ -117,16 +110,7 @@ class StaffTab(QWidget):
         from backend.core.database import get_db_context
 
         with get_db_context() as db:
-            query = db.query(Staff)
-
-            # Фільтр активності
-            filter_idx = self.filter_active.currentIndex()
-            if filter_idx == 1:  # Активні
-                query = query.filter(Staff.is_active == True)
-            elif filter_idx == 2:  # Неактивні
-                query = query.filter(Staff.is_active == False)
-
-            all_staff = query.order_by(Staff.pib_nom, Staff.id.desc()).all()
+            all_staff = db.query(Staff).order_by(Staff.pib_nom, Staff.id.desc()).all()
 
             # Групуємо по pib_nom і збираємо всі позиції для кожного
             staff_groups = {}
@@ -602,7 +586,6 @@ class StaffTab(QWidget):
                 try:
                     service = StaffService(db, changed_by="USER")
                     service.deactivate_staff(staff, reason="Видалено користувачем")
-                    self.filter_active.setCurrentIndex(1)  # 1 = Активні
                     self._load_data()
                 except Exception as e:
                     QMessageBox.critical(self, "Помилка", f"Не вдалося деактивувати: {e}")
@@ -1028,7 +1011,7 @@ class StaffTab(QWidget):
 
         table.itemDoubleClicked.connect(on_double_click)
 
-        layout.addWidget(QLabel("<b>Двійний клік для перегляду картки працівника</b>"))
+        layout.addWidget(QLabel("<b>Подвійний клік для перегляду картки працівника</b>"))
         layout.addWidget(table)
 
         # Кнопка закриття
