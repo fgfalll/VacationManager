@@ -1810,31 +1810,45 @@ class BuilderTab(QWidget):
 
             # Встановлюємо статус з затримкою, щоб JavaScript встиг завантажитися
             from PyQt6.QtCore import QTimer
-            QTimer.singleShot(500, lambda: self.wysiwyg_bridge.set_document_status(
+            
+            def safe_op(func):
+                """Safely execute operation on web_view checking if it's alive."""
+                if not hasattr(self, 'web_view') or self.web_view is None:
+                    return
+                try:
+                    import PyQt6.sip as sip
+                    if sip.isdeleted(self.web_view):
+                        return
+                    func()
+                except (RuntimeError, ImportError):
+                    # Fallback if sip is issues or other runtime error
+                    pass
+
+            QTimer.singleShot(500, lambda: safe_op(lambda: self.wysiwyg_bridge.set_document_status(
                 self.web_view,
                 self._current_status.value,
                 self._get_status_label()
-            ))
+            )))
 
             # Оновлюємо auto-fields (formatted_dates, days_count)
             if context.get("formatted_dates"):
-                QTimer.singleShot(600, lambda: self.wysiwyg_bridge.update_field(
+                QTimer.singleShot(600, lambda: safe_op(lambda: self.wysiwyg_bridge.update_field(
                     self.web_view, "formatted_dates", context["formatted_dates"]
-                ))
+                )))
             if context.get("days_count"):
-                QTimer.singleShot(600, lambda: self.wysiwyg_bridge.update_field(
+                QTimer.singleShot(600, lambda: safe_op(lambda: self.wysiwyg_bridge.update_field(
                     self.web_view, "days_count", context["days_count"]
-                ))
+                )))
 
             # Встановлюємо попередньо визначених погоджувачів (для кнопки + Погоджувач)
             if context.get("signatories"):
-                QTimer.singleShot(700, lambda: self.wysiwyg_bridge.set_predefined_signatories(
+                QTimer.singleShot(700, lambda: safe_op(lambda: self.wysiwyg_bridge.set_predefined_signatories(
                     self.web_view,
                     context["signatories"]
-                ))
+                )))
 
             # Експортуємо початковий контент
-            QTimer.singleShot(1200, lambda: self.wysiwyg_bridge.export_content(self.web_view))
+            QTimer.singleShot(1200, lambda: safe_op(lambda: self.wysiwyg_bridge.export_content(self.web_view)))
 
         except Exception as e:
             print(f"Error updating preview: {e}")
