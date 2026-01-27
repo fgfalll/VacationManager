@@ -9,7 +9,9 @@
     "start:desktop": "python run.py --desktop",
     "dev:web": "cd web && npm run dev",
     "build:web": "cd web && npm run build",
-    "install:all": "npm install && cd web && npm install",
+    "dev:telegram": "cd telegram-mini-app && npm run dev",
+    "build:telegram": "cd telegram-mini-app && npm run build",
+    "install:all": "npm install && cd web && npm install && cd ../telegram-mini-app && npm install",
     "lint:web": "cd web && npm run lint"
   },
   "keywords": [
