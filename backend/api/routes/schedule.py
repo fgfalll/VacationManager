@@ -31,7 +31,19 @@ async def get_annual_schedule(
     current_user = Depends(require_department_head),
 ):
     """
-    Отримати річний графік відпусток.
+    Отримати річний графік відпусток (детальна структура).
+
+    Повертає повний список запланованих відпусток з додатковою інформацією
+    про використання днів (is_used), залишки та інше.
+    Більш "важкий" ендпоінт порівняно з `get_schedule`.
+
+    Parameters:
+    - **year** (int): Рік (наприклад, 2024).
+    - **month** (int, optional): Фільтр по місяцю.
+    - **department** (str, optional): Фільтр по відділу.
+
+    Returns:
+    - Список розширених об'єктів запису відпустки.
     """
     query = db.query(AnnualSchedule).filter(AnnualSchedule.year == year)
 
@@ -79,7 +91,16 @@ async def get_schedule(
     current_user = Depends(require_department_head),
 ):
     """
-    Отримати графік відпусток на рік.
+    Отримати спрощений графік відпусток на рік.
+
+    Повертає список запланованих відпусток у форматі, оптимізованому
+    для відображення на календарі або діаграмі Ганта.
+
+    Parameters:
+    - **year** (int): Рік.
+
+    Returns:
+    - Список записів (id, staff, dates).
     """
     entries = (
         db.query(AnnualSchedule)
@@ -118,7 +139,16 @@ async def create_schedule_entry(
     current_user = Depends(require_department_head),
 ):
     """
-    Створити запис у графіку.
+    Створити запис у графіку відпусток.
+
+    Додає новий запланований період відпустки для співробітника.
+    Не створює документ, це лише план.
+
+    Parameters:
+    - **entry_data** (ScheduleEntryCreate): Дані запланованої відпустки.
+
+    Returns:
+    - Створений запис.
     """
     staff = db.query(Staff).filter(Staff.id == entry_data.staff_id).first()
     if not staff:
@@ -148,6 +178,13 @@ async def update_schedule_entry(
 ):
     """
     Оновити запис у графіку.
+
+    Дозволяє змінити дати запланованої відпустки або статус використання.
+
+    Parameters:
+    - **entry_id** (int): ID запису.
+    - **planned_start/end**: Нові планові дати.
+    - **is_used** (bool): Чи використана ця відпустка (створено документ).
     """
     entry = db.query(AnnualSchedule).filter(AnnualSchedule.id == entry_id).first()
     if not entry:
@@ -174,6 +211,8 @@ async def delete_schedule_entry(
 ):
     """
     Видалити запис з графіку.
+
+    Видаляє запланований період відпустки.
     """
     entry = db.query(AnnualSchedule).filter(AnnualSchedule.id == entry_id).first()
     if not entry:
@@ -193,6 +232,17 @@ async def auto_distribute_vacations(
 ):
     """
     Автоматично розподілити відпустки по місяцях.
+
+    Алгоритм "розумного" розподілу:
+    1. Аналізує кількість співробітників та доступних днів.
+    2. Рівномίрно розподіляє відпустки по року, уникаючи пікових місяців.
+    3. Враховує побажання (якщо реалізовано) та історію.
+
+    Parameters:
+    - **request** (AutoDistributeRequest): Параметри розподілу (рік, відділ тощо).
+
+    Returns:
+    - Статистика створених записів.
     """
     from backend.services.schedule_service import ScheduleService
     from shared.enums import EmploymentType
@@ -232,6 +282,11 @@ async def get_schedule_stats(
 ):
     """
     Отримати статистику графіка відпусток.
+
+    Повертає аналітику по використанню відпусток:
+    - Загальна кількість співробітників.
+    - Розподіл по департаментах.
+    - Скільки днів заплановано / використано.
     """
     total_staff = db.query(func.count(Staff.id)).filter(Staff.is_active == True).scalar() or 0
     total_working_days = 22 * total_staff

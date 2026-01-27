@@ -38,9 +38,19 @@ async def generate_tabel(
     current_user=Depends(require_department_head),
 ):
     """
-    Згенерувати HTML табеля для місяця/року.
+    Згенерувати HTML друкованої форми табеля.
 
-    Повертає HTML для відображення в WebView або браузері.
+    Створює стандартну друковану форму П-5.
+    Підтримує генерацію як для основного табеля, так і для коригуючого.
+    Використовує параметри організації з налаштувань.
+
+    Parameters:
+    - **month/year**: Період табеля.
+    - **is_correction**: Чи генерувати форму коригування.
+    - **correction_month/year**: Період, за який робиться корекція (якщо is_correction=True).
+
+    Returns:
+    - HTML код сторінки для друку.
     """
     try:
         # Get settings from database
@@ -77,7 +87,10 @@ async def preview_tabel(
     current_user=Depends(require_department_head),
 ):
     """
-    Попередній перегляд табеля без збереження.
+    Попередній перегляд табеля.
+
+    Генерує HTML для швидкого перегляду без параметрів корекції.
+    Використовується для перевірки вигляду перед друком.
     """
     try:
         institution_name = SystemSettings.get_value(db, "institution_name", "ЦНТУ")
@@ -115,7 +128,17 @@ async def create_tabel_archive(
     current_user=Depends(require_department_head),
 ):
     """
-    Зберегти архів табеля.
+    Створити незмінний архів табеля (Snapshot).
+
+    Зберігає поточний стан табеля у вигляді JSON-архіву.
+    Це дозволяє відтворити точний вигляд табеля на момент закриття місяця,
+    навіть якщо дані співробітників зміняться.
+
+    Parameters:
+    - **correction_sequence**: Номер версії корекції (якщо застосовно).
+
+    Returns:
+    - Шлях до збереженого файлу архіву.
     """
     try:
         institution_name = SystemSettings.get_value(db, "institution_name", "ЦНТУ")
@@ -148,9 +171,13 @@ async def get_tabel_archives(
     current_user=Depends(require_department_head),
 ):
     """
-    Отримати список архівів табелів.
+    Отримати список всіх збережених архівів.
 
-    Повертає згруповані основні табелі та корегуючі табелі.
+    Сканує директорію архівів та повертає структурований список файлів.
+    Файли групуються за роком та місяцем.
+
+    Returns:
+    - Дерево архівів (Main та Corrections).
     """
     try:
         archives = list_tabel_archives()
@@ -167,7 +194,16 @@ async def get_archive_detail(
     current_user=Depends(require_department_head),
 ):
     """
-    Отримати деталі конкретного архіву та відтворити HTML.
+    Відтворити табель з архівного файлу.
+
+    Завантажує дані з JSON-файлу та рендерить HTML.
+    Дозволяє переглядати історичні табелі точно такими, якими вони були збережені.
+
+    Parameters:
+    - **archive_filename**: Ім'я файлу архіву.
+
+    Returns:
+    - Деталі архіву та відновлений HTML.
     """
     try:
         # Construct archive path
@@ -198,9 +234,14 @@ async def get_locked_months(
     current_user=Depends(require_department_head),
 ):
     """
-    Отримати список заблокованих місяців.
+    Отримати список закритих (заблокованих) місяців.
 
-    Місяць автоматично блокується першого числа наступного місяця.
+    Місяць вважається закритим, якщо він був поданий на затвердження
+    або автоматично закрився системою (налаштовується).
+    У закритих місяцях заборонено пряме редагування відвідуваності.
+
+    Returns:
+    - Список об'єктів {month, year, is_locked, approved_by}.
     """
     service = TabelApprovalService(db)
     locked_months = service.get_locked_months()
@@ -213,9 +254,13 @@ async def get_correction_months(
     current_user=Depends(require_department_head),
 ):
     """
-    Отримати список місяців з корегуючими табелями.
+    Отримати доступні періоди корегування.
 
-    Максимум 4 вкладки корегування (найновіші спочатку).
+    Повертає список місяців, для яких існують або відкриті сесії корегування.
+    Зазвичай показує останні активні коригування.
+
+    Returns:
+    - Список періодів.
     """
     service = TabelApprovalService(db)
     corrections = service.get_correction_months()
@@ -240,8 +285,13 @@ async def approve_tabel(
     current_user=Depends(require_department_head),
 ):
     """
-    Підтвердити погодження табеля з кадровою службою.
-    Табель можна погодити лише один раз.
+    Затвердити табель (фінальний підпис).
+
+    Ставить відмітку про перевірку табеля кадровою службою.
+    Після цього табель готовий до друку та архівування.
+
+    Returns:
+    - Статус операції.
     """
     service = TabelApprovalService(db)
 
@@ -275,7 +325,11 @@ async def get_tabel_status(
     current_user=Depends(require_department_head),
 ):
     """
-    Отримати статус табеля (заблоковано, погоджено, тощо).
+    Перевірити статус табеля.
+
+    Повертає інформацію про стан місяця:
+    - is_locked: чи закритий для редагування.
+    - should_show_warning: чи потрібно попередити користувача про щось (наприклад, незаповнені дні).
     """
     service = TabelApprovalService(db)
 

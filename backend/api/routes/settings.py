@@ -13,6 +13,9 @@ async def get_settings(
 ):
     """
     Отримати поточні налаштування користувача.
+
+    Повертає об'єкт з налаштуваннями інтерфейсу та сповіщень.
+    Зазвичай викликається при завантаженні додатку.
     """
     return {
         "notifications": {
@@ -30,6 +33,8 @@ async def update_settings(
     current_user: get_current_user = Depends(get_current_user),
 ):
     """
-    Оновити налаштування.
+    Зберегти нові налаштування.
+
+    Оновлює параметри користувача (тема, сповіщення).
     """
     return {"message": "Settings updated", "settings": settings_data}

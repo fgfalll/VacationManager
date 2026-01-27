@@ -90,12 +90,22 @@ def authenticate_user(username: str, password: str) -> dict | None:
 @router.post("/login", response_model=Token)
 async def login(login_data: UserLogin):
     """
-    Автентифікація користувача та отримання токенів.
+    Автентифікація користувача та видача токенів (Login).
 
-    Перевіряє ім'я користувача та пароль.
-    Повертає пару JWT токенів:
-    - **access_token**: короткоживучий токен для доступу до API.
-    - **refresh_token**: довгоживучий токен для оновлення access token.
+    Перевіряє ім'я користувача та пароль. У разі успіху видає пару JWT токенів.
+    Access token використовується для авторизації запитів (header `Authorization: Bearer <token>`).
+    Refresh token використовується для отримання нових access token, коли старий спливає.
+
+    Parameters:
+    - **login_data** (UserLogin): JSON з `username` та `password`.
+
+    Returns:
+    - **access_token** (str): Токен доступу (короткоживучий).
+    - **refresh_token** (str): Токен оновлення (довгоживучий).
+    - **token_type** (str): завжди "bearer".
+
+    Errors:
+    - **401 Unauthorized**: Невірний логін або пароль.
     """
     user = authenticate_user(login_data.username, login_data.password)
     if not user:
@@ -132,7 +142,19 @@ async def login(login_data: UserLogin):
 @router.post("/refresh", response_model=Token)
 async def refresh_token(request: RefreshTokenRequest):
     """
-    Оновлює access token за допомогою refresh token.
+    Оновити Access Token (Refresh Token Exchange).
+
+    Використовує валідний Refresh Token для отримання нової пари токенів.
+    Це дозволяє користувачу залишатися залогіненим без повторного введення пароля.
+
+    Parameters:
+    - **request** (RefreshTokenRequest): JSON з `refresh_token`.
+
+    Returns:
+    - Нова пара access_token та refresh_token.
+
+    Errors:
+    - **401 Unauthorized**: Якщо refresh token невірний, прострочений або користувач заблокований.
     """
     token_data = decode_token(request.refresh_token)
     if token_data is None:
@@ -188,7 +210,13 @@ async def refresh_token(request: RefreshTokenRequest):
 @router.post("/logout", response_model=MessageResponse)
 async def logout():
     """
-    Вихід користувача.
+    Вихід із системи (Logout).
+
+    Наразі це "stateless" вихід - клієнт просто видаляє токени.
+    У майбутньому тут можна додати логіку інвалідації токенів (blacklist).
+
+    Returns:
+    - Повідомлення про успішний вихід.
     """
     return {"message": "Successfully logged out"}
 
@@ -196,7 +224,10 @@ async def logout():
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: TokenData = Depends(get_current_user)):
     """
-    Повертає інформацію про поточного автентифікованого користувача.
+    Отримати інформацію про поточного користувача.
+
+    Повертає профіль користувача, витягнутий з токена авторизації.
+    Використовується фронтендом для відображення імені та прав доступу.
     """
     user = get_user_by_username(current_user.username or "")
     if not user:
@@ -223,8 +254,15 @@ async def get_current_user_info(current_user: TokenData = Depends(get_current_us
 async def register(user_data: UserCreate):
     """
     Реєстрація нового користувача в системі.
-    
+
     Створює обліковий запис, який може бути прив'язаний до існуючого співробітника (staff_id).
+    За замовчуванням новий користувач активний.
+
+    Parameters:
+    - **user_data** (UserCreate): Дані нового користувача.
+
+    Errors:
+    - **400 Bad Request**: Якщо username вже зайнятий.
     """
     if get_user_by_username(user_data.username):
         raise HTTPException(
@@ -267,6 +305,16 @@ async def change_password(
 ):
     """
     Зміна пароля користувача.
+
+    Дозволяє авторизованому користувачу змінити свій пароль.
+    Вимагає введення старого пароля для підтвердження.
+
+    Parameters:
+    - **old_password**: Поточний пароль.
+    - **new_password**: Новий пароль.
+    
+    Errors:
+    - **400 Bad Request**: Якщо старий пароль невірний.
     """
     username = current_user.username
     user = get_user_by_username(username)

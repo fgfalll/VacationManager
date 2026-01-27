@@ -31,13 +31,23 @@ async def list_staff(
     current_user: get_current_user = Depends(require_employee),
 ):
     """
-    Отримати список співробітників.
+    Отримати список співробітників з пагінацією та фільтрацією.
 
-    Підтримує пагінацію та фільтрацію:
-    - **is_active**: Тільки активні/неактивні.
-    - **employment_type**: За типом працевлаштування (main/external/internal).
-    - **search**: Пошук за ПІБ.
-    - **filter**: Спеціальні фільтри (expiring contracts).
+    Дозволяє отримати список всіх співробітників компанії з можливістю фільтрації за статусом, типом працевлаштування та пошуком.
+
+    Parameters:
+    - **skip** (int): Кількість записів для пропуску (для пагінації).
+    - **limit** (int): Максимальна кількість записів на сторінці.
+    - **is_active** (bool, optional): Фільтр за активністю (True - активні, False - звільнені).
+    - **employment_type** (str, optional): Фільтр за типом працевлаштування (main/external/internal).
+    - **search** (str, optional): Пошуковий рядок (пошук за ПІБ).
+    - **filter** (str, optional): Спеціальні фільтри (наприклад, 'expiring' для контрактів, що закінчуються).
+
+    Returns:
+    - **items**: Список об'єктів StaffResponse.
+    - **total**: Загальна кількість записів, що відповідають фільтрам.
+    - **page**: Номер поточної сторінки.
+    - **page_size**: Розмір сторінки.
     """
     query = db.query(Staff)
 
@@ -84,7 +94,19 @@ async def get_staff(
     current_user: get_current_user = Depends(require_department_head),
 ):
     """
-    Отримати дані співробітника за ID.
+    Отримати детальні дані співробітника за його ID.
+
+    Повертає повну картку співробітника, включаючи інформацію про статус контракту та додаткові
+    обчислювані поля для фронтенду.
+
+    Parameters:
+    - **staff_id** (int): Унікальний ідентифікатор співробітника.
+
+    Returns:
+    - Об'єкт StaffResponse з повною інформацією.
+
+    Errors:
+    - **404 Not Found**: Якщо співробітника з таким ID не знайдено.
     """
     staff = db.query(Staff).filter(Staff.id == staff_id).first()
     if not staff:
@@ -114,9 +136,19 @@ async def create_staff(
 ):
     """
     Створити нового співробітника.
-    
-    Створює новий запис в таблиці staff, логує дію в історії змін.
-    ПІБ має бути унікальним.
+
+    Додає новий запис до бази даних співробітників.
+    Автоматично перевіряє унікальність ПІБ.
+    Записує дію створення в історію змін.
+
+    Parameters:
+    - **staff_data** (StaffCreate): Дані нового співробітника (ПІБ, посада, ставка, дати та ін.).
+
+    Returns:
+    - Об'єкт StaffResponse створеного співробітника.
+
+    Errors:
+    - **400 Bad Request**: Якщо співробітник з таким ПІБ вже існує.
     """
     # Перевірка на унікальність ПІБ
     existing = db.query(Staff).filter(Staff.pib_nom == staff_data.pib_nom).first()
@@ -142,7 +174,20 @@ async def update_staff(
     current_user: get_current_user = Depends(require_department_head),
 ):
     """
-    Оновити дані співробітника.
+    Оновити дані існуючого співробітника.
+
+    Оновлює поля профілю співробітника.
+    Записує всі зміни (старе та нове значення) в історію змін (audit info).
+
+    Parameters:
+    - **staff_id** (int): ID співробітника.
+    - **staff_data** (StaffUpdate): Поля для оновлення.
+
+    Returns:
+    - Оновлений об'єкт StaffResponse.
+
+    Errors:
+    - **404 Not Found**: Якщо співробітника не знайдено.
     """
     staff = db.query(Staff).filter(Staff.id == staff_id).first()
     if not staff:
@@ -168,7 +213,17 @@ async def delete_staff(
     current_user: get_current_user = Depends(require_admin),
 ):
     """
-    Видалити співробітника (soft delete).
+    Деактивувати (видалити) співробітника.
+
+    Виконує "м'яке видалення" (soft delete): встановлює прапорець `is_active=False`
+    та записує дату звільнення. Фізично запис з бази не видаляється для
+    збереження історії та цілісності даних документів.
+
+    Parameters:
+    - **staff_id** (int): ID співробітника.
+
+    Errors:
+    - **404 Not Found**: Якщо співробітника не знайдено.
     """
     staff = db.query(Staff).filter(Staff.id == staff_id).first()
     if not staff:
@@ -192,6 +247,15 @@ async def get_staff_with_expiring_contracts(
 ):
     """
     Отримати список співробітників з контрактами, що закінчуються.
+
+    Повертає список активних співробітників, у яких дата закінчення контракту (`term_end`)
+    припадає на найближчі N днів.
+
+    Parameters:
+    - **days** (int): Кількість днів для перевірки (за замовчуванням 30).
+
+    Returns:
+    - Список співробітників з додатковими полями для UI.
     """
     deadline = date.today() + timedelta(days=days)
 
@@ -231,7 +295,16 @@ async def search_staff(
     current_user: get_current_user = Depends(require_department_head),
 ):
     """
-    Пошук співробітників за іменем або позицією.
+    Швидкий пошук співробітників (для автодоповнення).
+
+    Шукає активних співробітників за входженням рядка в ПІБ або назву посади.
+    Повертає обмежений список результатів (до 20 записів) у спрощеному форматі.
+
+    Parameters:
+    - **q** (str): Рядок пошуку.
+
+    Returns:
+    - Список скорочених об'єктів співробітників.
     """
     query = db.query(Staff).filter(
         Staff.is_active == True,
@@ -258,7 +331,16 @@ async def get_staff_documents(
     current_user: get_current_user = Depends(require_employee),
 ):
     """
-    Отримати документи співробітника.
+    Отримати історію документів співробітника.
+
+    Повертає список всіх документів, пов'язаних з цим співробітником,
+    відсортований за датою створення (нові спочатку).
+
+    Parameters:
+    - **staff_id** (int): ID співробітника.
+
+    Returns:
+    - Список документів з адаптованими для фронтенду полями.
     """
     from backend.schemas.document import DocumentResponse
 
@@ -291,7 +373,16 @@ async def get_staff_schedule(
     current_user: get_current_user = Depends(require_employee),
 ):
     """
-    Отримати графік відпусток співробітника.
+    Отримати графік відпусток конкретного співробітника.
+
+    Повертає всі заплановані періоди відпусток з річного графіку для цього співробітника.
+    Сортування за роком та датою початку.
+
+    Parameters:
+    - **staff_id** (int): ID співробітника.
+
+    Returns:
+    - Список записів графіку відпусток.
     """
     from backend.schemas.schedule import ScheduleEntryResponse
 
@@ -311,7 +402,15 @@ async def get_staff_attendance(
     current_user: get_current_user = Depends(require_employee),
 ):
     """
-    Отримати відвідуваність співробітника.
+    Отримати історію відвідуваності та відсутностей співробітника.
+
+    Повертає записи табеля (робочі дні, відпустки, лікарняні) для співробітника.
+
+    Parameters:
+    - **staff_id** (int): ID співробітника.
+
+    Returns:
+    - Список записів відвідуваності (Attendance).
     """
     attendance_records = db.query(Attendance).filter(
         Attendance.staff_id == staff_id
@@ -343,7 +442,15 @@ async def get_staff_history(
     current_user: get_current_user = Depends(require_department_head),
 ):
     """
-    Отримати історію змін співробітника.
+    Отримати повний журнал змін (audit log) по співробітнику.
+
+    Показує хто, коли і які зміни вносив у картку співробітника.
+
+    Parameters:
+    - **staff_id** (int): ID співробітника.
+
+    Returns:
+    - Список записів історії змін.
     """
     from backend.models.staff_history import StaffHistory
 

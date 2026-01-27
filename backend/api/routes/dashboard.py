@@ -20,10 +20,13 @@ async def get_dashboard_stats(
     current_user=Depends(get_current_user),
 ):
     """
-    Отримати статистику для dashboard.
+    Отримати загальну статистику (KPIs).
 
-    Returns:
-        dict: Статистика з кількістю працівників, документів та відпусток
+    Повертає ключові показники для віджетів на головній:
+    - Загальна кількість співробітників.
+    - Активні співробітники.
+    - Документи в роботі (pending).
+    - Найближчі відпустки (upcoming info).
     """
     today = date.today()
 
@@ -46,9 +49,16 @@ async def get_dashboard_stats(
         Document.status.in_(pending_statuses)
     ).scalar() or 0)
 
-    # Upcoming vacations - check if doc_type starts with VACATION
+    # Upcoming vacations - filter by explicit vacation types
+    vacation_types = [
+        "vacation_paid", "vacation_unpaid", "vacation_main", "vacation_additional",
+        "vacation_chornobyl", "vacation_creative", "vacation_study", "vacation_children",
+        "vacation_maternity", "vacation_childcare", "vacation_unpaid_study",
+        "vacation_unpaid_mandatory", "vacation_unpaid_agreement", "vacation_unpaid_other"
+    ]
+    
     upcoming_vacations = int(db.query(func.count(Document.id)).filter(
-        Document.doc_type.startswith('VACATION'),
+        Document.doc_type.in_(vacation_types),
         Document.date_start >= today,
         Document.status.in_([DocumentStatus.AGREED, DocumentStatus.SIGNED_RECTOR])
     ).scalar() or 0)
@@ -67,10 +77,11 @@ async def get_today_documents(
     current_user=Depends(get_current_user),
 ):
     """
-    Отримати кількість документів, створених сьогодні.
+    Отримати активність за сьогодні.
 
-    Returns:
-        dict: Кількість документів за статусами (draft, pending)
+    Повертає лічильники створених сьогодні документів
+    (в статусах draft та pending).
+    Показує продуктивність за день.
     """
     today = date.today()
     today_start = today
@@ -104,13 +115,13 @@ async def get_expiring_contracts(
     days: int = 30,
 ):
     """
-    Отримати кількість контрактів, що скоро закінчуються.
+    Моніторинг закінчення контрактів.
 
-    Args:
-        days: Кількість днів для перевірки (за замовчуванням 30)
+    Повертає кількість співробітників, у яких закінчується термін дії договору
+    протягом вказаного періоду (days).
 
-    Returns:
-        dict: Кількість працівників з контрактами, що закінчуються
+    Parameters:
+    - **days**: Поріг попередження (днів).
     """
     today = date.today()
     future_date = today + timedelta(days=days)

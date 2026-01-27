@@ -16,6 +16,7 @@ from backend.services.validation_service import ValidationService
 setup_logging()
 
 
+@lru_cache
 def get_grammar_service() -> GrammarService:
     """
     Dependency для GrammarService.

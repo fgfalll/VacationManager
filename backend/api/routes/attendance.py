@@ -27,10 +27,19 @@ async def list_all_attendance(
     current_user = Depends(require_department_head),
 ):
     """
-    Отримати всі записи відвідуваності з пагінацією та фільтрацією.
+    Отримати список всіх записів відвідуваності.
 
-    Показує всі записи з інформацією про те, чи знаходяться вони в основному
-    табелі або в коригувальному табелі.
+    Універсальний пошук по всій історії відвідуваності.
+    Включає як основні записи, так і корегуючі.
+
+    Parameters:
+    - **skip/limit**: Пагінація.
+    - **staff_id**: Фільтр по співробітнику.
+    - **year/month**: Фільтр по періоду (рік/місяць).
+    - **is_correction**: Фільтрувати тільки корекції (True) або тільки основні (False).
+
+    Returns:
+    - Список записів з детальною інформацією про тип табеля.
     """
     query = db.query(Attendance)
 
@@ -100,7 +109,17 @@ async def get_daily_attendance(
     current_user = Depends(require_department_head),
 ):
     """
-    Отримати відвідуваність за день.
+    Отримати відвідуваність за конкретний день для всіх співробітників.
+
+    Використовується для денного зрізу ("хто сьогодні на роботі").
+    Дозволяє фільтрувати по департаменту.
+
+    Parameters:
+    - **date**: Дата у форматі YYYY-MM-DD.
+    - **department**: Назва відділу (опціонально).
+
+    Returns:
+    - Список записів та статистика за день (присутні, відсутні, спізнилися).
     """
     query = db.query(Attendance).filter(
         func.date(Attendance.date) == date
@@ -162,7 +181,20 @@ async def create_attendance(
     current_user = Depends(require_department_head),
 ):
     """
-    Створити запис відвідуваності.
+    Створити запис відвідуваності вручну.
+
+    Додає запис (явка, відпустка, лікарняний) для співробітника.
+    Автоматично перевіряє, чи не заблокований місяць.
+    Якщо місяць заблокований - створює запис як **корекцію** (is_correction=True).
+
+    Parameters:
+    - **staff_id**: ID співробітника.
+    - **date**: Дата запису.
+    - **code**: Код відвідуваності (Р, В, Л, тощо).
+    - **notes**: Коментар.
+
+    Returns:
+    - Створений запис.
     """
     from datetime import date as date_type
 
@@ -214,7 +246,18 @@ async def update_attendance(
     current_user = Depends(require_department_head),
 ):
     """
-    Оновити запис відвідуваності.
+    Оновити існуючий запис відвідуваності.
+
+    Змінює код або нотатки запису.
+    Блокується, якщо запис має прапорець `is_blocked` або місяць закритий.
+
+    Parameters:
+    - **attendance_id**: ID запису.
+    - **code**: Новий код.
+    - **notes**: Новий коментар.
+
+    Errors:
+    - **400 Bad Request**: Якщо запис заблокований для редагування (місяць закрито).
     """
     attendance = db.query(Attendance).filter(
         Attendance.id == attendance_id
@@ -261,6 +304,12 @@ async def delete_attendance(
 ):
     """
     Видалити запис відвідуваності.
+
+    Видаляє запис з бази даних.
+    Неможливо видалити заблоковані записи (з закритих місяців).
+
+    Errors:
+    - **400 Bad Request**: Якщо запис заблокований.
     """
     attendance = db.query(Attendance).filter(
         Attendance.id == attendance_id
@@ -297,7 +346,15 @@ async def submit_correction(
     current_user = Depends(require_department_head),
 ):
     """
-    Подати запит на виправлення відвідуваності.
+    Подати запит на виправлення (корекцію) відвідуваності.
+
+    Спеціальний метод для зміни запису в закритому періоді.
+    Створює корегуючий запис, пов'язаний з поточним відкритим періодом корегування.
+
+    Parameters:
+    - **attendance_id**: ID запису, який виправляємо.
+    - **new_code**: Правильний код.
+    - **reason**: Причина виправлення (обов'язково).
     """
     attendance = db.query(Attendance).filter(
         Attendance.id == attendance_id
@@ -325,7 +382,14 @@ async def submit_tabel(
     current_user = Depends(require_department_head),
 ):
     """
-    Подати табель на затвердження (позначаємо місяць як поданий).
+    Подати табель на затвердження (Lock Month).
+
+    Фіксує табель за місяць як "поданий".
+    Всі записи стають недоступними для вільного редагування (is_correction=False).
+    Подальші зміни можливі тільки через механізм корекцій.
+
+    Parameters:
+    - **year/month**: Період для закриття.
     """
     # Update all attendance records for the month to be non-correctable
     records = db.query(Attendance).filter(
@@ -349,7 +413,9 @@ async def approve_tabel(
     current_user = Depends(require_department_head),
 ):
     """
-    Затвердити табель.
+    Фінально затвердити табель (Approve).
+    
+    Підтвердження керівником або кадровиком правильності табеля.
     """
     return {"message": f"Табель за {month}/{year} затверджено", "approved_by": current_user.user_id}
 
@@ -362,7 +428,9 @@ async def get_tabel(
     current_user = Depends(require_department_head),
 ):
     """
-    Отримати табель за місяць.
+    Отримати зведену інформацію табеля за місяць.
+
+    Повертає структуру для відображення сітки табеля.
     """
     records = db.query(Attendance).filter(
         func.extract("year", Attendance.date) == year,
