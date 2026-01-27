@@ -17,6 +17,7 @@ from backend.models.schedule import AnnualSchedule
 from backend.models.settings import SystemSettings, Approvers
 from backend.models.staff_history import StaffHistory
 from backend.models.tabel_approval import TabelApproval
+from backend.models.telegram_link_request import TelegramLinkRequest, LinkRequestStatus
 
 __all__ = [
     "Base",
@@ -36,4 +37,7 @@ __all__ = [
     "Approvers",
     "StaffHistory",
     "TabelApproval",
+    "TelegramLinkRequest",
+    "LinkRequestStatus",
 ]
+

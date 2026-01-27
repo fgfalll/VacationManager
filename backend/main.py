@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 
-from backend.api.routes import documents, schedule, staff, upload, auth, attendance, settings as settings_routes, tabel, dashboard, bulk
+from backend.api.routes import documents, schedule, staff, auth, attendance, settings as settings_routes, tabel, dashboard, bulk, telegram
 from backend.api.dependencies import DBSession
 from backend.core.config import get_settings
 from backend.core.logging import setup_logging
@@ -26,7 +26,7 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Startup/shutdown events."""
     setup_logging()
-    
+
     # Start background task for stale document monitoring
     import asyncio
     from backend.api.dependencies import get_db
@@ -39,8 +39,8 @@ async def lifespan(app: FastAPI):
         """Periodically check for stale documents."""
         logging.info("Starting stale document monitor loop")
         # Initial wait to let server start up
-        await asyncio.sleep(60) 
-        
+        await asyncio.sleep(60)
+
         while not stop_event.is_set():
             try:
                 logging.info("Running stale document check...")
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
                     db.close()
             except Exception as e:
                 logging.error(f"Error in stale document monitor: {e}")
-            
+
             # Check every 24 hours (86400 seconds)
             # For testing/demo purposes, we can check more frequently or use config
             # But requirement says "notifications when status unchanged for > 1 day"
@@ -67,8 +67,38 @@ async def lifespan(app: FastAPI):
 
     monitor_task = asyncio.create_task(stale_monitor_loop())
 
+    # Setup Telegram bot webhook if enabled
+    if settings.telegram_enabled:
+        try:
+            from backend.telegram.bot import bot, dp
+            from backend.telegram.handlers import register_command_handlers, register_callback_handlers
+            from backend.telegram.handlers.messages import register_message_handlers
+
+            if bot is None:
+                logging.warning("Telegram bot enabled but no token configured")
+            else:
+                # Register handlers
+                register_command_handlers(dp)
+                register_callback_handlers(dp)
+                register_message_handlers(dp)
+
+                # Set webhook if URL is configured AND we're in webhook mode
+                # VM_TELEGRAM_WEBHOOK_MODE is set by run.py --telegram-webhook
+                import os
+                webhook_mode = os.getenv("VM_TELEGRAM_WEBHOOK_MODE", "false").lower() == "true"
+                if settings.telegram_webhook_url and webhook_mode:
+                    await bot.set_webhook(settings.telegram_webhook_url)
+                    logging.info(f"Telegram webhook set to: {settings.telegram_webhook_url}")
+                elif settings.telegram_webhook_url and not webhook_mode:
+                    logging.info("Telegram webhook URL configured but not in webhook mode (use --telegram-webhook)")
+                else:
+                    logging.info("Telegram bot enabled but webhook URL not configured")
+
+        except Exception as e:
+            logging.error(f"Failed to setup Telegram bot: {e}")
+
     yield
-    
+
     # Cleanup
     stop_event.set()
     monitor_task.cancel()
@@ -78,29 +108,42 @@ async def lifespan(app: FastAPI):
         pass
     logging.info("Stale document monitor stopped")
 
+    # Delete Telegram webhook on shutdown
+    if settings.telegram_enabled:
+        try:
+            from backend.telegram.bot import bot
+            if bot is not None:
+                await bot.delete_webhook()
+                logging.info("Telegram webhook deleted")
+        except Exception as e:
+            logging.error(f"Failed to delete Telegram webhook: {e}")
+
 
 app = FastAPI(
     title="VacationManager API",
     description="""
     API для системи управління відпустками та кадрами.
     
-    ## Основні можливості:
+    ## Основні можливості
     
-    * **Документи**: Створення, погодження та архівування кадрових документів.
-    * **Співробітники**: Управління базою співробітників, їх контрактами та ставками.
-    * **Графік відпусток**: Планування та моніторинг щорічних відпусток.
-    * **Табель**: Облік робочого часу та формування табелів.
-    * **Статистика**: Дашборди та звіти.
+    * **Документи**: Повний цикл документообігу - від створення заяви до архівування.
+    * **Співробітники**: Ведення кадрового обліку, сумісництво, історія змін.
+    * **Графік відпусток**: Планування, автоматичний розподіл та контроль використання відпусток.
+    * **Табель**: Автоматизоване формування, корегування та затвердження табелів обліку робочого часу.
+    * **Статистика**: Аналітичні дашборди для керівників та співробітників.
+    * **Інтеграція**: WebSocket сповіщення, завантаження сканів, друк документів.
     
-    ## Авторизація:
+    ## Авторизація
     
-    Для доступу до більшості ендпоінтів потрібна авторизація через Bearer token.
-    Використовуйте ендпоінт `/api/auth/login` для отримання токена.
+    API використовує JWT (Bearer token) авторизацію.
+    1. Отримайте токен через `/api/auth/login`.
+    2. Додавайте заголовок `Authorization: Bearer <token>` до кожного запиту.
     """,
-    version="7.0.1",
+    version="7.0.2",
     contact={
-        "name": "Support Team",
+        "name": "VacationManager Support",
         "email": "support@vacationmanager.local",
+        "url": "http://localhost:8000/support",
     },
     lifespan=lifespan,
 )
@@ -117,8 +160,12 @@ app.add_middleware(
 # Static files and templates
 static_dir = Path(__file__).parent.parent / "backend" / "static"
 templates_dir = Path(__file__).parent.parent / "backend" / "templates"
+telegram_mini_app_dir = Path(__file__).parent.parent / "telegram-mini-app" / "dist"
 
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+# Mount Telegram Mini App if built
+if telegram_mini_app_dir.exists():
+    app.mount("/mini", StaticFiles(directory=str(telegram_mini_app_dir), html=True), name="mini_app")
 templates = Jinja2Templates(directory=str(templates_dir))
 
 # Routes
@@ -128,10 +175,11 @@ app.include_router(documents.router, prefix="/api")
 app.include_router(schedule.router, prefix="/api")
 app.include_router(attendance.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
-app.include_router(upload.router, prefix="/api")
+
 app.include_router(tabel.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(bulk.router, prefix="/api")
+app.include_router(telegram.router, prefix="/api/telegram", tags=["telegram"])
 
 
 

@@ -791,11 +791,10 @@ class DocumentService:
 
             # Створюємо запис у attendance з кодом відпустки для корекції
             self._create_correction_attendance(document, correction_sequence)
-        else:
-            # Якщо місяць не затверджено, додаємо до основного табелю
-            self.set_tabel_added(document, comment="Автоматично додано після підпису ректора")
+        # Note: Do NOT auto-add to tabel here - user must upload scan first,
+        # then document will be processed and added to tabel separately
 
-        # Оновлюємо статус (має стати PROCESSED)
+        # Оновлюємо статус (має стати SIGNED_RECTOR, НЕ PROCESSED)
         document.update_status_from_workflow()
         self.db.commit()
 

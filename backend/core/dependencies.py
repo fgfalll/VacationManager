@@ -31,6 +31,18 @@ async def get_current_user(
     Raises:
         HTTPException: Якщо токен недійсний
     """
+    import os
+    
+    # Development mode bypass for Mini App browser testing
+    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
+    if dev_mode and token == "dev_token_for_testing":
+        # Return a mock admin user for development
+        return TokenData(
+            user_id=1,
+            username="dev_user",
+            role=UserRole.ADMIN.value
+        )
+    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

@@ -191,6 +191,12 @@ class Document(Base, TimestampMixin):
         nullable=True,
         comment="Пояснення затримки документа (для застарілих документів)",
     )
+    stale_lock_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        comment="Кількість циклів застарілості (скільки разів документ ставав stale)",
+    )
 
     # Employment document fields - for storing new employee data before creation
     new_employee_data: Mapped[dict | None] = mapped_column(
@@ -264,10 +270,18 @@ class Document(Base, TimestampMixin):
         # 1. PROCESSED: Якщо додано до табелю АБО до корегуючого табелю
         if progress["tabel"]["completed"] or is_in_correction:
             self.status = DocumentStatus.PROCESSED
+            # Automatically block processed documents
+            if not self.is_blocked:
+                self.is_blocked = True
+                self.blocked_reason = "Документ оброблено та додано до табелю. Редагування заблоковано."
 
         # 2. SCANNED: Якщо є скан і підпис ректора (але ще не в табелі)
         elif progress["rector"]["completed"] and progress["scanned"]["completed"]:
              self.status = DocumentStatus.SCANNED
+             # Automatically block scanned documents (if not already blocked by scan upload)
+             if not self.is_blocked:
+                 self.is_blocked = True
+                 self.blocked_reason = "Документ відскановано. Редагування заблоковано."
 
         # 3. SIGNED_RECTOR: Якщо підписано ректором (але ще не скан)
         elif progress["rector"]["completed"]:

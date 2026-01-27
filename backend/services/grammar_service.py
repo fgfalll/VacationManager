@@ -39,10 +39,22 @@ class GrammarService:
         "Анна ЛЯШЕНКО"
     """
 
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(GrammarService, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self) -> None:
         """Ініціалізує морфологічний аналізатор для української мови."""
+        if self._initialized:
+            return
+            
         try:
             self.morph = pymorphy3.MorphAnalyzer(lang="uk")
+            self._initialized = True
         except Exception as e:
             raise GrammarError(f"Не вдалося ініціалізувати морфологічний аналізатор: {e}") from e
 

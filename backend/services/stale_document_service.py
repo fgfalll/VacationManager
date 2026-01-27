@@ -37,14 +37,14 @@ class StaleDocumentService:
         
         A document is stale if:
         - It's not in a terminal status (PROCESSED)
-        - status_changed_at is older than STALE_THRESHOLD_DAYS
-        - No explanation has been provided
+        - status_changed_at (or updated_at) is older than STALE_THRESHOLD_DAYS
         """
         if doc.status == DocumentStatus.PROCESSED:
             return False
 
-        if doc.stale_explanation:
-            return False
+        # NOTE: WE DO NOT check for existing explanation here anymore.
+        # If the document hasn't been updated for X days even after explanation,
+        # it becomes stale again. The 'updated_at' reset on resolution handles the grace period.
 
         if not doc.status_changed_at:
             # Use updated_at as fallback
@@ -71,7 +71,7 @@ class StaleDocumentService:
         # Query documents in monitored statuses
         query = db.query(Document).filter(
             Document.status.in_(cls.MONITORED_STATUSES),
-            Document.stale_explanation.is_(None),  # No explanation yet
+            # We don't filter by explanation IS NULL anymore.
         )
 
         # Filter by status_changed_at or updated_at
@@ -92,7 +92,6 @@ class StaleDocumentService:
         return db.query(Document).filter(
             Document.status.in_(cls.MONITORED_STATUSES),
             Document.stale_notification_count >= cls.MAX_NOTIFICATIONS,
-            Document.stale_explanation.is_(None),
         ).all()
 
     @classmethod
@@ -107,8 +106,11 @@ class StaleDocumentService:
         requires_action = []
 
         for doc in stale_docs:
-            doc.stale_notification_count += 1
-
+            # Only increment if below MAX to prevent runaway counts (e.g. 10/3)
+            if doc.stale_notification_count < cls.MAX_NOTIFICATIONS:
+                doc.stale_notification_count += 1
+            
+            # If it reached MAX (or was already there), it requires action
             if doc.stale_notification_count >= cls.MAX_NOTIFICATIONS:
                 requires_action.append({
                     "id": doc.id,
@@ -116,6 +118,7 @@ class StaleDocumentService:
                     "doc_type": doc.doc_type.value if doc.doc_type else None,
                     "status": doc.status.value if doc.status else None,
                     "notification_count": doc.stale_notification_count,
+                    "stale_lock_count": doc.stale_lock_count,
                 })
             else:
                 notified.append({
@@ -145,15 +148,6 @@ class StaleDocumentService:
     ) -> dict:
         """
         Resolve a stale document by providing explanation or removing it.
-        
-        Args:
-            db: Database session
-            document_id: ID of the document
-            action: "explain" to provide explanation, "remove" to delete
-            explanation: Required if action is "explain"
-            
-        Returns:
-            Result dict with success status and message
         """
         doc = db.query(Document).filter(Document.id == document_id).first()
         
@@ -172,8 +166,17 @@ class StaleDocumentService:
                     "document_id": document_id,
                 }
             
+            # Calculate lock count increment
+            # If we are explaining a document that has fully timed out (>= MAX), we consider it a cycle.
+            if doc.stale_notification_count >= cls.MAX_NOTIFICATIONS:
+                doc.stale_lock_count += 1
+
             doc.stale_explanation = explanation.strip()
             doc.stale_notification_count = 0  # Reset counter
+            
+            # Explicitly touch updated_at to reset the stale timer
+            doc.updated_at = datetime.now()
+            
             db.commit()
             
             return {
@@ -233,6 +236,7 @@ class StaleDocumentService:
             "status": doc.status.value if doc.status else None,
             "days_stale": days_stale,
             "notification_count": doc.stale_notification_count,
+            "stale_lock_count": doc.stale_lock_count,
             "stale_explanation": doc.stale_explanation,
             "status_changed_at": doc.status_changed_at.isoformat() if doc.status_changed_at else None,
         }

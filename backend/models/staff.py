@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Enum as SQLEnum, Numeric, String
+from sqlalchemy import Boolean, Enum as SQLEnum, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from backend.models.document import Document
     from backend.models.schedule import AnnualSchedule
     from backend.models.staff_history import StaffHistory
+    from backend.models.telegram_link_request import TelegramLinkRequest
 
 
 class WorkScheduleType(str, Enum):
@@ -74,6 +75,25 @@ class Staff(Base, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # Telegram integration fields
+    telegram_user_id: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,
+        unique=True,
+        comment="Telegram user ID для Mini App автентифікації",
+    )
+    telegram_username: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Telegram username (без @)",
+    )
+    telegram_permissions: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="JSON список прав: view_documents, sign_documents, view_stale, manage_stale",
+    )
+
     # Relationships
     documents: Mapped[list["Document"]] = relationship(
         back_populates="staff",
@@ -95,6 +115,9 @@ class Staff(Base, TimestampMixin):
         back_populates="staff",
         cascade="all, delete-orphan",
         order_by="Attendance.date",
+    )
+    telegram_link_requests: Mapped[list["TelegramLinkRequest"]] = relationship(
+        back_populates="staff",
     )
 
     @property

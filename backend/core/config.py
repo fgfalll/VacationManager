@@ -81,6 +81,24 @@ class Settings(BaseSettings):
         description="За скільки днів попереджати про закінчення контракту",
     )
 
+    # TELEGRAM
+    telegram_bot_token: str = Field(
+        default="",
+        description="Telegram bot token для Mini App",
+    )
+    telegram_webhook_url: str = Field(
+        default="",
+        description="Webhook URL для Telegram бота",
+    )
+    telegram_enabled: bool = Field(
+        default=False,
+        description="Увімкнути Telegram бота",
+    )
+    telegram_mini_app_url: str = Field(
+        default="",
+        description="URL Mini App для відкриття в Telegram",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

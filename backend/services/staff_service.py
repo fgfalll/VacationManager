@@ -444,6 +444,7 @@ class StaffService:
             document.staff_id = staff.id
             document.new_employee_data = None  # Clear staged data
             document.status = DocumentStatus.PROCESSED
+            document.is_blocked = True
             document.blocked_reason = "Документ оброблено - створено запис співробітника"
             
             self.db.commit()

@@ -1,7 +1,7 @@
 """Налаштування бази даних та сесій SQLAlchemy."""
 
-from contextlib import contextmanager
-from typing import Generator
+from contextlib import contextmanager, asynccontextmanager
+from typing import Generator, AsyncGenerator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -46,6 +46,46 @@ def get_db_context() -> Generator[Session, None, None]:
     Example:
         with get_db_context() as db:
             staff = db.query(Staff).first()
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+class AsyncDBContext:
+    """Async context manager wrapper for synchronous database session."""
+
+    def __init__(self):
+        self.db = None
+
+    async def __aenter__(self):
+        self.db = SessionLocal()
+        return self.db
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.db.rollback()
+        else:
+            self.db.commit()
+        self.db.close()
+        return False
+
+
+async def get_db_session() -> AsyncGenerator[Session, None]:
+    """
+    Async generator для отримання сесії бази даних.
+
+    Для використання в Telegram bot handlers.
+
+    Usage:
+        async for db in get_db_session():
+            result = db.execute(select(Staff).first())
     """
     db = SessionLocal()
     try:

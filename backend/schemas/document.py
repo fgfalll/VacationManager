@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from .staff import StaffResponse
 
 from shared.enums import DocumentStatus, DocumentType
 
@@ -82,6 +83,7 @@ class DocumentResponse(DocumentBase):
     # Вкладений об'єкт співробітника
     staff_name: str | None = None
     staff_position: str | None = None
+    staff: StaffResponse | None = None
 
     # Correction tracking fields
     is_correction: bool = False
