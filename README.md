@@ -1,8 +1,12 @@
-# VacationManager v7.7.4
+# VacationManager v7.8.1
 
 Система управління відпустками та табелем обліку робочого часу для університетської кафедри.
 
-## Версія Latest (v7.7.4) - Bug Fixes & Tabel Improvements
+## Версія Latest (v7.8.1) - Telegram Bot & System Tray
+
+### Проект
+
+**VacationManager** — гібридна екосистема (Desktop + Web + Telegram) для автоматизації кадрового діловодства кафедри університету.
 
 ### Проект
 
@@ -47,7 +51,52 @@
 
 ## Останні оновлення (січень 2026)
 
-### v7.7.3 - Stale Document Tracking & Bulk Operations
+### v7.8.1 - Telegram Bot & System Tray
+
+**Telegram Bot Integration:**
+- **Aiogram 3.x Bot:** Повноцінний Telegram бот для управління документами
+- **Commands:** /start, /help, /search (для адміністраторів)
+- **Main Menu:** Мої документи, Сьогоднішні, Проблемні, Профіль, Допомога
+- **Document Viewing:** Перегляд документів з пагінацією (5 на сторінку)
+- **Month/Year Sorting:** Групування документів за місяцем/роком
+- **Stale Document Handling:** Пояснення затримок для застарілих документів
+- **Account Linking:** Система запитів на прив'язку Telegram акаунту
+- **Admin Search:** Пошук співробітників за ПІБ (з підтримкою кількох позицій)
+- **Chat Cleanup:** Автоматичне очищення чату при нових запитах
+- **Single Instance:** Заборона запускати кілька екземплярів бота
+
+**System Tray Support:**
+- **Background Services:** Backend, Telegram bot та Web UI продовжують працювати при закритому desktop
+- **Tray Icon:** Іконка в системному треї з контекстним меню
+- **Menu Actions:** Показати/Приховати, Відкрити Web Portal, Вийти
+- **Minimize to Tray:** Закриття вікна мінімізує в трей замість виходу
+- **Tray-Only Mode:** Можливість запуску без вікна (--tray-only)
+- **Single Instance:** Виявлення вже запущеного додатку через локальний сокет
+- **Service Management:** Автоматичний запуск/зупинка backend та web UI
+
+**Desktop UI Improvements:**
+- **Staff Tab:** Видалено dropdown фільтр активності
+- **Schedule Tab:** Приховано вкладку "Графік відпусток" (збережено для внутрішнього використання)
+- **Settings:** Об'єднано вкладки Форматування, Відпустки та Табель в одну "Табель"
+- **Settings:** Видалено emojis з інтерфейсу налаштувань
+- **Telegram Permissions:** Додано адміністративний доступ для перегляду всіх документів
+
+**Web UI Improvements:**
+- **Telegram Settings:** Сторінка управління запитами на прив'язку Telegram
+- **Telegram Link Status:** Індикація статусу прив'язки в картці співробітника
+- **Document Pagination:** Покращена пагінація документів з сортуванням за місяцем/роком
+
+**Database Migrations:**
+- **Telegram Fields:** telegram_user_id, telegram_username, telegram_permissions в таблиці staff
+- **Stale Lock Count:** stale_lock_count в таблиці documents для відстеження блокувань
+- **Link Requests:** Таблиця telegram_link_requests для обліку запитів на прив'язку
+
+**Documentation:**
+- **TELEGRAM_SETUP.md:** Інструкція з налаштування Telegram бота
+- **BotFather Guide:** Покрокова інструкція створення бота
+- **Webhook Mode:** Підтримка ngrok для webhook режиму
+
+### v7.7.4 - Bug Fixes & Tabel Improvements
 
 **Stale Document Monitoring:**
 - **Database Fields:** Додано поля `status_changed_at`, `stale_notification_count`, `stale_explanation` до таблиці documents
@@ -490,12 +539,20 @@ VacationManager/
 │   │   └── dependencies.py    # НОВЕ - FastAPI dependencies
 │   ├── models/            # SQLAlchemy ORM models
 │   │   ├── base.py
-│   │   ├── staff.py          # +pib_dav
-│   │   ├── document.py
+│   │   ├── staff.py          # +pib_dav, +telegram fields
+│   │   ├── document.py       # +stale_lock_count
+│   │   ├── telegram_link_request.py  # НОВЕ - Telegram linking
 │   │   ├── schedule.py
 │   │   ├── settings.py
 │   │   ├── attendance.py
 │   │   └── staff_history.py
+│   ├── telegram/          # НОВЕ - Telegram bot
+│   │   ├── bot.py
+│   │   ├── handlers/        # Command, callback, message handlers
+│   │   ├── keyboards.py     # Inline keyboards
+│   │   ├── middleware.py    # Chat cleanup middleware
+│   │   ├── states.py        # FSM states
+│   │   └── run_bot.py       # Bot entry point
 │   ├── schemas/           # Pydantic schemas
 │   │   ├── schedule.py
 │   │   ├── responses.py
@@ -527,13 +584,13 @@ VacationManager/
 │   │   │   ├── documents.py
 │   │   │   ├── staff.py
 │   │   │   ├── schedule.py
-│   │   │   ├── upload.py
 │   │   │   ├── attendance.py
 │   │   │   ├── tabel.py
 │   │   │   ├── auth.py         # НОВЕ - JWT auth endpoints
 │   │   │   ├── dashboard.py    # НОВЕ
 │   │   │   ├── bulk.py         # НОВЕ - bulk operations
-│   │   │   └── settings.py     # НОВЕ
+│   │   │   ├── settings.py     # НОВЕ
+│   │   │   └── telegram.py     # НОВЕ - Telegram link requests
 │   │   └── dependencies.py
 │   ├── templates/         # HTML templates для документів
 │   │   ├── documents/         # НОВЕ - 20+ шаблонів відпусток
@@ -564,6 +621,8 @@ VacationManager/
 │   │   ├── scan_upload_dialog.py
 │   │   ├── styles.py      # НОВЕ - UI styles module
 │   │   └── ...
+│   ├── utils/             # НОВЕ - Utility modules
+│   │   └── system_tray.py # System tray manager
 │   ├── widgets/           # Custom widgets
 │   │   ├── status_badge.py
 │   │   ├── live_preview.py
@@ -585,13 +644,20 @@ VacationManager/
 │   └── absence_types.py
 ├── storage/               # Generated documents and scans
 │   └── tabels/            # згенеровані табелі
+├── docs/                  # НОВЕ - Documentation
+│   └── TELEGRAM_SETUP.md  # Telegram bot setup guide
 ├── tests/
 │   ├── unit/
 │   └── integration/
 │       ├── test_desktop_simulation.py    # НОВЕ
 │       ├── test_document_scenarios.py    # НОВЕ
 │       ├── test_new_endpoints.py         # НОВЕ
-│       └── test_stale_documents.py       # НОВЕ
+│       ├── test_stale_documents.py       # НОВЕ
+│       └── telegram/          # НОВЕ - Telegram bot tests
+│           ├── test_telegram_bot.py
+│           ├── test_telegram_auth.py
+│           ├── test_telegram_routes.py
+│           └── test_telegram_integration.py
 ├── alembic/               # Database migrations
 │   └── versions/
 │       ├── 20260120_*     # НОВЕ - add stale tracking fields
@@ -977,7 +1043,7 @@ flowchart TB
 
 ## Ліцензія
 
-© 2025-2026 VacationManager v7.7.3
+© 2025-2026 VacationManager v7.8.1
 
 ---
 
@@ -985,6 +1051,7 @@ flowchart TB
 
 | Версія | Дата | Зміни |
 |--------|------|-------|
+| v7.8.1 | Січень 2026 | **Telegram Bot** (aiogram 3.x), **System Tray** (background services), Telegram account linking, admin search |
 | v7.7.3 | Січень 2026 | **Stale Document Tracking** (моніторинг застарілих документів), **Bulk Operations** (масове створення документів), integration tests |
 | v7.7.1 | Січень 2026 | **Employment Document Flow**, автоматичне створення співробітників з документів про прийом, валідація ПІБ, унікальність завідувача кафедри, покращення UI |
 | v7.4.5 | Січень 2026 | **Повноцінний WebUI (React/TS + Vite)**, нові API routes (auth, attendance, dashboard, settings, tabel), document renderer service, розширені шаблони |
