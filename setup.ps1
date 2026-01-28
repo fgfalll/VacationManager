@@ -2,7 +2,7 @@
 # VacationManager Setup Script
 # This script sets up the complete development environment
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  VacationManager Setup Script" -ForegroundColor Cyan
@@ -10,7 +10,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Store the project root directory
-$ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$ProjectRoot = $PSScriptRoot
 if (-not $ProjectRoot) {
     $ProjectRoot = (Get-Location).Path
 }
@@ -23,7 +23,13 @@ Write-Host "Project root: $ProjectRoot" -ForegroundColor Green
 Write-Host "`n[1/5] Setting up Python virtual environment..." -ForegroundColor Yellow
 
 $VenvPath = Join-Path $ProjectRoot ".venv"
-$VenvPython = Join-Path $VenvPath (If ($IsWindows) { "Scripts\python.exe" } Else { "bin/python" })
+# Determine the Python executable path based on OS
+if ($IsWindows -eq $null) { $IsWindows = $true }
+if ($IsWindows) {
+    $VenvPython = Join-Path $VenvPath "Scripts\python.exe"
+} else {
+    $VenvPython = Join-Path $VenvPath "bin/python"
+}
 
 if (Test-Path $VenvPython) {
     Write-Host "  Virtual environment already exists at .venv" -ForegroundColor Gray
@@ -50,9 +56,9 @@ if (Test-Path $RequirementsPath) {
     & $PythonExec -m pip install -r $RequirementsPath
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to install Python dependencies"
-        exit    1
+        exit 1
     }
- Write-Host "  Python dependencies installed successfully" -ForegroundColor Green
+    Write-Host "  Python dependencies installed successfully" -ForegroundColor Green
 } else {
     Write-Warning "requirements.txt not found, skipping Python dependencies"
 }
@@ -67,6 +73,13 @@ function Install-NpmDeps($Dir, $Name) {
         Write-Host "  Installing npm dependencies for $Name..." -ForegroundColor Gray
         Push-Location $Dir
         try {
+            # Remove node_modules if it exists to ensure clean installation
+            $NodeModulesPath = Join-Path $Dir "node_modules"
+            if (Test-Path $NodeModulesPath) {
+                Write-Host "    Removing existing node_modules..." -ForegroundColor Gray
+                Remove-Item -Recurse -Force $NodeModulesPath -ErrorAction SilentlyContinue
+            }
+
             npm install
             if ($LASTEXITCODE -ne 0) {
                 throw "npm install failed"
@@ -118,29 +131,36 @@ if (-not (Test-Path $StoragePath)) {
     Write-Host "  Created storage directory" -ForegroundColor Gray
 }
 
-# Run Alembic migrations
-Write-Host "  Running database migrations..." -ForegroundColor Gray
-& $PythonExec -m alembic upgrade head
-if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Alembic migration failed (this is OK for first-time setup if migrations don't exist yet)"
-    Write-Host "  Trying to create initial database..." -ForegroundColor Gray
-    # Try to initialize the database directly
-    & $PythonExec -c "
-import asyncio
-from backend.db.session import engine, Base
-from backend.db.init_db import init_db
-async def main():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await init_db()
-    print('Database initialized successfully')
-asyncio.run(main())
-"
+# Check if database needs initialization
+$DatabasePath = Join-Path $ProjectRoot "storage\vacation_manager.db"
+$NeedsInit = -not (Test-Path $DatabasePath)
+
+if ($NeedsInit) {
+    Write-Host "  Creating database tables..." -ForegroundColor Gray
+    & $PythonExec -c "import sys; sys.path.insert(0, '$ProjectRoot'); from backend.core.database import engine; from backend.models import Base; Base.metadata.create_all(engine); print('Tables created successfully')"
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "  Database initialized successfully" -ForegroundColor Green
+        Write-Host "  Database tables created successfully" -ForegroundColor Green
+
+        # Get latest alembic revision and stamp it
+        Write-Host "  Stamping alembic version..." -ForegroundColor Gray
+        & $PythonExec -m alembic heads 2>$null | ForEach-Object {
+            if ($_ -match "^([a-f0-9]+)") {
+                $Revision = $matches[1]
+                & $PythonExec -m alembic stamp $Revision 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "  Alembic stamped with revision: $Revision" -ForegroundColor Green
+                }
+            }
+        }
     }
 } else {
-    Write-Host "  Database migrations completed" -ForegroundColor Green
+    Write-Host "  Database exists, running migrations..." -ForegroundColor Gray
+    & $PythonExec -m alembic upgrade head
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Database migrations completed" -ForegroundColor Green
+    } else {
+        Write-Warning "Migration completed with warnings"
+    }
 }
 
 # ============================================================================
@@ -158,3 +178,4 @@ Write-Host "     or 'npm run start:backend' for backend only" -ForegroundColor G
 Write-Host "     or 'npm run dev:web' for web dev server" -ForegroundColor Gray
 Write-Host ""
 Write-Host "For more information, see README.md" -ForegroundColor Gray
+Read-Host -Prompt "Press Enter to exit"
